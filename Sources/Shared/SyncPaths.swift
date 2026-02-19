@@ -3,6 +3,14 @@ import Foundation
 enum SyncPaths {
     static let groupIdentifier = "group.dev.fedosov.skillssync"
 
+    static var fallbackContainerURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library")
+            .appendingPathComponent("Application Support")
+        return appSupport.appendingPathComponent("SkillsSync", isDirectory: true)
+    }
+
     static var groupContainerURL: URL {
         if let override = ProcessInfo.processInfo.environment["SKILLS_SYNC_GROUP_DIR"], !override.isEmpty {
             return URL(fileURLWithPath: override)
@@ -14,11 +22,8 @@ enum SyncPaths {
             return container
         }
 
-        // Fallback keeps local/debug runs working even before app-group signing is configured.
-        return URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(".config")
-            .appendingPathComponent("ai-agents")
-            .appendingPathComponent("skillssync")
+        // Keep fallback inside user Application Support to avoid prompting for external folder access.
+        return fallbackContainerURL
     }
 
     static var stateURL: URL {

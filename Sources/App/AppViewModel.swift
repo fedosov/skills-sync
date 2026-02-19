@@ -5,30 +5,37 @@ import WidgetKit
 final class AppViewModel: ObservableObject {
     @Published var state: SyncState = .empty
     @Published var searchText: String = ""
+    @Published var scopeFilter: ScopeFilter = .all
     @Published var selectedSkillID: String?
     @Published var alertMessage: String?
+    @Published var localBanner: InlineBannerPresentation?
 
     private let store = SyncStateStore()
     private var timer: Timer?
 
     var filteredSkills: [SkillRecord] {
-        let base = state.skills.sorted { lhs, rhs in
+        Self.applyFilters(to: state.skills, query: searchText, scopeFilter: scopeFilter)
+    }
+
+    nonisolated static func applyFilters(to skills: [SkillRecord], query: String, scopeFilter: ScopeFilter) -> [SkillRecord] {
+        let base = skills.sorted { lhs, rhs in
             if lhs.scope != rhs.scope {
                 return lhs.scope == "global"
             }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
 
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
-            return base
+        let scoped = base.filter(scopeFilter.includes)
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else {
+            return scoped
         }
 
-        return base.filter { skill in
-            skill.name.localizedCaseInsensitiveContains(query)
-                || skill.scope.localizedCaseInsensitiveContains(query)
-                || (skill.workspace?.localizedCaseInsensitiveContains(query) ?? false)
-                || skill.canonicalSourcePath.localizedCaseInsensitiveContains(query)
+        return scoped.filter { skill in
+            skill.name.localizedCaseInsensitiveContains(trimmedQuery)
+                || skill.scope.localizedCaseInsensitiveContains(trimmedQuery)
+                || (skill.workspace?.localizedCaseInsensitiveContains(trimmedQuery) ?? false)
+                || skill.canonicalSourcePath.localizedCaseInsensitiveContains(trimmedQuery)
         }
     }
 
@@ -53,6 +60,18 @@ final class AppViewModel: ObservableObject {
         if let selectedSkillID, !state.skills.contains(where: { $0.id == selectedSkillID }) {
             self.selectedSkillID = nil
         }
+    }
+
+    func refreshSources() {
+        load()
+        let sourceCount = state.skills.filter { $0.scope == "global" }.count
+        localBanner = InlineBannerPresentation(
+            title: "Sources refreshed",
+            message: "Loaded \(sourceCount) source skills.",
+            symbol: "arrow.clockwise.circle.fill",
+            role: .info,
+            recoveryActionTitle: nil
+        )
     }
 
     func queueSync() {
@@ -82,8 +101,46 @@ final class AppViewModel: ObservableObject {
         do {
             try store.appendCommand(command)
             WidgetCenter.shared.reloadAllTimelines()
+            localBanner = Self.makeConfirmationBanner(type: type, skill: skill)
         } catch {
             alertMessage = error.localizedDescription
+        }
+    }
+
+    private nonisolated static func makeConfirmationBanner(type: CommandType, skill: SkillRecord?) -> InlineBannerPresentation {
+        switch type {
+        case .syncNow:
+            return InlineBannerPresentation(
+                title: "Sync requested",
+                message: "Source skills queued for synchronization to destinations.",
+                symbol: "arrow.clockwise.circle.fill",
+                role: .success,
+                recoveryActionTitle: nil
+            )
+        case .openInZed:
+            return InlineBannerPresentation(
+                title: "Open requested",
+                message: "\(skill?.name ?? "Source") was queued to open in Zed.",
+                symbol: "checkmark.circle.fill",
+                role: .success,
+                recoveryActionTitle: nil
+            )
+        case .revealInFinder:
+            return InlineBannerPresentation(
+                title: "Reveal requested",
+                message: "\(skill?.name ?? "Source") was queued to reveal in Finder.",
+                symbol: "checkmark.circle.fill",
+                role: .success,
+                recoveryActionTitle: nil
+            )
+        case .deleteCanonicalSource:
+            return InlineBannerPresentation(
+                title: "Delete requested",
+                message: "\(skill?.name ?? "Source") was queued to move to Trash.",
+                symbol: "checkmark.circle.fill",
+                role: .warning,
+                recoveryActionTitle: nil
+            )
         }
     }
 }

@@ -9,9 +9,11 @@
 /* Begin PBXBuildFile section */
 		122C69D6EE5B35A97FFD40B3 /* SyncPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CD3472125F35FDBECAFFE8B /* SyncPaths.swift */; };
 		13EBAA6B6B6E2FDDC1D0884A /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75916AF05215B08D62932045 /* Models.swift */; };
+		14D46A96A6D2E3AF417DECB7 /* SyncPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C22F5067FCAFB7E48F14D295 /* SyncPresentation.swift */; };
 		2BA20D1A45C987E3A6EFC3C2 /* SkillsSyncSharedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD727AEEDFD6802944F1D016 /* SkillsSyncSharedTests.swift */; };
 		2CC8CA29FFAB590491FD1B5B /* SkillsSyncWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1E430EFBAE2A24955E6B9B50 /* SkillsSyncWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		318F1E914789478F9222995B /* Intents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FFEFD525ED4642D44514C61 /* Intents.swift */; };
+		47F6BFE6372E0B759952DBC4 /* SyncPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C22F5067FCAFB7E48F14D295 /* SyncPresentation.swift */; };
 		4DC9A94B8280D3CC15C2A9E6 /* SyncStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02B72351E85AD5A64F858F7C /* SyncStateStore.swift */; };
 		51A39AD0D616EB4AAB4BD585 /* AppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54F944AA3EF312EF6EE100D1 /* AppViewModel.swift */; };
 		53CB1ADA2789A03334B44510 /* SyncStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02B72351E85AD5A64F858F7C /* SyncStateStore.swift */; };
@@ -20,6 +22,7 @@
 		5D78B2135CD93FC3A887F6B6 /* Intents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FFEFD525ED4642D44514C61 /* Intents.swift */; };
 		94C554AFC8EF604E76323972 /* SkillsSyncWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AF7B76C052AE66227E48F6E /* SkillsSyncWidget.swift */; };
 		A1DFE349C632CA8C6F66B391 /* DeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71B1FF0DC6FC627D54E72C2B /* DeepLink.swift */; };
+		A9F2CE96FF593515AD443E77 /* SyncPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8304E9A65C2431ABE9966B64 /* SyncPresentationTests.swift */; };
 		B7CF5D7FA29FBBEFF0AD7E96 /* SkillsSyncApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 138612FAE9DDE47730C0114D /* SkillsSyncApp.swift */; };
 		C2BBC39037C663095C8A879B /* DeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71B1FF0DC6FC627D54E72C2B /* DeepLink.swift */; };
 /* End PBXBuildFile section */
@@ -66,6 +69,8 @@
 		54F944AA3EF312EF6EE100D1 /* AppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModel.swift; sourceTree = "<group>"; };
 		71B1FF0DC6FC627D54E72C2B /* DeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLink.swift; sourceTree = "<group>"; };
 		75916AF05215B08D62932045 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		8304E9A65C2431ABE9966B64 /* SyncPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPresentationTests.swift; sourceTree = "<group>"; };
+		C22F5067FCAFB7E48F14D295 /* SyncPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPresentation.swift; sourceTree = "<group>"; };
 		FD727AEEDFD6802944F1D016 /* SkillsSyncSharedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsSyncSharedTests.swift; sourceTree = "<group>"; };
 		FF5F0F7FB0C7F6161A8AD575 /* SkillsSyncTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SkillsSyncTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -86,6 +91,7 @@
 				4FFEFD525ED4642D44514C61 /* Intents.swift */,
 				75916AF05215B08D62932045 /* Models.swift */,
 				1CD3472125F35FDBECAFFE8B /* SyncPaths.swift */,
+				C22F5067FCAFB7E48F14D295 /* SyncPresentation.swift */,
 				02B72351E85AD5A64F858F7C /* SyncStateStore.swift */,
 			);
 			path = Shared;
@@ -132,6 +138,7 @@
 			isa = PBXGroup;
 			children = (
 				FD727AEEDFD6802944F1D016 /* SkillsSyncSharedTests.swift */,
+				8304E9A65C2431ABE9966B64 /* SyncPresentationTests.swift */,
 			);
 			path = SkillsSyncTests;
 			sourceTree = "<group>";
@@ -252,6 +259,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2BA20D1A45C987E3A6EFC3C2 /* SkillsSyncSharedTests.swift in Sources */,
+				A9F2CE96FF593515AD443E77 /* SyncPresentationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -265,6 +273,7 @@
 				543D4F2D0FDFB533D3AF5CA3 /* Models.swift in Sources */,
 				B7CF5D7FA29FBBEFF0AD7E96 /* SkillsSyncApp.swift in Sources */,
 				5CACADC50C8F8FEC86FDC44F /* SyncPaths.swift in Sources */,
+				47F6BFE6372E0B759952DBC4 /* SyncPresentation.swift in Sources */,
 				53CB1ADA2789A03334B44510 /* SyncStateStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -278,6 +287,7 @@
 				13EBAA6B6B6E2FDDC1D0884A /* Models.swift in Sources */,
 				94C554AFC8EF604E76323972 /* SkillsSyncWidget.swift in Sources */,
 				122C69D6EE5B35A97FFD40B3 /* SyncPaths.swift in Sources */,
+				14D46A96A6D2E3AF417DECB7 /* SyncPresentation.swift in Sources */,
 				4DC9A94B8280D3CC15C2A9E6 /* SyncStateStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

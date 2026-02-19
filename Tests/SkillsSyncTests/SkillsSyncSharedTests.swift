@@ -125,6 +125,12 @@ final class SkillsSyncSharedTests: XCTestCase {
         XCTAssertTrue(top.contains(where: { $0.id == "g2" }))
     }
 
+    func testSyncPathsFallbackUsesApplicationSupportDirectory() {
+        let fallback = SyncPaths.fallbackContainerURL.path
+        XCTAssertTrue(fallback.contains("/Library/Application Support/SkillsSync"))
+        XCTAssertFalse(fallback.contains("/.config/ai-agents/skillssync"))
+    }
+
     private func makeSkill(id: String, name: String, scope: String) -> SkillRecord {
         SkillRecord(
             id: id,

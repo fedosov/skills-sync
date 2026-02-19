@@ -22,8 +22,7 @@ struct SkillsWidgetProvider: AppIntentTimelineProvider {
     }
 
     func placeholder(in context: Context) -> SkillsWidgetEntry {
-        let state = SyncState.empty
-        return SkillsWidgetEntry(date: .now, state: state, topSkills: [])
+        SkillsWidgetEntry(date: .now, state: .empty, topSkills: [])
     }
 
     func snapshot(for configuration: Intent, in context: Context) async -> SkillsWidgetEntry {
@@ -61,122 +60,169 @@ struct SkillsSyncWidget: Widget {
 struct SkillsWidgetView: View {
     let entry: SkillsWidgetEntry
 
+    private var status: SyncStatusPresentation {
+        entry.state.sync.status.presentation
+    }
+
+    private var syncErrorBanner: InlineBannerPresentation? {
+        let hasError = !(entry.state.sync.error?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        guard entry.state.sync.status == .failed || hasError else {
+            return nil
+        }
+        return .syncFailure(errorDetails: entry.state.sync.error)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            header
+            WidgetStatusHeader(status: status, lastFinishedAt: entry.state.sync.lastFinishedAt)
+            WidgetMetricsRow(summary: entry.state.summary)
+            TopSkillsSection(skills: Array(entry.topSkills.prefix(5)))
 
-            HStack(spacing: 8) {
-                Button(intent: SyncNowIntent()) {
-                    Label("Sync now", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.caption)
-                }
-                .buttonStyle(.borderedProminent)
-
-                Link(destination: URL(string: "skillssync://open")!) {
-                    Label("Open app", systemImage: "arrow.up.right.square")
-                        .font(.caption)
-                }
-                .buttonStyle(.bordered)
+            if let syncErrorBanner {
+                WidgetStatusMessage(banner: syncErrorBanner)
             }
 
-            Divider()
+            Spacer(minLength: 0)
 
-            if entry.topSkills.isEmpty {
-                Text("No discovered skills")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(entry.topSkills.prefix(6), id: \.id) { skill in
-                        Link(destination: skill.url) {
-                            HStack {
-                                Text(skill.name)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                Spacer()
-                                Text(skill.scopeShort)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                Spacer(minLength: 0)
-            }
+            WidgetActionRow()
         }
         .padding(12)
     }
+}
 
-    private var header: some View {
+private struct WidgetStatusHeader: View {
+    let status: SyncStatusPresentation
+    let lastFinishedAt: String?
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Circle()
-                    .fill(entry.state.sync.status.color)
-                    .frame(width: 8, height: 8)
-                Text(entry.state.sync.status.label)
-                    .font(.headline)
-                Spacer()
-                Text(relativeTime(entry.state.sync.lastFinishedAt))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+            Label(status.title, systemImage: status.symbol)
+                .font(.headline)
+                .foregroundStyle(status.tint)
 
-            Text("G \(entry.state.summary.globalCount) · P \(entry.state.summary.projectCount) · C \(entry.state.summary.conflictCount)")
+            Text(status.subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Text(SyncFormatting.updatedLine(lastFinishedAt))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-
-            if let error = entry.state.sync.error, !error.isEmpty {
-                Text(error)
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-                    .lineLimit(1)
-            }
         }
-    }
-
-    private func relativeTime(_ iso: String?) -> String {
-        guard let iso else { return "never" }
-        let parser = ISO8601DateFormatter()
-        guard let date = parser.date(from: iso) else { return "unknown" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(status.accessibilityLabel). \(SyncFormatting.updatedLine(lastFinishedAt))")
     }
 }
 
-private extension SyncHealthStatus {
-    var color: Color {
-        switch self {
-        case .ok:
-            return .green
-        case .failed:
-            return .red
-        case .syncing:
-            return .orange
-        case .unknown:
-            return .gray
+private struct WidgetMetricsRow: View {
+    let summary: SyncSummary
+
+    var body: some View {
+        HStack {
+            LabeledMetric(title: "Global", value: summary.globalCount)
+            LabeledMetric(title: "Project", value: summary.projectCount)
+            LabeledMetric(title: "Conflicts", value: summary.conflictCount)
         }
     }
+}
 
-    var label: String {
-        rawValue.uppercased()
+private struct LabeledMetric: View {
+    let title: String
+    let value: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text("\(value)")
+                .font(.subheadline.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title) \(value)")
+    }
+}
+
+private struct TopSkillsSection: View {
+    let skills: [SkillRecord]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Top skills")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if skills.isEmpty {
+                Label("No skills discovered yet", systemImage: "tray")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(skills, id: \.id) { skill in
+                    Link(destination: skill.url) {
+                        HStack(spacing: 6) {
+                            Text(skill.name)
+                                .font(.caption)
+                                .lineLimit(1)
+                            Spacer(minLength: 6)
+                            Text(skill.scopeTitle)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityLabel("\(skill.name), \(skill.scopeTitle) skill")
+                    .accessibilityHint("Open skill details in the app")
+                }
+            }
+        }
+    }
+}
+
+private struct WidgetStatusMessage: View {
+    let banner: InlineBannerPresentation
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label(banner.title, systemImage: banner.symbol)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(banner.role.tint)
+            Text(banner.message)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct WidgetActionRow: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(intent: SyncNowIntent()) {
+                Label("Sync now", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, minHeight: 36)
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityHint("Queue an immediate sync run")
+
+            Link(destination: URL(string: "skillssync://open")!) {
+                Label("Open app", systemImage: "arrow.up.right.square")
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, minHeight: 36)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityHint("Open Skills Sync app")
+        }
     }
 }
 
 private extension SkillRecord {
-    var scopeShort: String {
-        scope == "global" ? "G" : "P"
-    }
-
     var url: URL {
         URL(string: "skillssync://skill?id=\(id)")!
     }
-}
 
-@main
-struct SkillsSyncWidgetBundle: WidgetBundle {
-    var body: some Widget {
-        SkillsSyncWidget()
+    var scopeTitle: String {
+        scope.capitalized
     }
 }
