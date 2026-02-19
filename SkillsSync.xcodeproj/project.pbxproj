@@ -7,21 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		122C69D6EE5B35A97FFD40B3 /* SyncPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CD3472125F35FDBECAFFE8B /* SyncPaths.swift */; };
-		13EBAA6B6B6E2FDDC1D0884A /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75916AF05215B08D62932045 /* Models.swift */; };
-		14D46A96A6D2E3AF417DECB7 /* SyncPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C22F5067FCAFB7E48F14D295 /* SyncPresentation.swift */; };
 		2BA20D1A45C987E3A6EFC3C2 /* SkillsSyncSharedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD727AEEDFD6802944F1D016 /* SkillsSyncSharedTests.swift */; };
-		2CC8CA29FFAB590491FD1B5B /* SkillsSyncWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1E430EFBAE2A24955E6B9B50 /* SkillsSyncWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		318F1E914789478F9222995B /* Intents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FFEFD525ED4642D44514C61 /* Intents.swift */; };
 		47F6BFE6372E0B759952DBC4 /* SyncPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C22F5067FCAFB7E48F14D295 /* SyncPresentation.swift */; };
-		4DC9A94B8280D3CC15C2A9E6 /* SyncStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02B72351E85AD5A64F858F7C /* SyncStateStore.swift */; };
 		51A39AD0D616EB4AAB4BD585 /* AppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54F944AA3EF312EF6EE100D1 /* AppViewModel.swift */; };
 		53CB1ADA2789A03334B44510 /* SyncStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02B72351E85AD5A64F858F7C /* SyncStateStore.swift */; };
 		543D4F2D0FDFB533D3AF5CA3 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75916AF05215B08D62932045 /* Models.swift */; };
 		5CACADC50C8F8FEC86FDC44F /* SyncPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CD3472125F35FDBECAFFE8B /* SyncPaths.swift */; };
-		5D78B2135CD93FC3A887F6B6 /* Intents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FFEFD525ED4642D44514C61 /* Intents.swift */; };
-		94C554AFC8EF604E76323972 /* SkillsSyncWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AF7B76C052AE66227E48F6E /* SkillsSyncWidget.swift */; };
-		A1DFE349C632CA8C6F66B391 /* DeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71B1FF0DC6FC627D54E72C2B /* DeepLink.swift */; };
 		A9F2CE96FF593515AD443E77 /* SyncPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8304E9A65C2431ABE9966B64 /* SyncPresentationTests.swift */; };
 		B7CF5D7FA29FBBEFF0AD7E96 /* SkillsSyncApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 138612FAE9DDE47730C0114D /* SkillsSyncApp.swift */; };
 		C2BBC39037C663095C8A879B /* DeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71B1FF0DC6FC627D54E72C2B /* DeepLink.swift */; };
@@ -35,36 +26,12 @@
 			remoteGlobalIDString = F0ECF7B763F8D3AEE54AB5AD;
 			remoteInfo = SkillsSyncApp;
 		};
-		D3906E99E73DD205D12E4AA9 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 484A2DDF4A7DF4FD49B55BDD /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 0034BFD07F49A2F0C1F42C38;
-			remoteInfo = SkillsSyncWidgetExtension;
-		};
 /* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		CDE4BC5A073D6979C2752262 /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				2CC8CA29FFAB590491FD1B5B /* SkillsSyncWidgetExtension.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		02B72351E85AD5A64F858F7C /* SyncStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStateStore.swift; sourceTree = "<group>"; };
 		138612FAE9DDE47730C0114D /* SkillsSyncApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsSyncApp.swift; sourceTree = "<group>"; };
 		1CD3472125F35FDBECAFFE8B /* SyncPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPaths.swift; sourceTree = "<group>"; };
-		1E430EFBAE2A24955E6B9B50 /* SkillsSyncWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SkillsSyncWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		2AF7B76C052AE66227E48F6E /* SkillsSyncWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsSyncWidget.swift; sourceTree = "<group>"; };
-		4FFEFD525ED4642D44514C61 /* Intents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Intents.swift; sourceTree = "<group>"; };
 		50B0CFB704F288B32B1CA059 /* SkillsSyncApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SkillsSyncApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		54F944AA3EF312EF6EE100D1 /* AppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModel.swift; sourceTree = "<group>"; };
 		71B1FF0DC6FC627D54E72C2B /* DeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLink.swift; sourceTree = "<group>"; };
@@ -76,19 +43,10 @@
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
-		50C92E3729C1FFB1ABBA2871 /* Widget */ = {
-			isa = PBXGroup;
-			children = (
-				2AF7B76C052AE66227E48F6E /* SkillsSyncWidget.swift */,
-			);
-			path = Widget;
-			sourceTree = "<group>";
-		};
 		5FABA9E265C652B1C44BC4DF /* Shared */ = {
 			isa = PBXGroup;
 			children = (
 				71B1FF0DC6FC627D54E72C2B /* DeepLink.swift */,
-				4FFEFD525ED4642D44514C61 /* Intents.swift */,
 				75916AF05215B08D62932045 /* Models.swift */,
 				1CD3472125F35FDBECAFFE8B /* SyncPaths.swift */,
 				C22F5067FCAFB7E48F14D295 /* SyncPresentation.swift */,
@@ -102,7 +60,6 @@
 			children = (
 				D50061ADBBD154BA77D132E2 /* App */,
 				5FABA9E265C652B1C44BC4DF /* Shared */,
-				50C92E3729C1FFB1ABBA2871 /* Widget */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -120,7 +77,6 @@
 			children = (
 				50B0CFB704F288B32B1CA059 /* SkillsSyncApp.app */,
 				FF5F0F7FB0C7F6161A8AD575 /* SkillsSyncTests.xctest */,
-				1E430EFBAE2A24955E6B9B50 /* SkillsSyncWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -155,23 +111,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		0034BFD07F49A2F0C1F42C38 /* SkillsSyncWidgetExtension */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = EA29FB48F8F4AC503DF73190 /* Build configuration list for PBXNativeTarget "SkillsSyncWidgetExtension" */;
-			buildPhases = (
-				E1DA070DA0AA5C8233992E55 /* Sources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = SkillsSyncWidgetExtension;
-			packageProductDependencies = (
-			);
-			productName = SkillsSyncWidgetExtension;
-			productReference = 1E430EFBAE2A24955E6B9B50 /* SkillsSyncWidgetExtension.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 		9E43488A3BBDAE36E6E1B10A /* SkillsSyncTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA85E675BA19214D91B12A59 /* Build configuration list for PBXNativeTarget "SkillsSyncTests" */;
@@ -195,12 +134,10 @@
 			buildConfigurationList = E6BF16C3169E96D3A0062877 /* Build configuration list for PBXNativeTarget "SkillsSyncApp" */;
 			buildPhases = (
 				1B632EA81D4B30812D09616F /* Sources */,
-				CDE4BC5A073D6979C2752262 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				57D0A434D1CB3F33D27FCBCA /* PBXTargetDependency */,
 			);
 			name = SkillsSyncApp;
 			packageProductDependencies = (
@@ -218,10 +155,6 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
-					0034BFD07F49A2F0C1F42C38 = {
-						DevelopmentTeam = AK7R88WBZ6;
-						ProvisioningStyle = Automatic;
-					};
 					9E43488A3BBDAE36E6E1B10A = {
 						DevelopmentTeam = AK7R88WBZ6;
 						ProvisioningStyle = Automatic;
@@ -248,7 +181,6 @@
 			targets = (
 				F0ECF7B763F8D3AEE54AB5AD /* SkillsSyncApp */,
 				9E43488A3BBDAE36E6E1B10A /* SkillsSyncTests */,
-				0034BFD07F49A2F0C1F42C38 /* SkillsSyncWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -269,7 +201,6 @@
 			files = (
 				51A39AD0D616EB4AAB4BD585 /* AppViewModel.swift in Sources */,
 				C2BBC39037C663095C8A879B /* DeepLink.swift in Sources */,
-				5D78B2135CD93FC3A887F6B6 /* Intents.swift in Sources */,
 				543D4F2D0FDFB533D3AF5CA3 /* Models.swift in Sources */,
 				B7CF5D7FA29FBBEFF0AD7E96 /* SkillsSyncApp.swift in Sources */,
 				5CACADC50C8F8FEC86FDC44F /* SyncPaths.swift in Sources */,
@@ -278,28 +209,9 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		E1DA070DA0AA5C8233992E55 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A1DFE349C632CA8C6F66B391 /* DeepLink.swift in Sources */,
-				318F1E914789478F9222995B /* Intents.swift in Sources */,
-				13EBAA6B6B6E2FDDC1D0884A /* Models.swift in Sources */,
-				94C554AFC8EF604E76323972 /* SkillsSyncWidget.swift in Sources */,
-				122C69D6EE5B35A97FFD40B3 /* SyncPaths.swift in Sources */,
-				14D46A96A6D2E3AF417DECB7 /* SyncPresentation.swift in Sources */,
-				4DC9A94B8280D3CC15C2A9E6 /* SyncStateStore.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		57D0A434D1CB3F33D27FCBCA /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 0034BFD07F49A2F0C1F42C38 /* SkillsSyncWidgetExtension */;
-			targetProxy = D3906E99E73DD205D12E4AA9 /* PBXContainerItemProxy */;
-		};
 		70FB87B415DF9FAD35308281 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = F0ECF7B763F8D3AEE54AB5AD /* SkillsSyncApp */;
@@ -308,25 +220,6 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		04A6923BC08E3756AB57A6DC /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = App/SkillsSyncWidgetExtension.entitlements;
-				COMBINE_HIDPI_IMAGES = YES;
-				INFOPLIST_FILE = "App/Widget-Info.plist";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@executable_path/../../../../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.fedosov.skillssync.app.widget;
-				PRODUCT_NAME = SkillsSyncWidgetExtension;
-				SDKROOT = macosx;
-				SKIP_INSTALL = YES;
-			};
-			name = Debug;
-		};
 		109105D8D1FE555433402CE9 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -469,25 +362,6 @@
 			};
 			name = Debug;
 		};
-		74BAB813DA0F2086927F1D07 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = App/SkillsSyncWidgetExtension.entitlements;
-				COMBINE_HIDPI_IMAGES = YES;
-				INFOPLIST_FILE = "App/Widget-Info.plist";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@executable_path/../../../../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.fedosov.skillssync.app.widget;
-				PRODUCT_NAME = SkillsSyncWidgetExtension;
-				SDKROOT = macosx;
-				SKIP_INSTALL = YES;
-			};
-			name = Release;
-		};
 		801FC2B0E1CE6E688157CA61 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -565,15 +439,6 @@
 			buildConfigurations = (
 				801FC2B0E1CE6E688157CA61 /* Debug */,
 				AFD42312ED05C70213A7675D /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
-		EA29FB48F8F4AC503DF73190 /* Build configuration list for PBXNativeTarget "SkillsSyncWidgetExtension" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				04A6923BC08E3756AB57A6DC /* Debug */,
-				74BAB813DA0F2086927F1D07 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

@@ -1,12 +1,10 @@
-# Skills Sync Widget
+# Skills Sync App
 
-Native macOS host app + Notification Center widget for monitoring and controlling skills sync.
+Native macOS app for monitoring and controlling skills sync.
 
 ## Features
 
-- WidgetKit `systemLarge` widget for right-side Notification Center
-- Sync health (`OK/FAILED/SYNCING`) + counts + top 6 skills
-- Interactive `Sync now` button (AppIntent)
+- Sync health (`OK/FAILED/SYNCING`) + counts
 - Host app with searchable full skill list
 - Actions via command queue:
   - Open in Zed
@@ -15,8 +13,8 @@ Native macOS host app + Notification Center widget for monitoring and controllin
 
 ## Data contract
 
-- Primary app/widget state file: `~/Library/Group Containers/group.dev.fedosov.skillssync/state.json`
-- Primary app/widget command queue: `~/Library/Group Containers/group.dev.fedosov.skillssync/commands.jsonl`
+- Primary app state file: `~/Library/Group Containers/group.dev.fedosov.skillssync/state.json`
+- Primary app command queue: `~/Library/Group Containers/group.dev.fedosov.skillssync/commands.jsonl`
 - Backend runtime mirror: `/Users/fedosov/.config/ai-agents/skillssync/state.json`
 
 ## Build

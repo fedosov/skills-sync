@@ -33,34 +33,6 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.fedosov.skillssync.app
         PRODUCT_NAME: SkillsSyncApp
-    dependencies:
-      - target: SkillsSyncWidgetExtension
-        embed: true
-
-  SkillsSyncWidgetExtension:
-    type: app-extension
-    platform: macOS
-    sources:
-      - Sources/Shared
-      - Sources/Widget
-    info:
-      path: App/Widget-Info.plist
-      properties:
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.widgetkit-extension
-          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).SkillsSyncWidgetBundle"
-    entitlements:
-      path: App/SkillsSyncWidgetExtension.entitlements
-      properties:
-        com.apple.security.app-sandbox: true
-        com.apple.security.application-groups:
-          - group.dev.fedosov.skillssync
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.fedosov.skillssync.app.widget
-        PRODUCT_NAME: SkillsSyncWidgetExtension
-        APPLICATION_EXTENSION_API_ONLY: YES
-        SKIP_INSTALL: YES
 
   SkillsSyncTests:
     type: bundle.unit-test

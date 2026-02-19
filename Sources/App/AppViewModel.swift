@@ -1,5 +1,4 @@
 import Foundation
-import WidgetKit
 
 @MainActor
 final class AppViewModel: ObservableObject {
@@ -100,7 +99,6 @@ final class AppViewModel: ObservableObject {
 
         do {
             try store.appendCommand(command)
-            WidgetCenter.shared.reloadAllTimelines()
             localBanner = Self.makeConfirmationBanner(type: type, skill: skill)
         } catch {
             alertMessage = error.localizedDescription
