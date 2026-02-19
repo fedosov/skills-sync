@@ -58,11 +58,8 @@ private struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 420)
         } detail: {
             DetailPaneView(
-                state: viewModel.state,
                 selectedSkills: viewModel.selectedSkills,
                 singleSelectedSkill: viewModel.singleSelectedSkill,
-                feedbackMessages: feedbackMessages,
-                onSyncNow: viewModel.syncNow,
                 onOpen: viewModel.open,
                 onReveal: viewModel.reveal,
                 onDelete: viewModel.delete,
@@ -71,6 +68,12 @@ private struct ContentView: View {
         }
         .toolbar {
             ToolbarItemGroup {
+                SyncHealthToolbarControl(
+                    state: viewModel.state,
+                    feedbackMessages: feedbackMessages,
+                    onSyncNow: viewModel.syncNow
+                )
+
                 Button("Refresh") {
                     viewModel.refreshSources()
                 }
@@ -90,15 +93,15 @@ private struct SidebarView: View {
     @Binding var selectedSkillIDs: Set<String>
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: AppSpacing.sm) {
             Picker("Scope", selection: $scopeFilter) {
                 ForEach(ScopeFilter.allCases) { scope in
                     Text(scope.title).tag(scope)
                 }
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.top, AppSpacing.md)
 
             if skills.isEmpty {
                 ContentUnavailableView {
@@ -126,35 +129,32 @@ private struct SkillRowView: View {
     let skill: SkillRecord
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
             Text(skill.name)
-                .font(.body.weight(.semibold))
+                .font(.app(.body).weight(.semibold))
                 .lineLimit(1)
 
             Text(skill.canonicalSourcePath)
-                .font(.caption2.monospaced())
+                .font(.app(.pathMono))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
             if !skill.exists {
                 Label("Missing source", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
+                    .font(.app(.meta))
                     .foregroundStyle(.red)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, AppSpacing.xs)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(skill.accessibilitySummary)
     }
 }
 
 private struct DetailPaneView: View {
-    let state: SyncState
     let selectedSkills: [SkillRecord]
     let singleSelectedSkill: SkillRecord?
-    let feedbackMessages: [InlineBannerPresentation]
-    let onSyncNow: () -> Void
     let onOpen: (SkillRecord) -> Void
     let onReveal: (SkillRecord) -> Void
     let onDelete: (SkillRecord) -> Void
@@ -163,122 +163,70 @@ private struct DetailPaneView: View {
     var body: some View {
         if let singleSelectedSkill {
             SkillDetailView(
-                state: state,
                 skill: singleSelectedSkill,
-                feedbackMessages: feedbackMessages,
-                onSyncNow: onSyncNow,
                 onOpen: onOpen,
                 onReveal: onReveal,
                 onDelete: onDelete
             )
         } else if selectedSkills.count > 1 {
             MultiSelectionDetailView(
-                state: state,
                 selectedCount: selectedSkills.count,
-                feedbackMessages: feedbackMessages,
-                onSyncNow: onSyncNow,
                 onDeleteSelected: onDeleteSelected
             )
         } else {
-            VStack(spacing: 0) {
-                HomeSyncHealthView(
-                    state: state,
-                    feedbackMessages: feedbackMessages,
-                    onSyncNow: onSyncNow
-                )
-                ContentUnavailableView {
-                    Label("Choose a Skill", systemImage: "sidebar.right")
-                } description: {
-                    Text("Select a skill from the sidebar to inspect details and run actions.")
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ContentUnavailableView {
+                Label("Choose a Skill", systemImage: "sidebar.right")
+            } description: {
+                Text("Select a skill from the sidebar to inspect details and run actions.")
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
 
-private struct HomeSyncHealthView: View {
+private struct SyncHealthToolbarControl: View {
     let state: SyncState
     let feedbackMessages: [InlineBannerPresentation]
     let onSyncNow: () -> Void
+    @State private var showDetails = false
 
     private var status: SyncStatusPresentation {
         state.sync.status.presentation
     }
 
     var body: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                Label(status.title, systemImage: status.symbol)
-                    .foregroundStyle(status.tint)
-                    .font(.headline)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HomeMetricRow(label: "Last update", value: SyncFormatting.updatedLine(state.sync.lastFinishedAt))
-                    HomeMetricRow(label: "Global", value: "\(state.summary.globalCount)")
-                    HomeMetricRow(label: "Project", value: "\(state.summary.projectCount)")
-                    HomeMetricRow(label: "Conflicts", value: "\(state.summary.conflictCount)")
-                }
-
-                if !status.subtitle.isEmpty {
-                    Text(status.subtitle)
-                        .foregroundStyle(.secondary)
-                }
-
-                ForEach(Array(feedbackMessages.enumerated()), id: \.offset) { _, message in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Label(message.title, systemImage: message.symbol)
-                            .foregroundStyle(message.role.tint)
-                        Text(message.message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if feedbackMessages.contains(where: { $0.recoveryActionTitle != nil }) {
-                    Button("Sync Now") {
-                        onSyncNow()
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        Button {
+            showDetails = true
         } label: {
-            Text("Sync Health")
+            Label(status.title, systemImage: status.symbol)
+                .font(.app(.secondary))
+                .foregroundStyle(status.tint)
         }
-        .padding(12)
-    }
-}
-
-private struct HomeMetricRow: View {
-    let label: String
-    let value: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(label)
-                .foregroundStyle(.secondary)
-                .frame(width: 110, alignment: .leading)
-            Text(value)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.bordered)
+        .help("Show sync health details")
+        .popover(isPresented: $showDetails, arrowEdge: .top) {
+            SyncHealthPopoverContent(
+                state: state,
+                feedbackMessages: feedbackMessages,
+                onSyncNow: onSyncNow
+            )
+            .frame(minWidth: 320, idealWidth: 360)
+            .padding(AppSpacing.lg)
         }
     }
 }
 
 private struct MultiSelectionDetailView: View {
-    let state: SyncState
     let selectedCount: Int
-    let feedbackMessages: [InlineBannerPresentation]
-    let onSyncNow: () -> Void
     let onDeleteSelected: () -> Void
     @State private var showDeleteConfirmation = false
 
     var body: some View {
         Form {
-            SyncStatusSection(state: state, feedbackMessages: feedbackMessages, onSyncNow: onSyncNow)
-
             Section("Selection") {
                 LabeledContent("Selected", value: "\(selectedCount)")
                 Text("Selected: \(selectedCount)")
+                    .font(.app(.secondary))
                     .foregroundStyle(.secondary)
             }
 
@@ -291,6 +239,7 @@ private struct MultiSelectionDetailView: View {
                 Text("Danger Zone")
             } footer: {
                 Text("This moves canonical sources to Trash. Some items may fail; successful deletions will still be applied.")
+                    .font(.app(.secondary))
             }
         }
         .confirmationDialog(
@@ -310,10 +259,7 @@ private struct MultiSelectionDetailView: View {
 }
 
 private struct SkillDetailView: View {
-    let state: SyncState
     let skill: SkillRecord
-    let feedbackMessages: [InlineBannerPresentation]
-    let onSyncNow: () -> Void
     let onOpen: (SkillRecord) -> Void
     let onReveal: (SkillRecord) -> Void
     let onDelete: (SkillRecord) -> Void
@@ -321,8 +267,6 @@ private struct SkillDetailView: View {
 
     var body: some View {
         Form {
-            SyncStatusSection(state: state, feedbackMessages: feedbackMessages, onSyncNow: onSyncNow)
-
             Section("Overview") {
                 LabeledContent("Name", value: skill.name)
                 LabeledContent("Source status", value: skill.exists ? "Available" : "Missing")
@@ -331,7 +275,7 @@ private struct SkillDetailView: View {
                 if let workspace = skill.workspace {
                     LabeledContent("Workspace") {
                         Text(workspace)
-                            .font(.footnote.monospaced())
+                            .font(.app(.pathMono))
                             .textSelection(.enabled)
                             .multilineTextAlignment(.leading)
                             .lineLimit(nil)
@@ -370,6 +314,7 @@ private struct SkillDetailView: View {
                 Text("Danger Zone")
             } footer: {
                 Text("This moves the canonical source to Trash. You can restore it or run sync again to recreate it.")
+                    .font(.app(.secondary))
             }
         }
         .confirmationDialog(
@@ -388,7 +333,7 @@ private struct SkillDetailView: View {
     }
 }
 
-private struct SyncStatusSection: View {
+private struct SyncHealthPopoverContent: View {
     let state: SyncState
     let feedbackMessages: [InlineBannerPresentation]
     let onSyncNow: () -> Void
@@ -398,9 +343,13 @@ private struct SyncStatusSection: View {
     }
 
     var body: some View {
-        Section("Sync Health") {
+        VStack(alignment: .leading, spacing: AppSpacing.md) {
+            Text("Sync Health")
+                .font(.app(.sectionHeader))
+
             LabeledContent("Status") {
                 Label(status.title, systemImage: status.symbol)
+                    .font(.app(.body))
                     .foregroundStyle(status.tint)
             }
             LabeledContent("Last update", value: SyncFormatting.updatedLine(state.sync.lastFinishedAt))
@@ -410,23 +359,25 @@ private struct SyncStatusSection: View {
 
             if !status.subtitle.isEmpty {
                 Text(status.subtitle)
+                    .font(.app(.secondary))
                     .foregroundStyle(.secondary)
             }
 
             ForEach(Array(feedbackMessages.enumerated()), id: \.offset) { _, message in
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: AppSpacing.xs) {
                     Label(message.title, systemImage: message.symbol)
+                        .font(.app(.secondary))
                         .foregroundStyle(message.role.tint)
                     Text(message.message)
-                        .font(.caption)
+                        .font(.app(.meta))
                         .foregroundStyle(.secondary)
                 }
             }
 
-            if feedbackMessages.contains(where: { $0.recoveryActionTitle != nil }) {
-                Button("Sync Now") {
-                    onSyncNow()
-                }
+            Divider()
+
+            Button("Sync Now") {
+                onSyncNow()
             }
         }
     }
@@ -439,7 +390,7 @@ private struct PathLine: View {
     var body: some View {
         LabeledContent(label) {
             Text(value)
-                .font(.footnote.monospaced())
+                .font(.app(.pathMono))
                 .lineLimit(nil)
                 .multilineTextAlignment(.leading)
                 .textSelection(.enabled)
