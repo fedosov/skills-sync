@@ -360,7 +360,6 @@ struct SyncEngine {
         result += discoverDirPackages(root: claudeSkillsRoot(), scope: "global", workspace: nil)
         result += discoverDirPackages(root: agentsSkillsRoot(), scope: "global", workspace: nil)
         result += discoverDirPackages(root: codexSkillsRoot(), scope: "global", workspace: nil)
-        result += discoverFlatPackages(root: legacySkillsRoot(), scope: "global", workspace: nil)
         return result
     }
 
@@ -413,30 +412,6 @@ struct SyncEngine {
         return packages
     }
 
-    private func discoverFlatPackages(root: URL, scope: String, workspace: URL?) -> [SkillPackage] {
-        guard let files = try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else {
-            return []
-        }
-        var result: [SkillPackage] = []
-        for file in files where file.pathExtension == "md" && !file.lastPathComponent.hasPrefix(".") {
-            guard let hash = hashFile(file) else { continue }
-            let key = file.deletingPathExtension().lastPathComponent
-            result.append(
-                SkillPackage(
-                    scope: scope,
-                    workspace: workspace,
-                    sourceRoot: root,
-                    skillKey: key,
-                    name: key,
-                    canonicalPath: file,
-                    packageType: "file",
-                    packageHash: hash
-                )
-            )
-        }
-        return result
-    }
-
     private func resolveScopeCandidates(
         _ packages: [SkillPackage],
         scope: String,
@@ -469,7 +444,7 @@ struct SyncEngine {
 
     private func sourcePriority(scope: String, package: SkillPackage, workspace: URL?) -> Int {
         if scope == "global" {
-            let orderedRoots = [claudeSkillsRoot(), agentsSkillsRoot(), codexSkillsRoot(), legacySkillsRoot()]
+            let orderedRoots = [claudeSkillsRoot(), agentsSkillsRoot(), codexSkillsRoot()]
             for (index, root) in orderedRoots.enumerated() where standardizedPath(root) == standardizedPath(package.sourceRoot) {
                 return index
             }
@@ -620,8 +595,7 @@ struct SyncEngine {
         var roots = [
             claudeSkillsRoot(),
             agentsSkillsRoot(),
-            codexSkillsRoot(),
-            legacySkillsRoot()
+            codexSkillsRoot()
         ]
         for workspace in workspaces {
             roots.append(workspace.appendingPathComponent(".claude/skills", isDirectory: true))
@@ -652,10 +626,6 @@ struct SyncEngine {
         environment.homeDirectory.appendingPathComponent(".codex/skills", isDirectory: true)
     }
 
-    private func legacySkillsRoot() -> URL {
-        environment.homeDirectory.appendingPathComponent(".config/ai-agents/skills", isDirectory: true)
-    }
-
     private func runtimeSkillsRoot() -> URL {
         environment.homeDirectory.appendingPathComponent(".config/ai-agents/skillssync", isDirectory: true)
     }
@@ -673,13 +643,6 @@ struct SyncEngine {
             workspace.appendingPathComponent(".claude/skills", isDirectory: true),
             workspace.appendingPathComponent(".agents/skills", isDirectory: true)
         ]
-    }
-
-    private func hashFile(_ file: URL) -> String? {
-        guard let data = try? Data(contentsOf: file) else {
-            return nil
-        }
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func hashDirectory(_ directory: URL) -> String? {

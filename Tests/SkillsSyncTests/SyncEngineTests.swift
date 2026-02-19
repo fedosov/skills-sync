@@ -61,6 +61,35 @@ final class SyncEngineTests: XCTestCase {
         }
     }
 
+    func testRunSyncIgnoresLegacyGlobalDirectory() async throws {
+        try writeLegacySkill(name: "legacy-only", body: "legacy")
+        configureEngine()
+
+        let engine = SyncEngine()
+        let state = try await engine.runSync(trigger: .manual)
+
+        XCTAssertEqual(state.sync.status, .ok)
+        XCTAssertEqual(state.summary.globalCount, 0)
+        XCTAssertTrue(state.skills.isEmpty)
+    }
+
+    func testRunSyncDoesNotUseLegacyForConflictOrPriority() async throws {
+        try writeSkill(root: path(".claude/skills"), key: "shared", body: "canonical")
+        try writeLegacySkill(name: "shared", body: "legacy-different")
+        configureEngine()
+
+        let engine = SyncEngine()
+        let state = try await engine.runSync(trigger: .manual)
+
+        XCTAssertEqual(state.sync.status, .ok)
+        XCTAssertEqual(state.summary.conflictCount, 0)
+        XCTAssertEqual(state.summary.globalCount, 1)
+        XCTAssertEqual(
+            URL(fileURLWithPath: state.skills.first?.canonicalSourcePath ?? "").standardizedFileURL.path,
+            path(".claude/skills/shared").standardizedFileURL.path
+        )
+    }
+
     func testDeleteCanonicalSourceRequiresConfirmedTrue() async throws {
         let skillPath = path(".claude/skills/delete-me")
         try FileManager.default.createDirectory(at: skillPath, withIntermediateDirectories: true)
@@ -83,6 +112,20 @@ final class SyncEngineTests: XCTestCase {
         configureEngine()
         let engine = SyncEngine()
         let skill = makeSkill(path: outside.path)
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await engine.deleteCanonicalSource(skill: skill, confirmed: true)
+        }
+    }
+
+    func testDeleteCanonicalSourceRejectsLegacyPath() async throws {
+        let legacyFile = path(".config/ai-agents/skills/legacy-delete.md")
+        try FileManager.default.createDirectory(at: legacyFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "x".data(using: .utf8)?.write(to: legacyFile)
+
+        configureEngine()
+        let engine = SyncEngine()
+        let skill = makeSkill(path: legacyFile.path)
 
         await XCTAssertThrowsErrorAsync {
             _ = try await engine.deleteCanonicalSource(skill: skill, confirmed: true)
@@ -151,6 +194,12 @@ final class SyncEngineTests: XCTestCase {
         let dir = root.appendingPathComponent(key, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try body.data(using: .utf8)?.write(to: dir.appendingPathComponent("SKILL.md"))
+    }
+
+    private func writeLegacySkill(name: String, body: String) throws {
+        let legacyRoot = path(".config/ai-agents/skills")
+        try FileManager.default.createDirectory(at: legacyRoot, withIntermediateDirectories: true)
+        try body.data(using: .utf8)?.write(to: legacyRoot.appendingPathComponent("\(name).md"))
     }
 
     private func makeSkill(path: String) -> SkillRecord {
