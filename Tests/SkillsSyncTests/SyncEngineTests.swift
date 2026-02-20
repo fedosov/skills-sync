@@ -161,6 +161,31 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(store.loadState().sync.status, .failed)
     }
 
+    func testRunSyncWhenAutoMigrationOnReplacesBrokenCanonicalSymlink() async throws {
+        try writeSkill(root: path(".agents/skills"), key: "accessibility-compliance-accessibility-audit", body: "A11Y")
+        let staleTarget = path(".agents/skills/missing-accessibility-compliance-accessibility-audit")
+        let claudePath = path(".claude/skills/accessibility-compliance-accessibility-audit")
+        try FileManager.default.createDirectory(at: claudePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: claudePath, withDestinationURL: staleTarget)
+        try writeAutoMigrationPreference(enabled: true)
+        configureEngine()
+
+        let engine = SyncEngine()
+        let state = try await engine.runSync(trigger: .manual)
+        let canonical = try XCTUnwrap(state.skills.first(where: { $0.skillKey == "accessibility-compliance-accessibility-audit" }))
+
+        XCTAssertEqual(
+            URL(fileURLWithPath: canonical.canonicalSourcePath).standardizedFileURL.path,
+            claudePath.standardizedFileURL.path
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: claudePath.path))
+        XCTAssertTrue(path(".agents/skills/accessibility-compliance-accessibility-audit").isTestSymlink)
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: path(".agents/skills/accessibility-compliance-accessibility-audit").path),
+            claudePath.path
+        )
+    }
+
     func testDeleteCanonicalSourceRequiresConfirmedTrue() async throws {
         let skillPath = path(".claude/skills/delete-me")
         try FileManager.default.createDirectory(at: skillPath, withIntermediateDirectories: true)

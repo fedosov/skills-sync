@@ -125,6 +125,7 @@ private struct SyncCoreResult {
 private enum MigrationRollbackOperation {
     case move(from: URL, to: URL)
     case restoreSymlink(path: URL, backup: URL)
+    case restoreCanonical(path: URL, backup: URL)
 }
 
 struct SyncEngine {
@@ -615,7 +616,14 @@ struct SyncEngine {
                     }) else {
                         continue
                     }
-                    try moveSourceToCanonical(source: source.canonicalPath, canonical: desiredCanonicalPath)
+                    let replacedCanonicalBackup = try moveSourceToCanonical(
+                        source: source.canonicalPath,
+                        canonical: desiredCanonicalPath,
+                        backupRoot: skillBackupRoot
+                    )
+                    if let replacedCanonicalBackup {
+                        rollbackOps.append(.restoreCanonical(path: desiredCanonicalPath, backup: replacedCanonicalBackup))
+                    }
                     rollbackOps.append(.move(from: source.canonicalPath, to: desiredCanonicalPath))
                     effectiveCanonical = SkillPackage(
                         scope: source.scope,
@@ -698,19 +706,43 @@ struct SyncEngine {
         try fileManager.createSymbolicLink(at: target, withDestinationURL: destination)
     }
 
-    private func moveSourceToCanonical(source: URL, canonical: URL) throws {
+    private func moveSourceToCanonical(source: URL, canonical: URL, backupRoot: URL) throws -> URL? {
         guard standardizedPath(source) != standardizedPath(canonical) else {
-            return
+            return nil
         }
-        if fileManager.fileExists(atPath: canonical.path) || canonical.isSymbolicLink {
+
+        let replacedCanonicalBackup = try backupOccupiedCanonicalPathIfNeeded(canonical: canonical, backupRoot: backupRoot)
+        do {
+            try fileManager.createDirectory(at: canonical.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileManager.moveItem(at: source, to: canonical)
+            return replacedCanonicalBackup
+        } catch {
+            if let replacedCanonicalBackup {
+                try? fileManager.moveItem(at: replacedCanonicalBackup, to: canonical)
+            }
+            throw error
+        }
+    }
+
+    private func backupOccupiedCanonicalPathIfNeeded(canonical: URL, backupRoot: URL) throws -> URL? {
+        guard fileManager.fileExists(atPath: canonical.path) || canonical.isSymbolicLink else {
+            return nil
+        }
+
+        guard canonical.isSymbolicLink else {
             throw NSError(
                 domain: "SkillsSync",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Canonical path is occupied at \(canonical.path)"]
             )
         }
-        try fileManager.createDirectory(at: canonical.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fileManager.moveItem(at: source, to: canonical)
+
+        let backupPath = backupRoot.appendingPathComponent("occupied-canonical", isDirectory: canonical.hasDirectoryPath)
+        if fileManager.fileExists(atPath: backupPath.path) || backupPath.isSymbolicLink {
+            try fileManager.removeItem(at: backupPath)
+        }
+        try fileManager.moveItem(at: canonical, to: backupPath)
+        return backupPath
     }
 
     private func replacePathWithSymlink(path: URL, destination: URL, backupRoot: URL) throws -> URL? {
@@ -751,6 +783,13 @@ struct SyncEngine {
                     try? fileManager.moveItem(at: to, to: from)
                 }
             case let .restoreSymlink(path, backup):
+                if fileManager.fileExists(atPath: path.path) || path.isSymbolicLink {
+                    try? fileManager.removeItem(at: path)
+                }
+                if fileManager.fileExists(atPath: backup.path) || backup.isSymbolicLink {
+                    try? fileManager.moveItem(at: backup, to: path)
+                }
+            case let .restoreCanonical(path, backup):
                 if fileManager.fileExists(atPath: path.path) || path.isSymbolicLink {
                     try? fileManager.removeItem(at: path)
                 }
