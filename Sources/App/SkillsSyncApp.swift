@@ -94,6 +94,10 @@ private struct SidebarView: View {
     @Binding var scopeFilter: ScopeFilter
     @Binding var selectedSkillIDs: Set<String>
 
+    private var groups: [SidebarSkillGroup] {
+        AppViewModel.sidebarGroups(from: skills)
+    }
+
     var body: some View {
         VStack(spacing: AppSpacing.sm) {
             Picker("Scope", selection: $scopeFilter) {
@@ -113,10 +117,12 @@ private struct SidebarView: View {
                 }
             } else {
                 List(selection: $selectedSkillIDs) {
-                    Section("Source Skills (\(skills.count))") {
-                        ForEach(skills, id: \.id) { skill in
-                            SkillRowView(skill: skill)
-                                .tag(skill.id)
+                    ForEach(groups, id: \.id) { group in
+                        Section(group.title) {
+                            ForEach(group.skills, id: \.id) { skill in
+                                SkillRowView(skill: skill)
+                                    .tag(skill.id)
+                            }
                         }
                     }
                 }

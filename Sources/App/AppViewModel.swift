@@ -1,5 +1,18 @@
 import Foundation
 
+enum SidebarSkillGroupKind: Hashable {
+    case global
+    case project(name: String)
+    case unknownProject
+}
+
+struct SidebarSkillGroup: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let skills: [SkillRecord]
+    let kind: SidebarSkillGroupKind
+}
+
 protocol SyncEngineControlling {
     func runSync(trigger: SyncTrigger) async throws -> SyncState
     func openInZed(skill: SkillRecord) throws
@@ -60,6 +73,66 @@ final class AppViewModel: ObservableObject {
         Self.applyFilters(to: state.skills, query: searchText, scopeFilter: scopeFilter)
     }
 
+    nonisolated static func sidebarGroups(from skills: [SkillRecord]) -> [SidebarSkillGroup] {
+        var globalSkills: [SkillRecord] = []
+        var projectSkillsByName: [String: [SkillRecord]] = [:]
+        var unknownProjectSkills: [SkillRecord] = []
+
+        for skill in skills {
+            if skill.scope == "project" {
+                if let projectName = projectName(from: skill.workspace) {
+                    projectSkillsByName[projectName, default: []].append(skill)
+                } else {
+                    unknownProjectSkills.append(skill)
+                }
+            } else {
+                globalSkills.append(skill)
+            }
+        }
+
+        var groups: [SidebarSkillGroup] = []
+        if !globalSkills.isEmpty {
+            let sorted = sortSkillsForSidebar(globalSkills)
+            groups.append(
+                SidebarSkillGroup(
+                    id: "global",
+                    title: "Global Skills (\(sorted.count))",
+                    skills: sorted,
+                    kind: .global
+                )
+            )
+        }
+
+        let sortedProjectNames = projectSkillsByName.keys.sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+        for projectName in sortedProjectNames {
+            let sorted = sortSkillsForSidebar(projectSkillsByName[projectName] ?? [])
+            groups.append(
+                SidebarSkillGroup(
+                    id: "project:\(projectName)",
+                    title: "\(projectName) (\(sorted.count))",
+                    skills: sorted,
+                    kind: .project(name: projectName)
+                )
+            )
+        }
+
+        if !unknownProjectSkills.isEmpty {
+            let sorted = sortSkillsForSidebar(unknownProjectSkills)
+            groups.append(
+                SidebarSkillGroup(
+                    id: "project:unknown",
+                    title: "Unknown Project (\(sorted.count))",
+                    skills: sorted,
+                    kind: .unknownProject
+                )
+            )
+        }
+
+        return groups
+    }
+
     nonisolated static func applyFilters(to skills: [SkillRecord], query: String, scopeFilter: ScopeFilter) -> [SkillRecord] {
         let base = skills.sorted { lhs, rhs in
             if lhs.scope != rhs.scope {
@@ -79,6 +152,29 @@ final class AppViewModel: ObservableObject {
                 || skill.scope.localizedCaseInsensitiveContains(trimmedQuery)
                 || (skill.workspace?.localizedCaseInsensitiveContains(trimmedQuery) ?? false)
                 || skill.canonicalSourcePath.localizedCaseInsensitiveContains(trimmedQuery)
+        }
+    }
+
+    nonisolated private static func projectName(from workspace: String?) -> String? {
+        guard let workspace else { return nil }
+        let trimmed = workspace.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let lastPathComponent = URL(fileURLWithPath: trimmed).lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lastPathComponent.isEmpty, lastPathComponent != "/" else {
+            return nil
+        }
+        return lastPathComponent
+    }
+
+    nonisolated private static func sortSkillsForSidebar(_ skills: [SkillRecord]) -> [SkillRecord] {
+        skills.sorted { lhs, rhs in
+            let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+            if nameOrder != .orderedSame {
+                return nameOrder == .orderedAscending
+            }
+            return lhs.canonicalSourcePath.localizedCaseInsensitiveCompare(rhs.canonicalSourcePath) == .orderedAscending
         }
     }
 

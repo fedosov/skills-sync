@@ -274,13 +274,117 @@ final class SyncPresentationTests: XCTestCase {
         XCTAssertTrue(second.autoMigrateToCanonicalSource)
     }
 
-    private func makeSkill(id: String, name: String, scope: String) -> SkillRecord {
+    func testSidebarGroupsAllScopeContainsGlobalAndProjectSections() {
+        let skills = [
+            makeSkill(id: "g-1", name: "Global One", scope: "global"),
+            makeSkill(id: "p-1", name: "Project One", scope: "project", workspace: "/tmp/zeta-app")
+        ]
+
+        let groups = AppViewModel.sidebarGroups(from: skills)
+
+        XCTAssertEqual(groups.map(\.title), ["Global Skills (1)", "zeta-app (1)"])
+    }
+
+    func testSidebarGroupsProjectSectionsUseWorkspaceLastPathComponent() {
+        let skills = [
+            makeSkill(id: "p-1", name: "Project One", scope: "project", workspace: "/Users/me/Dev/alpha-app"),
+            makeSkill(id: "p-2", name: "Project Two", scope: "project", workspace: "/Users/me/Work/beta-app")
+        ]
+
+        let groups = AppViewModel.sidebarGroups(from: skills)
+
+        XCTAssertEqual(groups.map(\.title), ["alpha-app (1)", "beta-app (1)"])
+    }
+
+    func testSidebarGroupsProjectSkillWithoutWorkspaceGoesToUnknownProject() {
+        let skills = [
+            SkillRecord(
+                id: "p-1",
+                name: "Project One",
+                scope: "project",
+                workspace: nil,
+                canonicalSourcePath: "/tmp/p-1",
+                targetPaths: ["/tmp/target/p-1"],
+                exists: true,
+                isSymlinkCanonical: true,
+                packageType: "dir",
+                skillKey: "project-one",
+                symlinkTarget: "/tmp/p-1"
+            )
+        ]
+
+        let groups = AppViewModel.sidebarGroups(from: skills)
+
+        XCTAssertEqual(groups.map(\.title), ["Unknown Project (1)"])
+    }
+
+    func testSidebarGroupsProjectSectionsAreSortedAlphabetically() {
+        let skills = [
+            makeSkill(id: "p-1", name: "Project One", scope: "project", workspace: "/tmp/zeta-app"),
+            makeSkill(id: "p-2", name: "Project Two", scope: "project", workspace: "/tmp/alpha-app")
+        ]
+
+        let groups = AppViewModel.sidebarGroups(from: skills)
+
+        XCTAssertEqual(groups.map(\.title), ["alpha-app (1)", "zeta-app (1)"])
+    }
+
+    func testSidebarGroupsSkillsAreSortedByNameThenPathWithinGroup() {
+        let skills = [
+            makeSkill(id: "p-1", name: "Build", scope: "project", workspace: "/tmp/alpha-app", sourcePath: "/tmp/zeta"),
+            makeSkill(id: "p-2", name: "Alpha", scope: "project", workspace: "/tmp/alpha-app", sourcePath: "/tmp/second"),
+            makeSkill(id: "p-3", name: "Build", scope: "project", workspace: "/tmp/alpha-app", sourcePath: "/tmp/alpha")
+        ]
+
+        let groups = AppViewModel.sidebarGroups(from: skills)
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].skills.map(\.id), ["p-2", "p-3", "p-1"])
+    }
+
+    func testSidebarGroupsProjectScopeDoesNotContainGlobalSection() {
+        let skills = AppViewModel.applyFilters(
+            to: [
+                makeSkill(id: "g-1", name: "Global One", scope: "global"),
+                makeSkill(id: "p-1", name: "Project One", scope: "project", workspace: "/tmp/alpha-app")
+            ],
+            query: "",
+            scopeFilter: .project
+        )
+
+        let groups = AppViewModel.sidebarGroups(from: skills)
+
+        XCTAssertEqual(groups.map(\.title), ["alpha-app (1)"])
+    }
+
+    func testSidebarGroupsGlobalScopeDoesNotContainProjectSection() {
+        let skills = AppViewModel.applyFilters(
+            to: [
+                makeSkill(id: "g-1", name: "Global One", scope: "global"),
+                makeSkill(id: "p-1", name: "Project One", scope: "project", workspace: "/tmp/alpha-app")
+            ],
+            query: "",
+            scopeFilter: .global
+        )
+
+        let groups = AppViewModel.sidebarGroups(from: skills)
+
+        XCTAssertEqual(groups.map(\.title), ["Global Skills (1)"])
+    }
+
+    private func makeSkill(
+        id: String,
+        name: String,
+        scope: String,
+        workspace: String? = nil,
+        sourcePath: String? = nil
+    ) -> SkillRecord {
         SkillRecord(
             id: id,
             name: name,
             scope: scope,
-            workspace: scope == "project" ? "/tmp/project" : nil,
-            canonicalSourcePath: "/tmp/\(id)",
+            workspace: workspace ?? (scope == "project" ? "/tmp/project" : nil),
+            canonicalSourcePath: sourcePath ?? "/tmp/\(id)",
             targetPaths: ["/tmp/target/\(id)"],
             exists: true,
             isSymlinkCanonical: true,
