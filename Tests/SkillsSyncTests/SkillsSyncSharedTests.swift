@@ -410,6 +410,54 @@ final class SkillsSyncSharedTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Workspace: /tmp/workspace-a"))
     }
 
+    func testPreferencesStoreDecodesLegacyV1Settings() throws {
+        let payload = """
+        {
+          "version": 1,
+          "auto_migrate_to_canonical_source": true
+        }
+        """
+        try XCTUnwrap(payload.data(using: .utf8)).write(to: SyncPaths.appSettingsURL)
+
+        let settings = SyncPreferencesStore().loadSettings()
+
+        XCTAssertEqual(settings.version, 1)
+        XCTAssertTrue(settings.autoMigrateToCanonicalSource)
+        XCTAssertNil(settings.windowState)
+        XCTAssertNil(settings.uiState)
+    }
+
+    func testPreferencesStorePersistsV2WindowAndUIState() {
+        let store = SyncPreferencesStore()
+        let settings = SyncAppSettings(
+            version: 2,
+            autoMigrateToCanonicalSource: true,
+            windowState: AppWindowState(x: 11, y: 22, width: 1200, height: 800, isMaximized: false),
+            uiState: AppUIState(
+                sidebarWidth: 401,
+                scopeFilter: ScopeFilter.project.rawValue,
+                searchText: "alpha",
+                selectedSkillIDs: ["a", "b"]
+            )
+        )
+
+        store.saveSettings(settings)
+        let loaded = store.loadSettings()
+
+        XCTAssertEqual(loaded.version, 2)
+        XCTAssertEqual(loaded, settings)
+    }
+
+    func testWindowStateGeometryHelpersClampAndRejectInvalidFrames() {
+        XCTAssertEqual(WindowStateGeometry.clampSidebarWidth(100), 300)
+        XCTAssertEqual(WindowStateGeometry.clampSidebarWidth(390), 390)
+        XCTAssertEqual(WindowStateGeometry.clampSidebarWidth(800), 420)
+        XCTAssertEqual(WindowStateGeometry.clampSidebarWidth(nil), nil)
+
+        let invalid = AppWindowState(x: 0, y: 0, width: 100, height: 100, isMaximized: false)
+        XCTAssertNil(WindowStateGeometry.validFrameRect(from: invalid, screensVisibleFrames: []))
+    }
+
     private func makeSkill(id: String, name: String, scope: String, sourcePath: String? = nil) -> SkillRecord {
         SkillRecord(
             id: id,

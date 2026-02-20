@@ -274,6 +274,48 @@ final class SyncPresentationTests: XCTestCase {
         XCTAssertTrue(second.autoMigrateToCanonicalSource)
     }
 
+    @MainActor
+    func testViewModelRestoresUIStateFromSettings() throws {
+        try prepareSettingsDirectory()
+        let settings = SyncAppSettings(
+            version: 2,
+            autoMigrateToCanonicalSource: true,
+            windowState: nil,
+            uiState: AppUIState(
+                sidebarWidth: 333,
+                scopeFilter: ScopeFilter.project.rawValue,
+                searchText: "restored-query",
+                selectedSkillIDs: ["g-1", "p-1"]
+            )
+        )
+        SyncPreferencesStore().saveSettings(settings)
+
+        let viewModel = AppViewModel()
+
+        XCTAssertTrue(viewModel.autoMigrateToCanonicalSource)
+        XCTAssertEqual(viewModel.scopeFilter, .project)
+        XCTAssertEqual(viewModel.searchText, "restored-query")
+        XCTAssertEqual(viewModel.selectedSkillIDs, Set(["g-1", "p-1"]))
+    }
+
+    @MainActor
+    func testViewModelPersistsUIStateAfterChanges() async throws {
+        try prepareSettingsDirectory()
+        let viewModel = AppViewModel()
+
+        viewModel.scopeFilter = .global
+        viewModel.searchText = "new-query"
+        viewModel.selectedSkillIDs = Set(["g-1"])
+
+        try? await Task.sleep(nanoseconds: 400_000_000)
+        let loaded = SyncPreferencesStore().loadSettings()
+
+        XCTAssertEqual(loaded.version, 2)
+        XCTAssertEqual(loaded.uiState?.scopeFilter, ScopeFilter.global.rawValue)
+        XCTAssertEqual(loaded.uiState?.searchText, "new-query")
+        XCTAssertEqual(Set(loaded.uiState?.selectedSkillIDs ?? []), Set(["g-1"]))
+    }
+
     func testSidebarGroupsAllScopeContainsGlobalAndProjectSections() {
         let skills = [
             makeSkill(id: "g-1", name: "Global One", scope: "global"),

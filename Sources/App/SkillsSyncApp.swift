@@ -6,9 +6,13 @@ struct SkillsSyncApp: App {
     @StateObject private var viewModel = AppViewModel()
 
     var body: some Scene {
-        WindowGroup {
+        Window("Skills Sync", id: "main") {
             ContentView(viewModel: viewModel)
                 .frame(minWidth: 980, minHeight: 620)
+                .background {
+                    WindowStateCoordinator(viewModel: viewModel)
+                        .frame(width: 0, height: 0)
+                }
                 .onAppear {
                     viewModel.start()
                 }

@@ -30,17 +30,33 @@ final class AppViewModel: ObservableObject {
             prunePreviewCacheToCurrentState()
         }
     }
-    @Published var searchText: String = ""
-    @Published var scopeFilter: ScopeFilter = .all
-    @Published var selectedSkillIDs: Set<String> = []
+    @Published var searchText: String = "" {
+        didSet {
+            scheduleUIPreferencesSave()
+        }
+    }
+    @Published var scopeFilter: ScopeFilter = .all {
+        didSet {
+            saveUIStateNow(sidebarWidth: nil)
+        }
+    }
+    @Published var selectedSkillIDs: Set<String> = [] {
+        didSet {
+            scheduleUIPreferencesSave()
+        }
+    }
     @Published var alertMessage: String?
     @Published var localBanner: InlineBannerPresentation?
     @Published var autoMigrateToCanonicalSource: Bool = false {
         didSet {
             guard isPreferencesLoaded else { return }
-            preferencesStore.saveSettings(
-                SyncAppSettings(version: 1, autoMigrateToCanonicalSource: autoMigrateToCanonicalSource)
+            currentSettings = SyncAppSettings(
+                version: 2,
+                autoMigrateToCanonicalSource: autoMigrateToCanonicalSource,
+                windowState: currentSettings.windowState,
+                uiState: currentSettings.uiState
             )
+            preferencesStore.saveSettings(currentSettings)
         }
     }
 
@@ -51,6 +67,8 @@ final class AppViewModel: ObservableObject {
     private let skillValidator: SkillValidator
     private var timer: Timer?
     private var isPreferencesLoaded = false
+    private var currentSettings: SyncAppSettings = .default
+    private var pendingUIPreferencesSave: DispatchWorkItem?
     private var previewCache: [String: CachedSkillPreview] = [:]
     private var validationCache: [String: CachedSkillValidation] = [:]
 
@@ -77,7 +95,14 @@ final class AppViewModel: ObservableObject {
         self.makeEngine = makeEngine
         self.previewParser = previewParser
         self.skillValidator = skillValidator
-        autoMigrateToCanonicalSource = preferencesStore.loadSettings().autoMigrateToCanonicalSource
+        let settings = preferencesStore.loadSettings()
+        currentSettings = settings
+        autoMigrateToCanonicalSource = settings.autoMigrateToCanonicalSource
+        if let restoredScope = ScopeFilter(rawValue: settings.uiState?.scopeFilter ?? "") {
+            scopeFilter = restoredScope
+        }
+        searchText = settings.uiState?.searchText ?? ""
+        selectedSkillIDs = Set(settings.uiState?.selectedSkillIDs ?? [])
         isPreferencesLoaded = true
     }
 
@@ -203,6 +228,8 @@ final class AppViewModel: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+        pendingUIPreferencesSave?.cancel()
+        pendingUIPreferencesSave = nil
     }
 
     func load() {
@@ -448,6 +475,75 @@ final class AppViewModel: ObservableObject {
     private func validationSignature(for skill: SkillRecord) -> String {
         let targets = skill.targetPaths.sorted().joined(separator: "|")
         return "\(skill.id)|\(skill.name)|\(skill.exists)|\(skill.packageType)|\(skill.canonicalSourcePath)|\(targets)"
+    }
+
+    func restoredWindowState() -> AppWindowState? {
+        currentSettings.windowState
+    }
+
+    func restoredSidebarWidth() -> Double? {
+        WindowStateGeometry.clampSidebarWidth(currentSettings.uiState?.sidebarWidth)
+    }
+
+    func persistWindowSnapshot(frame: CGRect, isZoomed: Bool, sidebarWidth: Double?) {
+        guard isPreferencesLoaded else { return }
+
+        let windowState = AppWindowState(
+            x: frame.origin.x,
+            y: frame.origin.y,
+            width: frame.size.width,
+            height: frame.size.height,
+            isMaximized: isZoomed
+        )
+        let uiState = AppUIState(
+            sidebarWidth: WindowStateGeometry.clampSidebarWidth(sidebarWidth),
+            scopeFilter: scopeFilter.rawValue,
+            searchText: searchText,
+            selectedSkillIDs: Array(selectedSkillIDs).sorted()
+        )
+
+        currentSettings = SyncAppSettings(
+            version: 2,
+            autoMigrateToCanonicalSource: autoMigrateToCanonicalSource,
+            windowState: windowState,
+            uiState: uiState
+        )
+        preferencesStore.saveSettings(currentSettings)
+    }
+
+    func persistUIState(sidebarWidth: Double?) {
+        saveUIStateNow(sidebarWidth: sidebarWidth)
+    }
+
+    private func scheduleUIPreferencesSave() {
+        guard isPreferencesLoaded else { return }
+        pendingUIPreferencesSave?.cancel()
+
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in
+                self?.saveUIStateNow(sidebarWidth: nil)
+            }
+        }
+        pendingUIPreferencesSave = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+    }
+
+    private func saveUIStateNow(sidebarWidth: Double?) {
+        guard isPreferencesLoaded else { return }
+
+        let uiState = AppUIState(
+            sidebarWidth: WindowStateGeometry.clampSidebarWidth(sidebarWidth ?? currentSettings.uiState?.sidebarWidth),
+            scopeFilter: scopeFilter.rawValue,
+            searchText: searchText,
+            selectedSkillIDs: Array(selectedSkillIDs).sorted()
+        )
+        currentSettings = SyncAppSettings(
+            version: 2,
+            autoMigrateToCanonicalSource: autoMigrateToCanonicalSource,
+            windowState: currentSettings.windowState,
+            uiState: uiState
+        )
+        preferencesStore.saveSettings(currentSettings)
     }
 }
 

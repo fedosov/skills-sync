@@ -22,6 +22,7 @@
 		A9F2CE96FF593515AD443E77 /* SyncPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8304E9A65C2431ABE9966B64 /* SyncPresentationTests.swift */; };
 		B7CF5D7FA29FBBEFF0AD7E96 /* SkillsSyncApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 138612FAE9DDE47730C0114D /* SkillsSyncApp.swift */; };
 		C2BBC39037C663095C8A879B /* DeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71B1FF0DC6FC627D54E72C2B /* DeepLink.swift */; };
+		CE2F3E81FB56831F5659426F /* WindowStateCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7725D359EF5E770B0AAB67E /* WindowStateCoordinator.swift */; };
 		E13E1F77A8270C7906CA984D /* SkillPreviewParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03BA106E88878C7D61269E19 /* SkillPreviewParser.swift */; };
 		EA2E57E68DC901EA8C2B3216 /* SkillValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9178F25DCE093E88EAD9BC8C /* SkillValidator.swift */; };
 		EFB6C6740C9434EC31932E4B /* SyncPreferencesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84D883371EE793C7A7359EF4 /* SyncPreferencesStore.swift */; };
@@ -57,6 +58,7 @@
 		84D883371EE793C7A7359EF4 /* SyncPreferencesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPreferencesStore.swift; sourceTree = "<group>"; };
 		90E8B9772FC89BC45E5E297D /* SkillRepairPromptBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillRepairPromptBuilder.swift; sourceTree = "<group>"; };
 		9178F25DCE093E88EAD9BC8C /* SkillValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillValidator.swift; sourceTree = "<group>"; };
+		B7725D359EF5E770B0AAB67E /* WindowStateCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowStateCoordinator.swift; sourceTree = "<group>"; };
 		C22F5067FCAFB7E48F14D295 /* SyncPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPresentation.swift; sourceTree = "<group>"; };
 		FD727AEEDFD6802944F1D016 /* SkillsSyncSharedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsSyncSharedTests.swift; sourceTree = "<group>"; };
 		FF5F0F7FB0C7F6161A8AD575 /* SkillsSyncTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SkillsSyncTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -114,6 +116,7 @@
 				78270507E464E5B08B215DAD /* AppTypography.swift */,
 				54F944AA3EF312EF6EE100D1 /* AppViewModel.swift */,
 				138612FAE9DDE47730C0114D /* SkillsSyncApp.swift */,
+				B7725D359EF5E770B0AAB67E /* WindowStateCoordinator.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -246,6 +249,7 @@
 				EFB6C6740C9434EC31932E4B /* SyncPreferencesStore.swift in Sources */,
 				47F6BFE6372E0B759952DBC4 /* SyncPresentation.swift in Sources */,
 				53CB1ADA2789A03334B44510 /* SyncStateStore.swift in Sources */,
+				CE2F3E81FB56831F5659426F /* WindowStateCoordinator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
