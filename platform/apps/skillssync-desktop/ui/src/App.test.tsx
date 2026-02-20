@@ -183,7 +183,7 @@ describe("App critical actions", () => {
     );
   });
 
-  it("runs sync and refresh from toolbar", async () => {
+  it("refreshes from toolbar without sync button", async () => {
     const state = buildState([projectSkill]);
     setApiDefaults(state, {
       [projectSkill.skill_key]: buildDetails(projectSkill),
@@ -193,10 +193,9 @@ describe("App critical actions", () => {
     render(<App />);
     await screen.findByRole("heading", { name: projectSkill.name });
 
-    await user.click(screen.getByRole("button", { name: "Sync" }));
+    expect(screen.queryByRole("button", { name: "Sync" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Refresh" }));
 
-    expect(tauriApi.runSync).toHaveBeenCalledTimes(1);
     expect(tauriApi.getState).toHaveBeenCalledTimes(2);
   });
 

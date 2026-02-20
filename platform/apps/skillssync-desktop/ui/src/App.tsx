@@ -10,7 +10,6 @@ import {
   mutateSkill,
   openSkillPath,
   renameSkill,
-  runSync,
 } from "./tauriApi";
 import {
   formatUnixTime,
@@ -136,19 +135,6 @@ export function App() {
     return sortAndFilterSkills(state.skills, query);
   }, [query, state]);
 
-  async function handleRunSync() {
-    setBusy(true);
-    setError(null);
-    try {
-      const next = await runSync();
-      applyState(next, selectedSkillKey);
-    } catch (invokeError) {
-      setError(String(invokeError));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   function requestMutation(command: MutationCommand, skillKey: string) {
     setPendingMutation({ command, skillKey });
   }
@@ -235,13 +221,6 @@ export function App() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                disabled={busy}
-                onClick={() => void handleRunSync()}
-              >
-                Sync
-              </Button>
               <Button
                 size="sm"
                 variant="outline"
