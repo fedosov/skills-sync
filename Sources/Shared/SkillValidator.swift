@@ -32,6 +32,18 @@ struct SkillValidationIssue: Identifiable, Hashable {
         }
         return source
     }
+
+    var isAutoFixable: Bool {
+        switch code {
+        case "codex_frontmatter_invalid_yaml",
+            "missing_frontmatter_name",
+            "missing_frontmatter_description",
+            "frontmatter_name_mismatch_skill_key":
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 struct SkillValidationResult: Hashable {

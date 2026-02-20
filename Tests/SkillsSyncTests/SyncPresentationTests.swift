@@ -379,6 +379,53 @@ final class SyncPresentationTests: XCTestCase {
     }
 
     @MainActor
+    func testApplyValidationFixUpdatesStateAndShowsBannerOnSuccess() async {
+        let skill = makeSkill(id: "g-1", name: "Fixable", scope: "global", sourcePath: "/tmp/fixable")
+        let fixedSkill = makeSkill(id: "g-1", name: "Fixable", scope: "global", sourcePath: "/tmp/fixable")
+        let issue = SkillValidationIssue(code: "missing_frontmatter_name", message: "Frontmatter `name` is required")
+        let engine = MockSyncEngine(
+            onDelete: { _ in .empty },
+            onApplyValidationFix: { _, _ in
+                Self.makeState(skills: [fixedSkill])
+            }
+        )
+        let viewModel = AppViewModel(makeEngine: { engine })
+        viewModel.state = Self.makeState(skills: [skill])
+
+        viewModel.applyValidationFix(skill: skill, issue: issue)
+        for _ in 0..<50 where viewModel.localBanner?.title != "Validation issue fixed" {
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(viewModel.state.skills.count, 1)
+        XCTAssertEqual(viewModel.localBanner?.title, "Validation issue fixed")
+        XCTAssertTrue(viewModel.localBanner?.message.contains("Fixable") == true)
+    }
+
+    @MainActor
+    func testApplyValidationFixShowsAlertOnFailure() async {
+        let skill = makeSkill(id: "g-1", name: "Fixable", scope: "global", sourcePath: "/tmp/fixable")
+        let issue = SkillValidationIssue(code: "missing_frontmatter_name", message: "Frontmatter `name` is required")
+        let engine = MockSyncEngine(
+            onDelete: { _ in .empty },
+            onApplyValidationFix: { _, _ in
+                throw MockDeleteError()
+            }
+        )
+        let viewModel = AppViewModel(makeEngine: { engine })
+        viewModel.state = Self.makeState(skills: [skill])
+
+        viewModel.applyValidationFix(skill: skill, issue: issue)
+        for _ in 0..<50 where viewModel.alertMessage?.contains("Mock delete error") != true {
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertTrue(viewModel.alertMessage?.contains("Mock delete error") == true)
+    }
+
+    @MainActor
     func testAutoMigrationToggleDefaultsToOff() throws {
         try prepareSettingsDirectory()
 
@@ -677,7 +724,8 @@ final class SyncPresentationTests: XCTestCase {
         XCTAssertTrue(panelSource.contains("Codex visibility"))
         XCTAssertTrue(overviewSource.contains("Codex visible"))
         XCTAssertTrue(overviewSource.contains("Codex hidden"))
-        XCTAssertTrue(panelSource.contains("Repair for Codex"))
+        XCTAssertTrue(panelSource.contains("Button(\"Fix\")"))
+        XCTAssertFalse(panelSource.contains("Repair for Codex"))
         XCTAssertTrue(panelSource.contains("Select an issue to copy a repair prompt."))
         XCTAssertTrue(detailSource.contains("SkillRepairPromptBuilder.prompt"))
         XCTAssertTrue(detailSource.contains("NSPasteboard.general"))
@@ -871,7 +919,7 @@ private final class MockSyncEngine: SyncEngineControlling {
     private let onRestore: (SkillRecord) async throws -> SyncState
     private let onMakeGlobal: (SkillRecord) async throws -> SyncState
     private let onRename: (SkillRecord, String) async throws -> SyncState
-    private let onRepairCodexFrontmatter: (SkillRecord) async throws -> SyncState
+    private let onApplyValidationFix: (SkillRecord, SkillValidationIssue) async throws -> SyncState
     private(set) var runSyncTriggers: [SyncTrigger] = []
 
     init(
@@ -881,7 +929,7 @@ private final class MockSyncEngine: SyncEngineControlling {
         onRestore: @escaping (SkillRecord) async throws -> SyncState = { _ in .empty },
         onMakeGlobal: @escaping (SkillRecord) async throws -> SyncState = { _ in .empty },
         onRename: @escaping (SkillRecord, String) async throws -> SyncState = { _, _ in .empty },
-        onRepairCodexFrontmatter: @escaping (SkillRecord) async throws -> SyncState = { _ in .empty }
+        onApplyValidationFix: @escaping (SkillRecord, SkillValidationIssue) async throws -> SyncState = { _, _ in .empty }
     ) {
         self.onRunSync = onRunSync
         self.onDelete = onDelete
@@ -889,7 +937,7 @@ private final class MockSyncEngine: SyncEngineControlling {
         self.onRestore = onRestore
         self.onMakeGlobal = onMakeGlobal
         self.onRename = onRename
-        self.onRepairCodexFrontmatter = onRepairCodexFrontmatter
+        self.onApplyValidationFix = onApplyValidationFix
     }
 
     func runSync(trigger: SyncTrigger) async throws -> SyncState {
@@ -921,8 +969,8 @@ private final class MockSyncEngine: SyncEngineControlling {
         try await onRename(skill, newTitle)
     }
 
-    func repairCodexFrontmatter(skill: SkillRecord) async throws -> SyncState {
-        try await onRepairCodexFrontmatter(skill)
+    func applyValidationFix(skill: SkillRecord, issue: SkillValidationIssue) async throws -> SyncState {
+        try await onApplyValidationFix(skill, issue)
     }
 }
 

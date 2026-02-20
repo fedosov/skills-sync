@@ -93,7 +93,8 @@ final class SkillDetailViewTests: XCTestCase {
 
         XCTAssertTrue(source.contains("Codex visibility"))
         XCTAssertTrue(source.contains("hasPrefix(\"codex_\")"))
-        XCTAssertTrue(source.contains("Repair for Codex"))
+        XCTAssertTrue(source.contains("Button(\"Fix\")"))
+        XCTAssertFalse(source.contains("Repair for Codex"))
     }
 
     func testOverviewCardContainsCodexVisibilityChips() throws {

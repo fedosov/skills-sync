@@ -5,7 +5,7 @@ struct SkillValidationPanel: View {
     @Binding var copiedIssueID: String?
     @Binding var isExpanded: Bool
     let onCopyIssue: (SkillValidationIssue) -> Void
-    let onRepairIssue: (SkillValidationIssue) -> Void
+    let onFixIssue: (SkillValidationIssue) -> Void
 
     private var summary: SkillDetailPresentation.ValidationSummary {
         SkillDetailPresentation.validationSummary(issuesCount: validation.issues.count)
@@ -64,9 +64,9 @@ struct SkillValidationPanel: View {
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("Copy repair prompt for issue: \(issue.message)")
 
-                                if issue.code == "codex_frontmatter_invalid_yaml" {
-                                    Button("Repair for Codex") {
-                                        onRepairIssue(issue)
+                                if issue.isAutoFixable {
+                                    Button("Fix") {
+                                        onFixIssue(issue)
                                     }
                                     .buttonStyle(.borderedProminent)
                                 }

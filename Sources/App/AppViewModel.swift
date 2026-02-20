@@ -23,7 +23,7 @@ protocol SyncEngineControlling {
     func restoreArchivedSkillToGlobal(skill: SkillRecord, confirmed: Bool) async throws -> SyncState
     func makeGlobal(skill: SkillRecord, confirmed: Bool) async throws -> SyncState
     func renameSkill(skill: SkillRecord, newTitle: String) async throws -> SyncState
-    func repairCodexFrontmatter(skill: SkillRecord) async throws -> SyncState
+    func applyValidationFix(skill: SkillRecord, issue: SkillValidationIssue) async throws -> SyncState
 }
 
 extension SyncEngine: SyncEngineControlling { }
@@ -486,17 +486,17 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    func repairCodexFrontmatter(skill: SkillRecord) {
+    func applyValidationFix(skill: SkillRecord, issue: SkillValidationIssue) {
         Task {
             do {
                 let engine = makeEngine()
-                state = try await engine.repairCodexFrontmatter(skill: skill)
+                state = try await engine.applyValidationFix(skill: skill, issue: issue)
                 previewCache.removeAll()
                 validationCache.removeAll()
                 pruneSelectionToCurrentSkills()
                 localBanner = InlineBannerPresentation(
-                    title: "Codex frontmatter repaired",
-                    message: "\(skill.name) was repaired and synced.",
+                    title: "Validation issue fixed",
+                    message: "\(skill.name) was fixed and synced.",
                     symbol: "checkmark.circle.fill",
                     role: .success,
                     recoveryActionTitle: nil

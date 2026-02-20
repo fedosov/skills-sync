@@ -769,6 +769,132 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertFalse(validation.issues.contains(where: { $0.code == "codex_frontmatter_invalid_yaml" }))
     }
 
+    func testApplyValidationFixRepairsCodexFrontmatterInvalidYAML() async throws {
+        let source = path(".claude/skills/auto-fix-yaml")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        ---
+        name: auto-fix-yaml
+        description: Source description.
+        argument-hint: [--full|--quick] [plan-file-path]
+        ---
+        """.data(using: .utf8)?.write(to: source.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let skill = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == "auto-fix-yaml" }))
+        let issue = SkillValidationIssue(
+            code: "codex_frontmatter_invalid_yaml",
+            message: "Frontmatter is not valid YAML for Codex"
+        )
+
+        let fixed = try await engine.applyValidationFix(skill: skill, issue: issue)
+        let fixedSkill = try XCTUnwrap(fixed.skills.first(where: { $0.skillKey == "auto-fix-yaml" }))
+        let validation = SkillValidator().validate(skill: fixedSkill)
+
+        XCTAssertFalse(validation.issues.contains(where: { $0.code == "codex_frontmatter_invalid_yaml" }))
+    }
+
+    func testApplyValidationFixAddsFrontmatterNameWhenMissing() async throws {
+        let source = path(".claude/skills/fix-missing-name")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        ---
+        description: Present description.
+        ---
+        """.data(using: .utf8)?.write(to: source.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let skill = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == "fix-missing-name" }))
+        let issue = SkillValidationIssue(
+            code: "missing_frontmatter_name",
+            message: "Frontmatter `name` is required"
+        )
+
+        let fixed = try await engine.applyValidationFix(skill: skill, issue: issue)
+        let fixedSkill = try XCTUnwrap(fixed.skills.first(where: { $0.skillKey == "fix-missing-name" }))
+        let validation = SkillValidator().validate(skill: fixedSkill)
+
+        XCTAssertFalse(validation.issues.contains(where: { $0.code == "missing_frontmatter_name" }))
+    }
+
+    func testApplyValidationFixAddsFrontmatterDescriptionWhenMissing() async throws {
+        let source = path(".claude/skills/fix-missing-description")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        ---
+        name: fix-missing-description
+        ---
+        """.data(using: .utf8)?.write(to: source.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let skill = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == "fix-missing-description" }))
+        let issue = SkillValidationIssue(
+            code: "missing_frontmatter_description",
+            message: "Frontmatter `description` is required"
+        )
+
+        let fixed = try await engine.applyValidationFix(skill: skill, issue: issue)
+        let fixedSkill = try XCTUnwrap(fixed.skills.first(where: { $0.skillKey == "fix-missing-description" }))
+        let validation = SkillValidator().validate(skill: fixedSkill)
+
+        XCTAssertFalse(validation.issues.contains(where: { $0.code == "missing_frontmatter_description" }))
+    }
+
+    func testApplyValidationFixAlignsFrontmatterNameWithSkillKey() async throws {
+        let source = path(".claude/skills/fix-name-mismatch")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        ---
+        name: wrong-name
+        description: Present description.
+        ---
+        """.data(using: .utf8)?.write(to: source.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let skill = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == "fix-name-mismatch" }))
+        let issue = SkillValidationIssue(
+            code: "frontmatter_name_mismatch_skill_key",
+            message: "Frontmatter `name` does not match skill key"
+        )
+
+        let fixed = try await engine.applyValidationFix(skill: skill, issue: issue)
+        let fixedSkill = try XCTUnwrap(fixed.skills.first(where: { $0.skillKey == "fix-name-mismatch" }))
+        let validation = SkillValidator().validate(skill: fixedSkill)
+
+        XCTAssertFalse(validation.issues.contains(where: { $0.code == "frontmatter_name_mismatch_skill_key" }))
+    }
+
+    func testApplyValidationFixRejectsUnsupportedIssueCode() async throws {
+        let source = path(".claude/skills/fix-unsupported")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        ---
+        name: fix-unsupported
+        description: Present description.
+        ---
+        """.data(using: .utf8)?.write(to: source.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let skill = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == "fix-unsupported" }))
+        let issue = SkillValidationIssue(code: "broken_reference", message: "Broken reference")
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await engine.applyValidationFix(skill: skill, issue: issue)
+        } assertion: { error in
+            XCTAssertTrue(error.localizedDescription.contains("Unsupported validation fix"))
+        }
+    }
+
     func testRenameSkillRejectsEmptySlugAfterNormalization() async throws {
         let source = path(".claude/skills/empty-title")
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)

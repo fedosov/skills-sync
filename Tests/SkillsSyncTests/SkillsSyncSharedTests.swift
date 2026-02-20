@@ -853,6 +853,14 @@ final class SkillsSyncSharedTests: XCTestCase {
         XCTAssertFalse(result.issues.contains(where: { $0.code == "codex_frontmatter_invalid_yaml" }))
     }
 
+    func testSkillValidationIssueAutoFixableFlagCoversSupportedCodes() {
+        XCTAssertTrue(SkillValidationIssue(code: "codex_frontmatter_invalid_yaml", message: "").isAutoFixable)
+        XCTAssertTrue(SkillValidationIssue(code: "missing_frontmatter_name", message: "").isAutoFixable)
+        XCTAssertTrue(SkillValidationIssue(code: "missing_frontmatter_description", message: "").isAutoFixable)
+        XCTAssertTrue(SkillValidationIssue(code: "frontmatter_name_mismatch_skill_key", message: "").isAutoFixable)
+        XCTAssertFalse(SkillValidationIssue(code: "broken_reference", message: "").isAutoFixable)
+    }
+
     func testRepairPromptBuilderIncludesSkillIdentityAndIssue() {
         let skill = makeSkill(
             id: "sv8",

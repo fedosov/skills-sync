@@ -47,6 +47,11 @@ enum SyncEngineError: LocalizedError {
     case repairCodexFrontmatterUnreadable
     case repairCodexFrontmatterNoFrontmatter
     case repairCodexFrontmatterNoChangesNeeded
+    case applyValidationFixUnsupportedIssue(code: String)
+    case applyValidationFixCodexSkillFileMissing
+    case applyValidationFixCodexSkillFileUnreadable
+    case applyValidationFixNoFrontmatter
+    case applyValidationFixNoChangesNeeded
     case migrationFailed(skillKey: String, reason: String)
 
     var errorDescription: String? {
@@ -119,6 +124,16 @@ enum SyncEngineError: LocalizedError {
             return "Repair failed: frontmatter block was not found"
         case .repairCodexFrontmatterNoChangesNeeded:
             return "No Codex frontmatter repair was needed"
+        case let .applyValidationFixUnsupportedIssue(code):
+            return "Unsupported validation fix for issue code: \(code)"
+        case .applyValidationFixCodexSkillFileMissing:
+            return "Validation fix failed: Codex SKILL.md was not found"
+        case .applyValidationFixCodexSkillFileUnreadable:
+            return "Validation fix failed: Codex SKILL.md is unreadable as UTF-8"
+        case .applyValidationFixNoFrontmatter:
+            return "Validation fix failed: frontmatter block was not found"
+        case .applyValidationFixNoChangesNeeded:
+            return "Validation fix found no changes to apply"
         case let .migrationFailed(skillKey, reason):
             return "Migration failed for \(skillKey): \(reason)"
         }
@@ -318,6 +333,53 @@ struct SyncEngine {
 
         let updated = frontmatter.prefix + repaired.text + frontmatter.suffix
         try updated.write(to: skillFile, atomically: true, encoding: .utf8)
+        return try await runSync(trigger: .manual)
+    }
+
+    func applyValidationFix(skill: SkillRecord, issue: SkillValidationIssue) async throws -> SyncState {
+        guard issue.isAutoFixable else {
+            throw SyncEngineError.applyValidationFixUnsupportedIssue(code: issue.code)
+        }
+
+        guard let codexSkillFile = resolveCodexSkillFile(skill: skill) else {
+            throw SyncEngineError.applyValidationFixCodexSkillFileMissing
+        }
+        guard fileManager.fileExists(atPath: codexSkillFile.path) else {
+            throw SyncEngineError.applyValidationFixCodexSkillFileMissing
+        }
+        guard let raw = try? String(contentsOf: codexSkillFile, encoding: .utf8) else {
+            throw SyncEngineError.applyValidationFixCodexSkillFileUnreadable
+        }
+        guard let frontmatter = extractFrontmatter(raw) else {
+            throw SyncEngineError.applyValidationFixNoFrontmatter
+        }
+
+        let repairedFrontmatter: String
+        let changed: Bool
+        switch issue.code {
+        case "codex_frontmatter_invalid_yaml":
+            let repaired = repairFrontmatterForCodex(frontmatter.raw)
+            repairedFrontmatter = repaired.text
+            changed = repaired.changed
+        case "missing_frontmatter_name", "frontmatter_name_mismatch_skill_key":
+            let repaired = upsertFrontmatterValue(frontmatter.raw, key: "name", value: skill.skillKey)
+            repairedFrontmatter = repaired.text
+            changed = repaired.changed
+        case "missing_frontmatter_description":
+            let description = preferredDescriptionForValidationFix(skill: skill)
+            let repaired = upsertFrontmatterValue(frontmatter.raw, key: "description", value: description)
+            repairedFrontmatter = repaired.text
+            changed = repaired.changed
+        default:
+            throw SyncEngineError.applyValidationFixUnsupportedIssue(code: issue.code)
+        }
+
+        guard changed else {
+            throw SyncEngineError.applyValidationFixNoChangesNeeded
+        }
+
+        let updated = frontmatter.prefix + repairedFrontmatter + frontmatter.suffix
+        try updated.write(to: codexSkillFile, atomically: true, encoding: .utf8)
         return try await runSync(trigger: .manual)
     }
 
@@ -1632,6 +1694,16 @@ struct SyncEngine {
         return source
     }
 
+    private func resolveCodexSkillFile(skill: SkillRecord) -> URL? {
+        for path in skill.targetPaths {
+            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+            if standardized.contains("/.codex/skills/"), standardized.hasSuffix("/\(skill.skillKey)") {
+                return URL(fileURLWithPath: standardized, isDirectory: true).appendingPathComponent("SKILL.md")
+            }
+        }
+        return nil
+    }
+
     private func extractFrontmatter(_ raw: String) -> (prefix: String, raw: String, suffix: String)? {
         let normalized = raw.replacingOccurrences(of: "\r\n", with: "\n")
         guard normalized.hasPrefix("---\n") else {
@@ -1706,6 +1778,90 @@ struct SyncEngine {
             if balance < 0 { return false }
         }
         return balance == 0
+    }
+
+    private func upsertFrontmatterValue(_ frontmatter: String, key: String, value: String) -> (text: String, changed: Bool) {
+        let lines = frontmatter.components(separatedBy: .newlines)
+        var changed = false
+        var found = false
+        var repaired: [String] = []
+
+        for line in lines {
+            guard let colonIndex = line.firstIndex(of: ":") else {
+                repaired.append(line)
+                continue
+            }
+
+            let existingKey = line[..<colonIndex]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard existingKey == key.lowercased() else {
+                repaired.append(line)
+                continue
+            }
+
+            let keyToken = line[..<colonIndex]
+            let valueStart = line.index(after: colonIndex)
+            let existingValue = line[valueStart...]
+            let leadingWhitespace = existingValue.prefix { $0 == " " || $0 == "\t" }
+            let quotedValue = quotedYAMLScalar(value)
+            let updatedLine = "\(keyToken):\(leadingWhitespace)\(quotedValue)"
+            if updatedLine != line {
+                changed = true
+            }
+            repaired.append(updatedLine)
+            found = true
+        }
+
+        if !found {
+            repaired.append("\(key): \(quotedYAMLScalar(value))")
+            changed = true
+        }
+
+        return (text: repaired.joined(separator: "\n"), changed: changed)
+    }
+
+    private func quotedYAMLScalar(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
+    }
+
+    private func preferredDescriptionForValidationFix(skill: SkillRecord) -> String {
+        let canonical = resolveMainSkillFile(skill: skill)
+        if let raw = try? String(contentsOf: canonical, encoding: .utf8),
+           let value = frontmatterValue(raw, key: "description"),
+           !value.isEmpty {
+            return value
+        }
+        return "TODO: add description"
+    }
+
+    private func frontmatterValue(_ raw: String, key: String) -> String? {
+        guard let frontmatter = extractFrontmatter(raw) else {
+            return nil
+        }
+        let normalizedKey = key.lowercased()
+        for line in frontmatter.raw.components(separatedBy: .newlines) {
+            guard let colonIndex = line.firstIndex(of: ":") else {
+                continue
+            }
+            let candidateKey = line[..<colonIndex]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard candidateKey == normalizedKey else {
+                continue
+            }
+            let valueStart = line.index(after: colonIndex)
+            let value = line[valueStart...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            if !value.isEmpty {
+                return value
+            }
+        }
+        return nil
     }
 
     private func loadArchivedEntries() -> [SkillRecord] {
