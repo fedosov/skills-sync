@@ -3,3 +3,4 @@ platform/target/
 platform/apps/skillssync-desktop/ui/node_modules/
 platform/apps/skillssync-desktop/ui/dist/
 platform/apps/skillssync-desktop/ui/coverage/
+output/
