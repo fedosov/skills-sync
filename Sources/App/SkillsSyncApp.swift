@@ -161,16 +161,22 @@ private struct SkillRowView: View {
     let title: String
     let validation: SkillValidationResult
 
+    private var shouldShowSkillName: Bool {
+        normalized(title) != normalized(skill.name)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xs) {
             Text(title)
                 .font(.app(.body).weight(.semibold))
                 .lineLimit(1)
 
-            Text(skill.name)
-                .font(.app(.meta))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            if shouldShowSkillName {
+                Text(skill.name)
+                    .font(.app(.meta))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
 
             Text(skill.canonicalSourcePath)
                 .font(.app(.pathMono))
@@ -193,6 +199,10 @@ private struct SkillRowView: View {
         .padding(.vertical, AppSpacing.xs)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(skill.accessibilitySummary)
+    }
+
+    private func normalized(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 
