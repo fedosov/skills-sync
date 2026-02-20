@@ -73,6 +73,7 @@ private struct ContentView: View {
                 onReveal: viewModel.reveal,
                 onDelete: viewModel.delete,
                 onMakeGlobal: viewModel.makeGlobal,
+                onRename: viewModel.rename,
                 onDeleteSelected: viewModel.deleteSelectedSkills,
                 previewProvider: viewModel.preview,
                 validationProvider: viewModel.validation
@@ -216,6 +217,7 @@ private struct DetailPaneView: View {
     let onReveal: (SkillRecord) -> Void
     let onDelete: (SkillRecord) -> Void
     let onMakeGlobal: (SkillRecord) -> Void
+    let onRename: (SkillRecord, String) -> Void
     let onDeleteSelected: () -> Void
     let previewProvider: (SkillRecord) async -> SkillPreviewData
     let validationProvider: (SkillRecord) -> SkillValidationResult
@@ -228,6 +230,7 @@ private struct DetailPaneView: View {
                 onReveal: onReveal,
                 onDelete: onDelete,
                 onMakeGlobal: onMakeGlobal,
+                onRename: onRename,
                 previewProvider: previewProvider,
                 validationProvider: validationProvider
             )
@@ -335,6 +338,7 @@ private struct SkillDetailView: View {
     let onReveal: (SkillRecord) -> Void
     let onDelete: (SkillRecord) -> Void
     let onMakeGlobal: (SkillRecord) -> Void
+    let onRename: (SkillRecord, String) -> Void
     let previewProvider: (SkillRecord) async -> SkillPreviewData
     let validationProvider: (SkillRecord) -> SkillValidationResult
     @State private var showDeleteConfirmation = false
@@ -342,11 +346,41 @@ private struct SkillDetailView: View {
     @State private var showMakeGlobalSecondConfirmation = false
     @State private var previewData: SkillPreviewData?
     @State private var copiedIssueID: String?
+    @State private var editableTitle: String = ""
+    @State private var isTitleDirty = false
+
+    private var currentDisplayTitle: String {
+        previewData?.displayTitle ?? skill.name
+    }
+
+    private var canApplyTitle: Bool {
+        let trimmed = editableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return false
+        }
+        return normalized(trimmed) != normalized(currentDisplayTitle)
+    }
 
     var body: some View {
         Form {
             Section("Overview & Preview") {
-                LabeledContent("Name", value: skill.name)
+                HStack(alignment: .firstTextBaseline, spacing: AppSpacing.md) {
+                    Text("Title")
+                        .font(.app(.secondary))
+                        .frame(width: 80, alignment: .leading)
+                    TextField("Title", text: $editableTitle)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: editableTitle) { _, _ in
+                            isTitleDirty = true
+                        }
+                        .onSubmit {
+                            applyRename()
+                        }
+                    Button("Apply") {
+                        applyRename()
+                    }
+                    .disabled(!canApplyTitle)
+                }
                 LabeledContent("Source status", value: skill.exists ? "Available" : "Missing")
                 LabeledContent("Package type", value: skill.packageType)
                 LabeledContent("Scope", value: skill.scopeTitle)
@@ -498,7 +532,12 @@ private struct SkillDetailView: View {
         }
         .formStyle(.grouped)
         .task(id: "\(skill.id)|\(skill.canonicalSourcePath)") {
+            editableTitle = skill.name
+            isTitleDirty = false
             previewData = await previewProvider(skill)
+            if !isTitleDirty {
+                editableTitle = previewData?.displayTitle ?? skill.name
+            }
         }
     }
 
@@ -507,6 +546,19 @@ private struct SkillDetailView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(prompt, forType: .string)
         copiedIssueID = issue.id
+    }
+
+    private func applyRename() {
+        guard canApplyTitle else {
+            return
+        }
+        let title = editableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        onRename(skill, title)
+        isTitleDirty = false
+    }
+
+    private func normalized(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 

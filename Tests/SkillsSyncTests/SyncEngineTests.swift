@@ -485,6 +485,152 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertTrue(state.skills.contains(where: { $0.skillKey == "project-skill" && $0.scope == "global" }))
     }
 
+    func testRenameSkillRenamesCanonicalDirectoryAndResyncsTargets() async throws {
+        let oldKey = "old-skill"
+        let source = path(".claude/skills/\(oldKey)")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        ---
+        title: Old Title
+        ---
+        """.data(using: .utf8)?.write(to: source.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let skill = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == oldKey }))
+
+        let renamed = try await engine.renameSkill(skill: skill, newTitle: "New Skill Name")
+
+        let newKey = "new-skill-name"
+        let newSource = path(".claude/skills/\(newKey)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newSource.path))
+        XCTAssertTrue(renamed.skills.contains(where: { $0.skillKey == newKey }))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path(".agents/skills/\(oldKey)").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path(".codex/skills/\(oldKey)").path))
+        XCTAssertTrue(path(".agents/skills/\(newKey)").isTestSymlink)
+        XCTAssertTrue(path(".codex/skills/\(newKey)").isTestSymlink)
+    }
+
+    func testRenameSkillUpdatesFrontmatterTitle() async throws {
+        let source = path(".claude/skills/rename-title")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        ---
+        title: Before
+        description: Keep me
+        ---
+
+        # Heading
+        """.data(using: .utf8)?.write(to: source.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let skill = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == "rename-title" }))
+
+        _ = try await engine.renameSkill(skill: skill, newTitle: "After Name")
+
+        let file = path(".claude/skills/after-name/SKILL.md")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(text.contains("title: After Name"))
+        XCTAssertTrue(text.contains("description: Keep me"))
+    }
+
+    func testRenameSkillCreatesFrontmatterWhenMissing() async throws {
+        let source = path(".claude/skills/no-frontmatter")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        # Body Heading
+
+        Body text.
+        """.data(using: .utf8)?.write(to: source.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let skill = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == "no-frontmatter" }))
+
+        _ = try await engine.renameSkill(skill: skill, newTitle: "Created Title")
+
+        let file = path(".claude/skills/created-title/SKILL.md")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(text.hasPrefix("---\ntitle: Created Title\n---\n"))
+        XCTAssertTrue(text.contains("# Body Heading"))
+    }
+
+    func testRenameSkillRejectsEmptySlugAfterNormalization() async throws {
+        let source = path(".claude/skills/empty-title")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try "body".data(using: .utf8)?.write(to: source.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let skill = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == "empty-title" }))
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await engine.renameSkill(skill: skill, newTitle: " !!! ")
+        }
+    }
+
+    func testRenameSkillRejectsConflictWhenTargetExists() async throws {
+        let source = path(".claude/skills/source-skill")
+        let target = path(".claude/skills/existing-skill")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try "source".data(using: .utf8)?.write(to: source.appendingPathComponent("SKILL.md"))
+        try "target".data(using: .utf8)?.write(to: target.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let skill = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == "source-skill" }))
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await engine.renameSkill(skill: skill, newTitle: "Existing Skill")
+        }
+    }
+
+    func testRenameSkillRejectsProtectedOrOutsideAllowedRoots() async throws {
+        let outside = path("outside/some-skill")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try "x".data(using: .utf8)?.write(to: outside.appendingPathComponent("SKILL.md"))
+
+        let protected = path(".claude/skills/.system/protected-skill")
+        try FileManager.default.createDirectory(at: protected, withIntermediateDirectories: true)
+        try "x".data(using: .utf8)?.write(to: protected.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await engine.renameSkill(skill: self.makeSkill(path: outside.path, key: "some-skill"), newTitle: "Renamed")
+        }
+        await XCTAssertThrowsErrorAsync {
+            _ = try await engine.renameSkill(
+                skill: self.makeSkill(path: protected.path, key: ".system/protected-skill"),
+                newTitle: "Renamed"
+            )
+        }
+    }
+
+    func testRenameSkillNoOpWhenSlugUnchanged() async throws {
+        let source = path(".claude/skills/same-name")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try "x".data(using: .utf8)?.write(to: source.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let skill = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == "same-name" }))
+
+        await XCTAssertThrowsErrorAsync {
+            _ = try await engine.renameSkill(skill: skill, newTitle: " Same Name ")
+        }
+    }
+
     func testOpenAndRevealUseShellRunnerCommands() throws {
         let recorder = CommandRecorder()
         configureEngine(shellRunner: recorder)

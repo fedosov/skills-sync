@@ -255,6 +255,104 @@ final class SyncPresentationTests: XCTestCase {
     }
 
     @MainActor
+    func testRenameUpdatesStateAndShowsBannerOnSuccess() async {
+        let oldSkill = makeSkill(id: "g-1", name: "Old Skill", scope: "global", sourcePath: "/tmp/old-skill")
+        let renamedSkill = SkillRecord(
+            id: "g-2",
+            name: "new-skill-name",
+            scope: "global",
+            workspace: nil,
+            canonicalSourcePath: "/tmp/new-skill-name",
+            targetPaths: ["/tmp/target/new-skill-name"],
+            exists: true,
+            isSymlinkCanonical: false,
+            packageType: "dir",
+            skillKey: "new-skill-name",
+            symlinkTarget: "/tmp/new-skill-name"
+        )
+        let engine = MockSyncEngine(
+            onDelete: { _ in .empty },
+            onMakeGlobal: { _ in .empty },
+            onRename: { _, _ in
+                Self.makeState(skills: [renamedSkill])
+            }
+        )
+        let viewModel = AppViewModel(makeEngine: { engine })
+        viewModel.state = Self.makeState(skills: [oldSkill])
+        viewModel.selectedSkillIDs = Set([oldSkill.id])
+
+        viewModel.rename(skill: oldSkill, newTitle: "New Skill Name")
+        for _ in 0..<50 where viewModel.localBanner?.title != "Skill renamed" {
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(viewModel.state.skills.map(\.skillKey), ["new-skill-name"])
+        XCTAssertEqual(viewModel.selectedSkillIDs, Set(["g-2"]))
+        XCTAssertEqual(viewModel.localBanner?.title, "Skill renamed")
+    }
+
+    @MainActor
+    func testRenameShowsAlertOnFailure() async {
+        let oldSkill = makeSkill(id: "g-1", name: "Old Skill", scope: "global", sourcePath: "/tmp/old-skill")
+        let engine = MockSyncEngine(
+            onDelete: { _ in .empty },
+            onMakeGlobal: { _ in .empty },
+            onRename: { _, _ in
+                throw MockDeleteError()
+            }
+        )
+        let viewModel = AppViewModel(makeEngine: { engine })
+        viewModel.state = Self.makeState(skills: [oldSkill])
+        viewModel.selectedSkillIDs = Set([oldSkill.id])
+
+        viewModel.rename(skill: oldSkill, newTitle: "New Skill Name")
+        for _ in 0..<50 where viewModel.alertMessage?.contains("Mock delete error") != true {
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertTrue(viewModel.alertMessage?.contains("Mock delete error") == true)
+    }
+
+    @MainActor
+    func testRenameKeepsSelectionOnRenamedSkill() async {
+        let oldSkill = makeSkill(id: "g-1", name: "Old Skill", scope: "global", sourcePath: "/tmp/old-skill")
+        let renamedSkill = SkillRecord(
+            id: "g-2",
+            name: "new-skill-name",
+            scope: "global",
+            workspace: nil,
+            canonicalSourcePath: "/tmp/new-skill-name",
+            targetPaths: ["/tmp/target/new-skill-name"],
+            exists: true,
+            isSymlinkCanonical: false,
+            packageType: "dir",
+            skillKey: "new-skill-name",
+            symlinkTarget: "/tmp/new-skill-name"
+        )
+        let engine = MockSyncEngine(
+            onDelete: { _ in .empty },
+            onMakeGlobal: { _ in .empty },
+            onRename: { _, _ in
+                Self.makeState(skills: [renamedSkill])
+            }
+        )
+        let viewModel = AppViewModel(makeEngine: { engine })
+        viewModel.state = Self.makeState(skills: [oldSkill])
+        viewModel.selectedSkillIDs = Set([oldSkill.id])
+
+        viewModel.rename(skill: oldSkill, newTitle: "New Skill Name")
+        for _ in 0..<50 where viewModel.selectedSkillIDs != Set(["g-2"]) {
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(viewModel.selectedSkillIDs, Set(["g-2"]))
+        XCTAssertEqual(viewModel.singleSelectedSkill?.skillKey, "new-skill-name")
+    }
+
+    @MainActor
     func testAutoMigrationToggleDefaultsToOff() throws {
         try prepareSettingsDirectory()
 
@@ -582,13 +680,16 @@ private struct MockDeleteError: LocalizedError {
 private final class MockSyncEngine: SyncEngineControlling {
     private let onDelete: (SkillRecord) async throws -> SyncState
     private let onMakeGlobal: (SkillRecord) async throws -> SyncState
+    private let onRename: (SkillRecord, String) async throws -> SyncState
 
     init(
         onDelete: @escaping (SkillRecord) async throws -> SyncState,
-        onMakeGlobal: @escaping (SkillRecord) async throws -> SyncState = { _ in .empty }
+        onMakeGlobal: @escaping (SkillRecord) async throws -> SyncState = { _ in .empty },
+        onRename: @escaping (SkillRecord, String) async throws -> SyncState = { _, _ in .empty }
     ) {
         self.onDelete = onDelete
         self.onMakeGlobal = onMakeGlobal
+        self.onRename = onRename
     }
 
     func runSync(trigger: SyncTrigger) async throws -> SyncState {
@@ -605,5 +706,9 @@ private final class MockSyncEngine: SyncEngineControlling {
 
     func makeGlobal(skill: SkillRecord, confirmed: Bool) async throws -> SyncState {
         try await onMakeGlobal(skill)
+    }
+
+    func renameSkill(skill: SkillRecord, newTitle: String) async throws -> SyncState {
+        try await onRename(skill, newTitle)
     }
 }

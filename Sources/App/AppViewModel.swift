@@ -19,6 +19,7 @@ protocol SyncEngineControlling {
     func revealInFinder(skill: SkillRecord) throws
     func deleteCanonicalSource(skill: SkillRecord, confirmed: Bool) async throws -> SyncState
     func makeGlobal(skill: SkillRecord, confirmed: Bool) async throws -> SyncState
+    func renameSkill(skill: SkillRecord, newTitle: String) async throws -> SyncState
 }
 
 extension SyncEngine: SyncEngineControlling { }
@@ -390,6 +391,37 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func rename(skill: SkillRecord, newTitle: String) {
+        Task {
+            do {
+                let engine = makeEngine()
+                let trimmedTitle = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                state = try await engine.renameSkill(skill: skill, newTitle: trimmedTitle)
+                let expectedKey = normalizedSkillKey(from: trimmedTitle)
+                if let renamed = state.skills.first(where: {
+                    $0.scope == skill.scope
+                        && ($0.workspace ?? "") == (skill.workspace ?? "")
+                        && $0.skillKey == expectedKey
+                }) {
+                    selectedSkillIDs = Set([renamed.id])
+                } else {
+                    selectedSkillIDs.remove(skill.id)
+                    pruneSelectionToCurrentSkills()
+                }
+                localBanner = InlineBannerPresentation(
+                    title: "Skill renamed",
+                    message: "Updated to \(trimmedTitle).",
+                    symbol: "checkmark.circle.fill",
+                    role: .success,
+                    recoveryActionTitle: nil
+                )
+            } catch {
+                load()
+                alertMessage = error.localizedDescription
+            }
+        }
+    }
+
     func deleteSelectedSkills() {
         Task {
             await deleteSelectedSkillsNow()
@@ -503,6 +535,30 @@ final class AppViewModel: ObservableObject {
     private func validationSignature(for skill: SkillRecord) -> String {
         let targets = skill.targetPaths.sorted().joined(separator: "|")
         return "\(skill.id)|\(skill.name)|\(skill.exists)|\(skill.packageType)|\(skill.canonicalSourcePath)|\(targets)"
+    }
+
+    private func normalizedSkillKey(from title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else {
+            return ""
+        }
+
+        var result = ""
+        var previousWasDash = false
+        for scalar in trimmed.unicodeScalars {
+            let value = scalar.value
+            let isDigit = (48...57).contains(value)
+            let isLowercaseLatin = (97...122).contains(value)
+            if isDigit || isLowercaseLatin {
+                result.append(Character(scalar))
+                previousWasDash = false
+            } else if !previousWasDash {
+                result.append("-")
+                previousWasDash = true
+            }
+        }
+
+        return result.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
     func restoredWindowState() -> AppWindowState? {

@@ -6,6 +6,7 @@ enum SyncTrigger {
     case widget
     case delete
     case makeGlobal
+    case rename
 }
 
 enum SyncEngineError: LocalizedError {
@@ -20,6 +21,12 @@ enum SyncEngineError: LocalizedError {
     case makeGlobalOutsideAllowedRoots
     case makeGlobalSourceMissing
     case makeGlobalTargetExists
+    case renameRequiresNonEmptyTitle
+    case renameRequiresExistingSource
+    case renameBlockedProtectedPath
+    case renameOutsideAllowedRoots
+    case renameConflictTargetExists
+    case renameNoOp
     case migrationFailed(skillKey: String, reason: String)
 
     var errorDescription: String? {
@@ -46,6 +53,18 @@ enum SyncEngineError: LocalizedError {
             return "Make global source does not exist"
         case .makeGlobalTargetExists:
             return "Make global target already exists"
+        case .renameRequiresNonEmptyTitle:
+            return "rename requires a non-empty title that produces a valid key"
+        case .renameRequiresExistingSource:
+            return "rename source does not exist"
+        case .renameBlockedProtectedPath:
+            return "Rename blocked for protected path"
+        case .renameOutsideAllowedRoots:
+            return "Rename blocked: source outside allowed roots"
+        case .renameConflictTargetExists:
+            return "Rename blocked: target already exists"
+        case .renameNoOp:
+            return "Rename is a no-op: generated key is unchanged"
         case let .migrationFailed(skillKey, reason):
             return "Migration failed for \(skillKey): \(reason)"
         }
@@ -269,6 +288,77 @@ struct SyncEngine {
         try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fileManager.moveItem(at: source, to: destination)
         return try await runSync(trigger: .makeGlobal)
+    }
+
+    func renameSkill(skill: SkillRecord, newTitle: String) async throws -> SyncState {
+        let newKey = normalizedSkillKey(from: newTitle)
+        guard !newKey.isEmpty else {
+            throw SyncEngineError.renameRequiresNonEmptyTitle
+        }
+        guard newKey != skill.skillKey else {
+            throw SyncEngineError.renameNoOp
+        }
+        guard !isProtectedSkillKey(skill.skillKey), !isProtectedSkillKey(newKey) else {
+            throw SyncEngineError.renameBlockedProtectedPath
+        }
+
+        let source = URL(fileURLWithPath: skill.canonicalSourcePath, isDirectory: true)
+        if isProtectedPath(source) {
+            throw SyncEngineError.renameBlockedProtectedPath
+        }
+
+        let workspaces = workspaceCandidates()
+        let roots = allowedDeleteRoots(workspaces: workspaces)
+        let isAllowed = roots.contains { isRelativeTo(source, base: $0) }
+        guard isAllowed else {
+            throw SyncEngineError.renameOutsideAllowedRoots
+        }
+
+        let sourceExists = fileManager.fileExists(atPath: source.path) || source.isSymbolicLink
+        guard sourceExists else {
+            throw SyncEngineError.renameRequiresExistingSource
+        }
+
+        let destination: URL
+        if skill.scope == "project" {
+            guard let workspace = skill.workspace?.trimmingCharacters(in: .whitespacesAndNewlines), !workspace.isEmpty else {
+                throw SyncEngineError.renameOutsideAllowedRoots
+            }
+            let workspaceURL = URL(fileURLWithPath: workspace, isDirectory: true)
+            destination = workspaceURL
+                .appendingPathComponent(".claude/skills", isDirectory: true)
+                .appendingPathComponent(newKey, isDirectory: true)
+        } else {
+            destination = preferredGlobalDestination(for: newKey)
+        }
+
+        if isProtectedPath(destination) {
+            throw SyncEngineError.renameBlockedProtectedPath
+        }
+        if standardizedPath(source) == standardizedPath(destination) {
+            throw SyncEngineError.renameNoOp
+        }
+
+        let destinationExists = fileManager.fileExists(atPath: destination.path) || destination.isSymbolicLink
+        guard !destinationExists else {
+            throw SyncEngineError.renameConflictTargetExists
+        }
+
+        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.moveItem(at: source, to: destination)
+
+        let skillFile = destination.appendingPathComponent("SKILL.md")
+        do {
+            try updateSkillTitle(at: skillFile, newTitle: newTitle.trimmingCharacters(in: .whitespacesAndNewlines))
+        } catch {
+            if (fileManager.fileExists(atPath: destination.path) || destination.isSymbolicLink)
+                && !(fileManager.fileExists(atPath: source.path) || source.isSymbolicLink) {
+                try? fileManager.moveItem(at: destination, to: source)
+            }
+            throw error
+        }
+
+        return try await runSync(trigger: .rename)
     }
 
     private func runCoreSync() throws -> SyncCoreResult {
@@ -991,6 +1081,72 @@ struct SyncEngine {
         let basePath = standardizedPath(base)
         let candidate = standardizedPath(path)
         return candidate == basePath || candidate.hasPrefix(basePath + "/")
+    }
+
+    private func normalizedSkillKey(from title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else {
+            return ""
+        }
+
+        var result = ""
+        var previousWasDash = false
+        for scalar in trimmed.unicodeScalars {
+            let value = scalar.value
+            let isDigit = (48...57).contains(value)
+            let isLowercaseLatin = (97...122).contains(value)
+            if isDigit || isLowercaseLatin {
+                result.append(Character(scalar))
+                previousWasDash = false
+            } else if !previousWasDash {
+                result.append("-")
+                previousWasDash = true
+            }
+        }
+
+        return result.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    private func updateSkillTitle(at skillFile: URL, newTitle: String) throws {
+        let contents = try String(contentsOf: skillFile, encoding: .utf8)
+        let updated = updatedSkillContents(contents, withTitle: newTitle)
+        try updated.write(to: skillFile, atomically: true, encoding: .utf8)
+    }
+
+    private func updatedSkillContents(_ original: String, withTitle title: String) -> String {
+        let normalized = original.replacingOccurrences(of: "\r\n", with: "\n")
+        if normalized.hasPrefix("---\n"),
+           let fmEnd = normalized.range(of: "\n---", range: normalized.index(normalized.startIndex, offsetBy: 4)..<normalized.endIndex) {
+            let fmStart = normalized.index(normalized.startIndex, offsetBy: 4)
+            let fmRaw = String(normalized[fmStart..<fmEnd.lowerBound])
+            var lines = fmRaw.components(separatedBy: "\n")
+            var replaced = false
+            for index in lines.indices {
+                let key = lines[index]
+                    .split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+                    .first?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                if key == "title" {
+                    lines[index] = "title: \(title)"
+                    replaced = true
+                    break
+                }
+            }
+            if !replaced {
+                lines.append("title: \(title)")
+            }
+            let body = String(normalized[fmEnd.upperBound...])
+            return "---\n\(lines.joined(separator: "\n"))\n---\(body)"
+        }
+
+        return """
+        ---
+        title: \(title)
+        ---
+
+        \(normalized)
+        """
     }
 
     private func skillEntryID(scope: String, workspace: String?, skillKey: String) -> String {
