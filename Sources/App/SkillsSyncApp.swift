@@ -84,6 +84,9 @@ private struct ContentView: View {
                     state: viewModel.state,
                     feedbackMessages: feedbackMessages,
                     autoMigrateToCanonicalSource: $viewModel.autoMigrateToCanonicalSource,
+                    workspaceDiscoveryRoots: $viewModel.workspaceDiscoveryRoots,
+                    onAddWorkspaceRoot: viewModel.addWorkspaceDiscoveryRoot,
+                    onRemoveWorkspaceRoot: viewModel.removeWorkspaceDiscoveryRoot,
                     onSyncNow: viewModel.syncNow
                 )
 
@@ -248,6 +251,9 @@ private struct SyncHealthToolbarControl: View {
     let state: SyncState
     let feedbackMessages: [InlineBannerPresentation]
     @Binding var autoMigrateToCanonicalSource: Bool
+    @Binding var workspaceDiscoveryRoots: [String]
+    let onAddWorkspaceRoot: (String) -> Void
+    let onRemoveWorkspaceRoot: (String) -> Void
     let onSyncNow: () -> Void
     @State private var showDetails = false
 
@@ -270,6 +276,9 @@ private struct SyncHealthToolbarControl: View {
                 state: state,
                 feedbackMessages: feedbackMessages,
                 autoMigrateToCanonicalSource: $autoMigrateToCanonicalSource,
+                workspaceDiscoveryRoots: $workspaceDiscoveryRoots,
+                onAddWorkspaceRoot: onAddWorkspaceRoot,
+                onRemoveWorkspaceRoot: onRemoveWorkspaceRoot,
                 onSyncNow: onSyncNow
             )
             .frame(minWidth: 320, idealWidth: 360)
@@ -505,7 +514,12 @@ private struct SyncHealthPopoverContent: View {
     let state: SyncState
     let feedbackMessages: [InlineBannerPresentation]
     @Binding var autoMigrateToCanonicalSource: Bool
+    @Binding var workspaceDiscoveryRoots: [String]
+    let onAddWorkspaceRoot: (String) -> Void
+    let onRemoveWorkspaceRoot: (String) -> Void
     let onSyncNow: () -> Void
+    @State private var newWorkspaceRoot: String = ""
+    @State private var workspaceRootValidationMessage: String?
 
     private var status: SyncStatusPresentation {
         state.sync.status.presentation
@@ -545,6 +559,50 @@ private struct SyncHealthPopoverContent: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                Text("Workspace search roots")
+                    .font(.app(.secondary).weight(.semibold))
+
+                if workspaceDiscoveryRoots.isEmpty {
+                    Text("No custom roots configured.")
+                        .font(.app(.meta))
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(workspaceDiscoveryRoots, id: \.self) { root in
+                        HStack(spacing: AppSpacing.sm) {
+                            Text(root)
+                                .font(.app(.pathMono))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Button("Remove Root") {
+                                onRemoveWorkspaceRoot(root)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+
+                HStack(spacing: AppSpacing.sm) {
+                    TextField("/absolute/path/to/workspaces", text: $newWorkspaceRoot)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Add Root") {
+                        guard let valid = validatedWorkspaceRoot(newWorkspaceRoot) else { return }
+                        onAddWorkspaceRoot(valid)
+                        newWorkspaceRoot = ""
+                        workspaceRootValidationMessage = nil
+                    }
+                }
+
+                if let workspaceRootValidationMessage {
+                    Text(workspaceRootValidationMessage)
+                        .font(.app(.meta))
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            Divider()
+
             HStack(spacing: AppSpacing.md) {
                 Toggle("Auto-migrate source", isOn: $autoMigrateToCanonicalSource)
                     .toggleStyle(.checkbox)
@@ -555,6 +613,24 @@ private struct SyncHealthPopoverContent: View {
                 }
             }
         }
+    }
+
+    private func validatedWorkspaceRoot(_ candidate: String) -> String? {
+        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            workspaceRootValidationMessage = "Path cannot be empty."
+            return nil
+        }
+        guard trimmed.hasPrefix("/") else {
+            workspaceRootValidationMessage = "Path must be absolute."
+            return nil
+        }
+        let normalized = URL(fileURLWithPath: trimmed, isDirectory: true).standardizedFileURL.path
+        guard !workspaceDiscoveryRoots.contains(normalized) else {
+            workspaceRootValidationMessage = "Path is already in the list."
+            return nil
+        }
+        return normalized
     }
 }
 

@@ -44,6 +44,74 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(store.loadState().skills.count, 3)
     }
 
+    func testRunSyncDiscoversProjectSkillInCodexSkillsDirectory() async throws {
+        try writeSkill(root: path("Dev/workspace-a/.codex/skills"), key: "project-codex", body: "PC")
+        configureEngine()
+
+        let engine = SyncEngine()
+        let state = try await engine.runSync(trigger: .manual)
+
+        XCTAssertEqual(state.sync.status, .ok)
+        XCTAssertEqual(state.summary.projectCount, 1)
+        let project = try XCTUnwrap(state.skills.first(where: { $0.skillKey == "project-codex" }))
+        XCTAssertEqual(project.scope, "project")
+        XCTAssertEqual(
+            URL(fileURLWithPath: project.workspace ?? "").standardizedFileURL.path,
+            path("Dev/workspace-a").standardizedFileURL.path
+        )
+    }
+
+    func testRunSyncCreatesProjectCodexTargetSymlinkForCanonicalProjectSkill() async throws {
+        try writeSkill(root: path("Dev/workspace-a/.claude/skills"), key: "project-shared", body: "same")
+        try writeSkill(root: path("Dev/workspace-a/.codex/skills"), key: "project-shared", body: "same")
+        configureEngine()
+
+        let engine = SyncEngine()
+        _ = try await engine.runSync(trigger: .manual)
+
+        let codexPath = path("Dev/workspace-a/.codex/skills/project-shared")
+        let claudePath = path("Dev/workspace-a/.claude/skills/project-shared")
+        XCTAssertTrue(codexPath.isTestSymlink)
+        let destination = URL(fileURLWithPath: try FileManager.default.destinationOfSymbolicLink(atPath: codexPath.path)).standardizedFileURL.path
+        XCTAssertEqual(destination, claudePath.standardizedFileURL.path)
+    }
+
+    func testRunSyncDiscoversWorkspaceFromConfiguredCustomRoot() async throws {
+        let externalWorkspace = path("external/custom-root/workspace-z")
+        try writeSkill(root: externalWorkspace.appendingPathComponent(".claude/skills", isDirectory: true), key: "custom-root-skill", body: "CR")
+        try writeSettings(autoMigrate: false, workspaceDiscoveryRoots: [path("external/custom-root").path])
+        configureEngine()
+
+        let engine = SyncEngine()
+        let state = try await engine.runSync(trigger: .manual)
+
+        XCTAssertTrue(state.skills.contains(where: { $0.skillKey == "custom-root-skill" && $0.scope == "project" }))
+    }
+
+    func testRunSyncScansConfiguredCustomRootRecursivelyToDepthThree() async throws {
+        let level3Workspace = path("external/depth-root/one/two/workspace-depth3")
+        try writeSkill(root: level3Workspace.appendingPathComponent(".claude/skills", isDirectory: true), key: "depth-3", body: "D3")
+        try writeSettings(autoMigrate: false, workspaceDiscoveryRoots: [path("external/depth-root").path])
+        configureEngine()
+
+        let engine = SyncEngine()
+        let state = try await engine.runSync(trigger: .manual)
+
+        XCTAssertTrue(state.skills.contains(where: { $0.skillKey == "depth-3" }))
+    }
+
+    func testRunSyncDoesNotScanConfiguredCustomRootDeeperThanDepthThree() async throws {
+        let tooDeepWorkspace = path("external/depth-root/one/two/three/workspace-depth4")
+        try writeSkill(root: tooDeepWorkspace.appendingPathComponent(".claude/skills", isDirectory: true), key: "depth-4", body: "D4")
+        try writeSettings(autoMigrate: false, workspaceDiscoveryRoots: [path("external/depth-root").path])
+        configureEngine()
+
+        let engine = SyncEngine()
+        let state = try await engine.runSync(trigger: .manual)
+
+        XCTAssertFalse(state.skills.contains(where: { $0.skillKey == "depth-4" }))
+    }
+
     func testRunSyncMarksFailedOnConflictAndWritesConflictCount() async throws {
         try writeSkill(root: path(".claude/skills"), key: "duplicate", body: "first")
         try writeSkill(root: path(".agents/skills"), key: "duplicate", body: "second")
@@ -508,9 +576,14 @@ final class SyncEngineTests: XCTestCase {
     }
 
     private func writeAutoMigrationPreference(enabled: Bool) throws {
+        try writeSettings(autoMigrate: enabled, workspaceDiscoveryRoots: nil)
+    }
+
+    private func writeSettings(autoMigrate: Bool, workspaceDiscoveryRoots: [String]?) throws {
         let payload: [String: Any] = [
             "version": 1,
-            "auto_migrate_to_canonical_source": enabled
+            "auto_migrate_to_canonical_source": autoMigrate,
+            "workspace_discovery_roots": workspaceDiscoveryRoots ?? []
         ]
         let url = runtimeDir.appendingPathComponent("app-settings.json")
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])

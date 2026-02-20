@@ -53,6 +53,20 @@ final class AppViewModel: ObservableObject {
             currentSettings = SyncAppSettings(
                 version: 2,
                 autoMigrateToCanonicalSource: autoMigrateToCanonicalSource,
+                workspaceDiscoveryRoots: workspaceDiscoveryRoots,
+                windowState: currentSettings.windowState,
+                uiState: currentSettings.uiState
+            )
+            preferencesStore.saveSettings(currentSettings)
+        }
+    }
+    @Published var workspaceDiscoveryRoots: [String] = [] {
+        didSet {
+            guard isPreferencesLoaded else { return }
+            currentSettings = SyncAppSettings(
+                version: 2,
+                autoMigrateToCanonicalSource: autoMigrateToCanonicalSource,
+                workspaceDiscoveryRoots: workspaceDiscoveryRoots,
                 windowState: currentSettings.windowState,
                 uiState: currentSettings.uiState
             )
@@ -98,6 +112,7 @@ final class AppViewModel: ObservableObject {
         let settings = preferencesStore.loadSettings()
         currentSettings = settings
         autoMigrateToCanonicalSource = settings.autoMigrateToCanonicalSource
+        workspaceDiscoveryRoots = Self.normalizedWorkspaceRoots(settings.workspaceDiscoveryRoots)
         if let restoredScope = ScopeFilter(rawValue: settings.uiState?.scopeFilter ?? "") {
             scopeFilter = restoredScope
         }
@@ -381,6 +396,19 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func addWorkspaceDiscoveryRoot(_ candidate: String) {
+        guard let normalized = Self.normalizedWorkspaceRoot(candidate) else { return }
+        if workspaceDiscoveryRoots.contains(normalized) {
+            return
+        }
+        workspaceDiscoveryRoots.append(normalized)
+    }
+
+    func removeWorkspaceDiscoveryRoot(_ root: String) {
+        guard let normalized = Self.normalizedWorkspaceRoot(root) else { return }
+        workspaceDiscoveryRoots.removeAll(where: { $0 == normalized })
+    }
+
     func deleteSelectedSkillsNow() async {
         let skillsToDelete = selectedSkills
         guard !skillsToDelete.isEmpty else {
@@ -505,6 +533,7 @@ final class AppViewModel: ObservableObject {
         currentSettings = SyncAppSettings(
             version: 2,
             autoMigrateToCanonicalSource: autoMigrateToCanonicalSource,
+            workspaceDiscoveryRoots: workspaceDiscoveryRoots,
             windowState: windowState,
             uiState: uiState
         )
@@ -540,10 +569,30 @@ final class AppViewModel: ObservableObject {
         currentSettings = SyncAppSettings(
             version: 2,
             autoMigrateToCanonicalSource: autoMigrateToCanonicalSource,
+            workspaceDiscoveryRoots: workspaceDiscoveryRoots,
             windowState: currentSettings.windowState,
             uiState: uiState
         )
         preferencesStore.saveSettings(currentSettings)
+    }
+
+    nonisolated private static func normalizedWorkspaceRoots(_ roots: [String]) -> [String] {
+        var normalized: [String] = []
+        var seen: Set<String> = []
+        for root in roots {
+            guard let value = normalizedWorkspaceRoot(root) else { continue }
+            guard !seen.contains(value) else { continue }
+            seen.insert(value)
+            normalized.append(value)
+        }
+        return normalized
+    }
+
+    nonisolated private static func normalizedWorkspaceRoot(_ root: String) -> String? {
+        let trimmed = root.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard trimmed.hasPrefix("/") else { return nil }
+        return URL(fileURLWithPath: trimmed, isDirectory: true).standardizedFileURL.path
     }
 }
 

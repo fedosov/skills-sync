@@ -275,11 +275,43 @@ final class SyncPresentationTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceDiscoveryRootsLoadFromSettings() throws {
+        try prepareSettingsDirectory()
+        let settings = SyncAppSettings(
+            version: 2,
+            autoMigrateToCanonicalSource: false,
+            workspaceDiscoveryRoots: ["/Users/me/Work", "/Users/me/Sandbox"],
+            windowState: nil,
+            uiState: nil
+        )
+        SyncPreferencesStore().saveSettings(settings)
+
+        let viewModel = AppViewModel()
+
+        XCTAssertEqual(viewModel.workspaceDiscoveryRoots, ["/Users/me/Work", "/Users/me/Sandbox"])
+    }
+
+    @MainActor
+    func testWorkspaceDiscoveryRootsAddRemovePersistsBetweenViewModelInstances() throws {
+        try prepareSettingsDirectory()
+
+        let first = AppViewModel()
+        first.addWorkspaceDiscoveryRoot(" /Users/me/Work ")
+        first.addWorkspaceDiscoveryRoot("/Users/me/Work")
+        first.addWorkspaceDiscoveryRoot("/Users/me/Sandbox")
+        first.removeWorkspaceDiscoveryRoot("/Users/me/Work")
+
+        let second = AppViewModel()
+        XCTAssertEqual(second.workspaceDiscoveryRoots, ["/Users/me/Sandbox"])
+    }
+
+    @MainActor
     func testViewModelRestoresUIStateFromSettings() throws {
         try prepareSettingsDirectory()
         let settings = SyncAppSettings(
             version: 2,
             autoMigrateToCanonicalSource: true,
+            workspaceDiscoveryRoots: [],
             windowState: nil,
             uiState: AppUIState(
                 sidebarWidth: 333,
@@ -482,6 +514,19 @@ final class SyncPresentationTests: XCTestCase {
         XCTAssertTrue(source.contains("You can click issues and the repair prompt will be copied."))
         XCTAssertTrue(source.contains("SkillRepairPromptBuilder.prompt"))
         XCTAssertTrue(source.contains("NSPasteboard.general"))
+    }
+
+    func testSkillsSyncAppContainsWorkspaceRootsControlsInHealthPopover() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appFile = repoRoot.appendingPathComponent("Sources/App/SkillsSyncApp.swift")
+        let source = try String(contentsOf: appFile, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Workspace search roots"))
+        XCTAssertTrue(source.contains("Add Root"))
+        XCTAssertTrue(source.contains("Remove Root"))
     }
 
     private func makeSkill(

@@ -65,6 +65,23 @@ final class SkillsSyncSharedTests: XCTestCase {
         XCTAssertEqual(state.topSkills.first, "skill-1")
     }
 
+    func testSyncAppSettingsBackwardCompatibleWithoutWorkspaceDiscoveryRoots() throws {
+        let payload = """
+        {
+          "version": 1,
+          "auto_migrate_to_canonical_source": true
+        }
+        """
+        let data = try XCTUnwrap(payload.data(using: .utf8))
+        try data.write(to: SyncPaths.appSettingsURL)
+
+        let settings = SyncPreferencesStore().loadSettings()
+
+        XCTAssertEqual(settings.version, 1)
+        XCTAssertTrue(settings.autoMigrateToCanonicalSource)
+        XCTAssertEqual(settings.workspaceDiscoveryRoots, [])
+    }
+
     func testDeepLinkRoutingParsesSkillDetailsURL() {
         let route = DeepLinkParser.parse(URL(string: "skillssync://skill?id=abc-123")!)
         XCTAssertEqual(route, .skill(id: "abc-123"))
@@ -489,6 +506,7 @@ final class SkillsSyncSharedTests: XCTestCase {
         let settings = SyncAppSettings(
             version: 2,
             autoMigrateToCanonicalSource: true,
+            workspaceDiscoveryRoots: [],
             windowState: AppWindowState(x: 11, y: 22, width: 1200, height: 800, isMaximized: false),
             uiState: AppUIState(
                 sidebarWidth: 401,

@@ -474,6 +474,7 @@ struct SyncEngine {
         var result: [SkillPackage] = []
         result += discoverDirPackages(root: workspace.appendingPathComponent(".claude/skills", isDirectory: true), scope: "project", workspace: workspace)
         result += discoverDirPackages(root: workspace.appendingPathComponent(".agents/skills", isDirectory: true), scope: "project", workspace: workspace)
+        result += discoverDirPackages(root: workspace.appendingPathComponent(".codex/skills", isDirectory: true), scope: "project", workspace: workspace)
         return result
     }
 
@@ -571,6 +572,9 @@ struct SyncEngine {
         }
         if standardizedPath(package.sourceRoot) == standardizedPath(workspace.appendingPathComponent(".agents/skills", isDirectory: true)) {
             return 1
+        }
+        if standardizedPath(package.sourceRoot) == standardizedPath(workspace.appendingPathComponent(".codex/skills", isDirectory: true)) {
+            return 2
         }
         return 999
     }
@@ -739,6 +743,10 @@ struct SyncEngine {
             }
         }
 
+        for root in customWorkspaceDiscoveryRoots() {
+            candidates.append(contentsOf: discoverWorkspaces(in: root, depth: 0, maxDepth: 3))
+        }
+
         let byPath = Dictionary(uniqueKeysWithValues: candidates.map { (standardizedPath($0), $0) })
         return byPath.values.sorted { $0.path < $1.path }
     }
@@ -746,7 +754,57 @@ struct SyncEngine {
     private func hasWorkspaceSkills(_ repo: URL) -> Bool {
         let claude = repo.appendingPathComponent(".claude/skills", isDirectory: true)
         let agents = repo.appendingPathComponent(".agents/skills", isDirectory: true)
-        return fileManager.fileExists(atPath: claude.path) || fileManager.fileExists(atPath: agents.path)
+        let codex = repo.appendingPathComponent(".codex/skills", isDirectory: true)
+        return fileManager.fileExists(atPath: claude.path)
+            || fileManager.fileExists(atPath: agents.path)
+            || fileManager.fileExists(atPath: codex.path)
+    }
+
+    private func customWorkspaceDiscoveryRoots() -> [URL] {
+        let configured = preferencesStore.loadSettings().workspaceDiscoveryRoots
+        var roots: [URL] = []
+        var seen: Set<String> = []
+        for raw in configured {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, trimmed.hasPrefix("/") else { continue }
+            let normalized = URL(fileURLWithPath: trimmed, isDirectory: true).standardizedFileURL
+            let key = standardizedPath(normalized)
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            roots.append(normalized)
+        }
+        return roots
+    }
+
+    private func discoverWorkspaces(in root: URL, depth: Int, maxDepth: Int) -> [URL] {
+        guard fileManager.fileExists(atPath: root.path) else {
+            return []
+        }
+
+        var result: [URL] = []
+        if hasWorkspaceSkills(root) {
+            result.append(root)
+        }
+
+        guard depth < maxDepth else {
+            return result
+        }
+
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
+        guard let children = try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else {
+            return result
+        }
+
+        for child in children {
+            let values = try? child.resourceValues(forKeys: Set(keys))
+            guard values?.isDirectory == true else { continue }
+            if values?.isSymbolicLink == true {
+                continue
+            }
+            result.append(contentsOf: discoverWorkspaces(in: child, depth: depth + 1, maxDepth: maxDepth))
+        }
+
+        return result
     }
 
     private func createOrUpdateSymlink(at target: URL, destination: URL) throws {
@@ -950,6 +1008,7 @@ struct SyncEngine {
         for workspace in workspaces {
             roots.append(workspace.appendingPathComponent(".claude/skills", isDirectory: true))
             roots.append(workspace.appendingPathComponent(".agents/skills", isDirectory: true))
+            roots.append(workspace.appendingPathComponent(".codex/skills", isDirectory: true))
         }
         return roots
     }
@@ -959,6 +1018,7 @@ struct SyncEngine {
         for workspace in workspaces {
             roots.append(workspace.appendingPathComponent(".claude/skills", isDirectory: true))
             roots.append(workspace.appendingPathComponent(".agents/skills", isDirectory: true))
+            roots.append(workspace.appendingPathComponent(".codex/skills", isDirectory: true))
         }
         return roots
     }
@@ -1008,7 +1068,8 @@ struct SyncEngine {
     private func projectTargets(for workspace: URL) -> [URL] {
         [
             workspace.appendingPathComponent(".claude/skills", isDirectory: true),
-            workspace.appendingPathComponent(".agents/skills", isDirectory: true)
+            workspace.appendingPathComponent(".agents/skills", isDirectory: true),
+            workspace.appendingPathComponent(".codex/skills", isDirectory: true)
         ]
     }
 
