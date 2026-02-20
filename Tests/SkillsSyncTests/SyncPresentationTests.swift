@@ -658,21 +658,23 @@ final class SyncPresentationTests: XCTestCase {
         XCTAssertTrue(viewModel.hasValidationWarnings(for: skill))
     }
 
-    func testSkillsSyncAppContainsValidationSectionAndWarningIndicators() throws {
+    func testSkillDetailModuleContainsValidationSectionAndWarningIndicators() throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let appFile = repoRoot.appendingPathComponent("Sources/App/SkillsSyncApp.swift")
-        let source = try String(contentsOf: appFile, encoding: .utf8)
+        let detailFile = repoRoot.appendingPathComponent("Sources/App/SkillDetails/SkillDetailView.swift")
+        let panelFile = repoRoot.appendingPathComponent("Sources/App/SkillDetails/SkillValidationPanel.swift")
+        let detailSource = try String(contentsOf: detailFile, encoding: .utf8)
+        let panelSource = try String(contentsOf: panelFile, encoding: .utf8)
 
-        XCTAssertTrue(source.contains("Section(\"Validation\")"))
-        XCTAssertTrue(source.contains("exclamationmark.triangle.fill"))
-        XCTAssertTrue(source.contains("validation issue(s)"))
-        XCTAssertTrue(source.contains("No validation warnings"))
-        XCTAssertTrue(source.contains("You can click issues and the repair prompt will be copied."))
-        XCTAssertTrue(source.contains("SkillRepairPromptBuilder.prompt"))
-        XCTAssertTrue(source.contains("NSPasteboard.general"))
+        XCTAssertTrue(detailSource.contains("Section(\"Validation\")"))
+        XCTAssertTrue(detailSource.contains("exclamationmark.triangle.fill"))
+        XCTAssertTrue(detailSource.contains("validation issue(s)"))
+        XCTAssertTrue(detailSource.contains("No validation warnings"))
+        XCTAssertTrue(panelSource.contains("Select an issue to copy a repair prompt."))
+        XCTAssertTrue(detailSource.contains("SkillRepairPromptBuilder.prompt"))
+        XCTAssertTrue(detailSource.contains("NSPasteboard.general"))
     }
 
     func testSkillsSyncAppContainsWorkspaceRootsControlsInHealthPopover() throws {

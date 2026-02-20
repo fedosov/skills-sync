@@ -288,7 +288,12 @@ struct SyncEngine {
             throw SyncEngineError.deleteRequiresConfirmation
         }
 
-        let target = URL(fileURLWithPath: skill.canonicalSourcePath, isDirectory: true)
+        let target: URL
+        if skill.status == .archived, let bundlePath = skill.archivedBundlePath, !bundlePath.isEmpty {
+            target = URL(fileURLWithPath: bundlePath, isDirectory: true)
+        } else {
+            target = URL(fileURLWithPath: skill.canonicalSourcePath, isDirectory: true)
+        }
         if isProtectedPath(target) {
             throw SyncEngineError.deletionBlockedProtectedPath
         }
@@ -1326,7 +1331,8 @@ struct SyncEngine {
         var roots = [
             claudeSkillsRoot(),
             agentsSkillsRoot(),
-            codexSkillsRoot()
+            codexSkillsRoot(),
+            archivesRoot()
         ]
         for workspace in workspaces {
             roots.append(workspace.appendingPathComponent(".claude/skills", isDirectory: true))

@@ -22,12 +22,18 @@
 		A88F99EC7D8F55338EFC16B6 /* AppTypography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78270507E464E5B08B215DAD /* AppTypography.swift */; };
 		A9F2CE96FF593515AD443E77 /* SyncPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8304E9A65C2431ABE9966B64 /* SyncPresentationTests.swift */; };
 		B7CF5D7FA29FBBEFF0AD7E96 /* SkillsSyncApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 138612FAE9DDE47730C0114D /* SkillsSyncApp.swift */; };
+		BE4D27A9DC4B07DE28031035 /* SkillValidationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 908F4AC22B070F3746B528E5 /* SkillValidationPanel.swift */; };
 		C2BBC39037C663095C8A879B /* DeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71B1FF0DC6FC627D54E72C2B /* DeepLink.swift */; };
+		C398C74D208C6A241084A58F /* SkillDeepDivePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD4B6A7DF8648C3520418922 /* SkillDeepDivePanel.swift */; };
 		CE2F3E81FB56831F5659426F /* WindowStateCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7725D359EF5E770B0AAB67E /* WindowStateCoordinator.swift */; };
 		E13E1F77A8270C7906CA984D /* SkillPreviewParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03BA106E88878C7D61269E19 /* SkillPreviewParser.swift */; };
+		E4AAFDED00601679C89E2E49 /* SkillRiskPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E86C4267CE6596BF273FC9D5 /* SkillRiskPanel.swift */; };
+		E7B590FD1750564778865CA4 /* SkillOverviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A4A272B451C5676DEC603F /* SkillOverviewCard.swift */; };
 		EA2E57E68DC901EA8C2B3216 /* SkillValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9178F25DCE093E88EAD9BC8C /* SkillValidator.swift */; };
 		EFB6C6740C9434EC31932E4B /* SyncPreferencesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84D883371EE793C7A7359EF4 /* SyncPreferencesStore.swift */; };
+		F4E0CE78F2A626B220A34184 /* SkillDetailViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3DF3BB9C0DED69665C8AF3D /* SkillDetailViewTests.swift */; };
 		F9907DCB3E41D9B58A07A909 /* AppTypographyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8173E401C252C1A9580FC8DA /* AppTypographyTests.swift */; };
+		FD1085C52F2FD41B0B5EAE12 /* SkillDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6657D3ABD350EA8FD1EECF /* SkillDetailView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,16 +63,34 @@
 		8173E401C252C1A9580FC8DA /* AppTypographyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTypographyTests.swift; sourceTree = "<group>"; };
 		8304E9A65C2431ABE9966B64 /* SyncPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPresentationTests.swift; sourceTree = "<group>"; };
 		84D883371EE793C7A7359EF4 /* SyncPreferencesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPreferencesStore.swift; sourceTree = "<group>"; };
+		908F4AC22B070F3746B528E5 /* SkillValidationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillValidationPanel.swift; sourceTree = "<group>"; };
 		90E8B9772FC89BC45E5E297D /* SkillRepairPromptBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillRepairPromptBuilder.swift; sourceTree = "<group>"; };
 		9178F25DCE093E88EAD9BC8C /* SkillValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillValidator.swift; sourceTree = "<group>"; };
 		A522E41A68DEC58884084AFC /* AutoSyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoSyncCoordinator.swift; sourceTree = "<group>"; };
 		B7725D359EF5E770B0AAB67E /* WindowStateCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowStateCoordinator.swift; sourceTree = "<group>"; };
+		BD4B6A7DF8648C3520418922 /* SkillDeepDivePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillDeepDivePanel.swift; sourceTree = "<group>"; };
 		C22F5067FCAFB7E48F14D295 /* SyncPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPresentation.swift; sourceTree = "<group>"; };
+		CE6657D3ABD350EA8FD1EECF /* SkillDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillDetailView.swift; sourceTree = "<group>"; };
+		D3DF3BB9C0DED69665C8AF3D /* SkillDetailViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillDetailViewTests.swift; sourceTree = "<group>"; };
+		D7A4A272B451C5676DEC603F /* SkillOverviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillOverviewCard.swift; sourceTree = "<group>"; };
+		E86C4267CE6596BF273FC9D5 /* SkillRiskPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillRiskPanel.swift; sourceTree = "<group>"; };
 		FD727AEEDFD6802944F1D016 /* SkillsSyncSharedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsSyncSharedTests.swift; sourceTree = "<group>"; };
 		FF5F0F7FB0C7F6161A8AD575 /* SkillsSyncTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SkillsSyncTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		25148D057B8B93F278658D16 /* SkillDetails */ = {
+			isa = PBXGroup;
+			children = (
+				BD4B6A7DF8648C3520418922 /* SkillDeepDivePanel.swift */,
+				CE6657D3ABD350EA8FD1EECF /* SkillDetailView.swift */,
+				D7A4A272B451C5676DEC603F /* SkillOverviewCard.swift */,
+				E86C4267CE6596BF273FC9D5 /* SkillRiskPanel.swift */,
+				908F4AC22B070F3746B528E5 /* SkillValidationPanel.swift */,
+			);
+			path = SkillDetails;
+			sourceTree = "<group>";
+		};
 		5FABA9E265C652B1C44BC4DF /* Shared */ = {
 			isa = PBXGroup;
 			children = (
@@ -120,6 +144,7 @@
 				A522E41A68DEC58884084AFC /* AutoSyncCoordinator.swift */,
 				138612FAE9DDE47730C0114D /* SkillsSyncApp.swift */,
 				B7725D359EF5E770B0AAB67E /* WindowStateCoordinator.swift */,
+				25148D057B8B93F278658D16 /* SkillDetails */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -128,6 +153,7 @@
 			isa = PBXGroup;
 			children = (
 				8173E401C252C1A9580FC8DA /* AppTypographyTests.swift */,
+				D3DF3BB9C0DED69665C8AF3D /* SkillDetailViewTests.swift */,
 				FD727AEEDFD6802944F1D016 /* SkillsSyncSharedTests.swift */,
 				1F9966D6B82CAA235FF1999E /* SyncEngineTests.swift */,
 				8304E9A65C2431ABE9966B64 /* SyncPresentationTests.swift */,
@@ -227,6 +253,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F9907DCB3E41D9B58A07A909 /* AppTypographyTests.swift in Sources */,
+				F4E0CE78F2A626B220A34184 /* SkillDetailViewTests.swift in Sources */,
 				2BA20D1A45C987E3A6EFC3C2 /* SkillsSyncSharedTests.swift in Sources */,
 				48FDFBC098957FD2336AAD5C /* SyncEngineTests.swift in Sources */,
 				A9F2CE96FF593515AD443E77 /* SyncPresentationTests.swift in Sources */,
@@ -244,8 +271,13 @@
 				C2BBC39037C663095C8A879B /* DeepLink.swift in Sources */,
 				5D78B2135CD93FC3A887F6B6 /* Intents.swift in Sources */,
 				543D4F2D0FDFB533D3AF5CA3 /* Models.swift in Sources */,
+				C398C74D208C6A241084A58F /* SkillDeepDivePanel.swift in Sources */,
+				FD1085C52F2FD41B0B5EAE12 /* SkillDetailView.swift in Sources */,
+				E7B590FD1750564778865CA4 /* SkillOverviewCard.swift in Sources */,
 				E13E1F77A8270C7906CA984D /* SkillPreviewParser.swift in Sources */,
 				A80CFAA3773B310AA8FA6897 /* SkillRepairPromptBuilder.swift in Sources */,
+				E4AAFDED00601679C89E2E49 /* SkillRiskPanel.swift in Sources */,
+				BE4D27A9DC4B07DE28031035 /* SkillValidationPanel.swift in Sources */,
 				EA2E57E68DC901EA8C2B3216 /* SkillValidator.swift in Sources */,
 				B7CF5D7FA29FBBEFF0AD7E96 /* SkillsSyncApp.swift in Sources */,
 				424484FD68A9017C4A5CA60F /* SyncEngine.swift in Sources */,

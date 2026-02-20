@@ -383,6 +383,20 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertTrue(trashed.contains(where: { $0.hasPrefix("delete-ok") }))
     }
 
+    func testDeleteCanonicalSourceForArchivedSkillRemovesArchiveBundleAndEntry() async throws {
+        let bundle = try writeArchivedBundle(skillKey: "delete-archived", name: "delete-archived")
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let archived = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == "delete-archived" && $0.status == .archived }))
+
+        let state = try await engine.deleteCanonicalSource(skill: archived, confirmed: true)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundle.path))
+        XCTAssertFalse(state.skills.contains(where: { $0.skillKey == "delete-archived" }))
+    }
+
     func testArchiveCanonicalSourceRequiresConfirmedTrue() async throws {
         let source = path(".claude/skills/archive-me")
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)

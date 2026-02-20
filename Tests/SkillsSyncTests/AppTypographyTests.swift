@@ -3,12 +3,12 @@ import XCTest
 
 final class AppTypographyTests: XCTestCase {
     func testAppTextRoleMapsToExpectedSwiftUITextStyles() {
-        XCTAssertEqual(AppTextRole.title.spec, AppTextSpec(textStyle: .title3, weight: .semibold, monospaced: false))
-        XCTAssertEqual(AppTextRole.sectionHeader.spec, AppTextSpec(textStyle: .headline, weight: nil, monospaced: false))
+        XCTAssertEqual(AppTextRole.title.spec, AppTextSpec(textStyle: .title2, weight: .semibold, monospaced: false))
+        XCTAssertEqual(AppTextRole.sectionHeader.spec, AppTextSpec(textStyle: .title3, weight: .semibold, monospaced: false))
         XCTAssertEqual(AppTextRole.body.spec, AppTextSpec(textStyle: .body, weight: nil, monospaced: false))
-        XCTAssertEqual(AppTextRole.secondary.spec, AppTextSpec(textStyle: .subheadline, weight: nil, monospaced: false))
-        XCTAssertEqual(AppTextRole.meta.spec, AppTextSpec(textStyle: .caption, weight: nil, monospaced: false))
-        XCTAssertEqual(AppTextRole.pathMono.spec, AppTextSpec(textStyle: .footnote, weight: nil, monospaced: true))
+        XCTAssertEqual(AppTextRole.secondary.spec, AppTextSpec(textStyle: .body, weight: nil, monospaced: false))
+        XCTAssertEqual(AppTextRole.meta.spec, AppTextSpec(textStyle: .footnote, weight: nil, monospaced: false))
+        XCTAssertEqual(AppTextRole.pathMono.spec, AppTextSpec(textStyle: .callout, weight: nil, monospaced: true))
     }
 
     func testSpacingScaleMatchesDesignSystemValues() {
@@ -20,7 +20,7 @@ final class AppTypographyTests: XCTestCase {
     }
 
     func testPathRoleUsesMonospacedStyleByContract() {
-        XCTAssertEqual(AppTextRole.pathMono.spec.textStyle, .footnote)
+        XCTAssertEqual(AppTextRole.pathMono.spec.textStyle, .callout)
         XCTAssertNil(AppTextRole.pathMono.spec.weight)
         XCTAssertTrue(AppTextRole.pathMono.spec.monospaced)
     }

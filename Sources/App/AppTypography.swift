@@ -17,17 +17,17 @@ enum AppTextRole {
     var spec: AppTextSpec {
         switch self {
         case .title:
-            AppTextSpec(textStyle: .title3, weight: .semibold, monospaced: false)
+            AppTextSpec(textStyle: .title2, weight: .semibold, monospaced: false)
         case .sectionHeader:
-            AppTextSpec(textStyle: .headline, weight: nil, monospaced: false)
+            AppTextSpec(textStyle: .title3, weight: .semibold, monospaced: false)
         case .body:
             AppTextSpec(textStyle: .body, weight: nil, monospaced: false)
         case .secondary:
-            AppTextSpec(textStyle: .subheadline, weight: nil, monospaced: false)
+            AppTextSpec(textStyle: .body, weight: nil, monospaced: false)
         case .meta:
-            AppTextSpec(textStyle: .caption, weight: nil, monospaced: false)
+            AppTextSpec(textStyle: .footnote, weight: nil, monospaced: false)
         case .pathMono:
-            AppTextSpec(textStyle: .footnote, weight: nil, monospaced: true)
+            AppTextSpec(textStyle: .callout, weight: nil, monospaced: true)
         }
     }
 }
