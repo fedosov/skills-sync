@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Badge } from './components/ui/badge'
-import { Button } from './components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card'
-import { Input } from './components/ui/input'
-import { cn } from './lib/utils'
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Badge } from "./components/ui/badge";
+import { Button } from "./components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+import { Input } from "./components/ui/input";
+import { cn } from "./lib/utils";
 import {
   getSkillDetails,
   getState,
@@ -11,197 +11,209 @@ import {
   openSkillPath,
   renameSkill,
   runSync,
-} from './tauriApi'
+} from "./tauriApi";
 import {
   formatUnixTime,
   normalizeSkillKey,
   pickSelectedSkillKey,
   sortAndFilterSkills,
-} from './skillUtils'
+} from "./skillUtils";
 import type {
   MutationCommand,
   SkillDetails,
   SkillLifecycleStatus,
   SyncHealthStatus,
   SyncState,
-} from './types'
+} from "./types";
 
 function toTitleCase(value: string): string {
   if (!value) {
-    return value
+    return value;
   }
-  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`
+  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
 }
 
 function syncStatusVariant(status: SyncHealthStatus | undefined) {
   switch (status) {
-    case 'ok':
-      return 'success' as const
-    case 'failed':
-      return 'error' as const
-    case 'syncing':
-      return 'warning' as const
+    case "ok":
+      return "success" as const;
+    case "failed":
+      return "error" as const;
+    case "syncing":
+      return "warning" as const;
     default:
-      return 'outline' as const
+      return "outline" as const;
   }
 }
 
 function lifecycleVariant(status: SkillLifecycleStatus) {
-  return status === 'active' ? ('success' as const) : ('outline' as const)
+  return status === "active" ? ("success" as const) : ("outline" as const);
 }
 
-type PendingMutation = { command: MutationCommand; skillKey: string }
+type PendingMutation = { command: MutationCommand; skillKey: string };
 
 export function App() {
-  const [state, setState] = useState<SyncState | null>(null)
-  const [details, setDetails] = useState<SkillDetails | null>(null)
-  const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
-  const [renameDraft, setRenameDraft] = useState('')
-  const [pendingMutation, setPendingMutation] = useState<PendingMutation | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [state, setState] = useState<SyncState | null>(null);
+  const [details, setDetails] = useState<SkillDetails | null>(null);
+  const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [renameDraft, setRenameDraft] = useState("");
+  const [pendingMutation, setPendingMutation] =
+    useState<PendingMutation | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const applyState = useCallback(
+    (next: SyncState, preferredKey?: string | null) => {
+      setState(next);
+      setSelectedSkillKey((previousKey) =>
+        pickSelectedSkillKey(next.skills, preferredKey, previousKey),
+      );
+    },
+    [],
+  );
+
+  const refreshState = useCallback(
+    async (preferredKey?: string | null) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const next = await getState();
+        applyState(next, preferredKey);
+      } catch (invokeError) {
+        setError(String(invokeError));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [applyState],
+  );
 
   useEffect(() => {
-    void refreshState()
-  }, [])
+    void refreshState();
+  }, [refreshState]);
 
   useEffect(() => {
     if (!state || state.skills.length === 0) {
-      setSelectedSkillKey(null)
-      setDetails(null)
-      return
+      setSelectedSkillKey(null);
+      setDetails(null);
+      return;
     }
 
-    setSelectedSkillKey((current) => pickSelectedSkillKey(state.skills, current))
-  }, [state])
+    setSelectedSkillKey((current) =>
+      pickSelectedSkillKey(state.skills, current),
+    );
+  }, [state]);
 
   useEffect(() => {
     if (!selectedSkillKey) {
-      setDetails(null)
-      return
+      setDetails(null);
+      return;
     }
 
-    let cancelled = false
-    ;(async () => {
+    let cancelled = false;
+    void (async () => {
       try {
-        const next = await getSkillDetails(selectedSkillKey)
+        const next = await getSkillDetails(selectedSkillKey);
         if (!cancelled) {
-          setDetails(next)
-          setRenameDraft(next.skill.name)
+          setDetails(next);
+          setRenameDraft(next.skill.name);
         }
       } catch (invokeError) {
         if (!cancelled) {
-          setError(String(invokeError))
+          setError(String(invokeError));
         }
       }
-    })()
+    })();
 
     return () => {
-      cancelled = true
-    }
-  }, [selectedSkillKey])
+      cancelled = true;
+    };
+  }, [selectedSkillKey]);
 
   const filteredSkills = useMemo(() => {
-    if (!state) return []
-    return sortAndFilterSkills(state.skills, query)
-  }, [query, state])
-
-  function applyState(next: SyncState, preferredKey?: string | null) {
-    setState(next)
-    setSelectedSkillKey((previousKey) =>
-      pickSelectedSkillKey(next.skills, preferredKey, previousKey),
-    )
-  }
-
-  async function refreshState() {
-    setBusy(true)
-    setError(null)
-    try {
-      const next = await getState()
-      applyState(next, selectedSkillKey)
-    } catch (invokeError) {
-      setError(String(invokeError))
-    } finally {
-      setBusy(false)
-    }
-  }
+    if (!state) return [];
+    return sortAndFilterSkills(state.skills, query);
+  }, [query, state]);
 
   async function handleRunSync() {
-    setBusy(true)
-    setError(null)
+    setBusy(true);
+    setError(null);
     try {
-      const next = await runSync()
-      applyState(next, selectedSkillKey)
+      const next = await runSync();
+      applyState(next, selectedSkillKey);
     } catch (invokeError) {
-      setError(String(invokeError))
+      setError(String(invokeError));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   function requestMutation(command: MutationCommand, skillKey: string) {
-    setPendingMutation({ command, skillKey })
+    setPendingMutation({ command, skillKey });
   }
 
   async function handlePendingMutation() {
-    if (!pendingMutation) return
-    const { command, skillKey } = pendingMutation
+    if (!pendingMutation) return;
+    const { command, skillKey } = pendingMutation;
 
-    setBusy(true)
-    setError(null)
-    setPendingMutation(null)
+    setBusy(true);
+    setError(null);
+    setPendingMutation(null);
     try {
-      const next = await mutateSkill(command, skillKey)
-      applyState(next, skillKey)
+      const next = await mutateSkill(command, skillKey);
+      applyState(next, skillKey);
     } catch (invokeError) {
-      setError(String(invokeError))
+      setError(String(invokeError));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   async function handleRenameSkill(skillKey: string, rawTitle: string) {
-    const newTitle = rawTitle.trim()
+    const newTitle = rawTitle.trim();
     if (!newTitle) {
-      setError('Rename failed: title cannot be empty.')
-      return
+      setError("Rename failed: title cannot be empty.");
+      return;
     }
 
-    const normalizedKey = normalizeSkillKey(newTitle)
+    const normalizedKey = normalizeSkillKey(newTitle);
     if (!normalizedKey) {
-      setError('Rename failed: title must produce non-empty key.')
-      return
+      setError("Rename failed: title must produce non-empty key.");
+      return;
     }
 
-    setBusy(true)
-    setError(null)
+    setBusy(true);
+    setError(null);
     try {
-      const next = await renameSkill(skillKey, newTitle)
-      applyState(next, normalizedKey)
+      const next = await renameSkill(skillKey, newTitle);
+      applyState(next, normalizedKey);
     } catch (invokeError) {
-      setError(String(invokeError))
+      setError(String(invokeError));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
-  async function handleOpenSkillPath(skillKey: string, target: 'folder' | 'file') {
-    setBusy(true)
-    setError(null)
+  async function handleOpenSkillPath(
+    skillKey: string,
+    target: "folder" | "file",
+  ) {
+    setBusy(true);
+    setError(null);
     try {
-      await openSkillPath(skillKey, target)
+      await openSkillPath(skillKey, target);
     } catch (invokeError) {
-      setError(String(invokeError))
+      setError(String(invokeError));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   const activeSkillCount =
-    state?.skills.filter((skill) => skill.status === 'active').length ?? 0
+    state?.skills.filter((skill) => skill.status === "active").length ?? 0;
   const archivedSkillCount =
-    state?.skills.filter((skill) => skill.status === 'archived').length ?? 0
+    state?.skills.filter((skill) => skill.status === "archived").length ?? 0;
 
   return (
     <div className="min-h-full bg-background text-foreground lg:h-screen lg:overflow-hidden">
@@ -214,23 +226,27 @@ export function App() {
                   SkillsSync
                 </h1>
                 <Badge variant={syncStatusVariant(state?.sync.status)}>
-                  {toTitleCase(state?.sync.status ?? 'unknown')}
+                  {toTitleCase(state?.sync.status ?? "unknown")}
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground">
-                Active {activeSkillCount} · Archived {archivedSkillCount} · Total{' '}
-                {state?.skills.length ?? 0}
+                Active {activeSkillCount} · Archived {archivedSkillCount} ·
+                Total {state?.skills.length ?? 0}
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button size="sm" disabled={busy} onClick={() => void handleRunSync()}>
+              <Button
+                size="sm"
+                disabled={busy}
+                onClick={() => void handleRunSync()}
+              >
                 Sync
               </Button>
               <Button
                 size="sm"
                 variant="outline"
                 disabled={busy}
-                onClick={() => void refreshState()}
+                onClick={() => void refreshState(selectedSkillKey)}
               >
                 Refresh
               </Button>
@@ -247,7 +263,9 @@ export function App() {
 
         {error ? (
           <Card className="shrink-0 border-destructive/60 bg-destructive/10">
-            <CardContent className="p-2 text-xs text-destructive">{error}</CardContent>
+            <CardContent className="p-2 text-xs text-destructive">
+              {error}
+            </CardContent>
           </Card>
         ) : null}
 
@@ -263,10 +281,15 @@ export function App() {
           <Card className="shrink-0 border-amber-500/60 bg-amber-500/10">
             <CardContent className="flex flex-wrap items-center justify-between gap-2 p-2">
               <p className="text-xs text-foreground">
-                Confirm {pendingMutation.command} for {pendingMutation.skillKey}?
+                Confirm {pendingMutation.command} for {pendingMutation.skillKey}
+                ?
               </p>
               <div className="flex items-center gap-2">
-                <Button size="sm" disabled={busy} onClick={() => void handlePendingMutation()}>
+                <Button
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => void handlePendingMutation()}
+                >
                   Confirm action
                 </Button>
                 <Button
@@ -293,20 +316,20 @@ export function App() {
             <CardContent className="p-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
               <ul className="space-y-1">
                 {filteredSkills.map((skill) => {
-                  const selected = skill.skill_key === selectedSkillKey
+                  const selected = skill.skill_key === selectedSkillKey;
                   const hasDistinctSkillKey =
                     skill.name.trim().toLowerCase() !==
-                    skill.skill_key.trim().toLowerCase()
+                    skill.skill_key.trim().toLowerCase();
                   return (
                     <li key={skill.id}>
                       <button
                         type="button"
                         className={cn(
-                          'w-full rounded-md border px-2.5 py-2 text-left transition-colors',
-                          'hover:border-border hover:bg-accent/60',
+                          "w-full rounded-md border px-2.5 py-2 text-left transition-colors",
+                          "hover:border-border hover:bg-accent/60",
                           selected
-                            ? 'border-primary/45 bg-accent text-foreground'
-                            : 'border-border/70 bg-transparent text-foreground',
+                            ? "border-primary/45 bg-accent text-foreground"
+                            : "border-border/70 bg-transparent text-foreground",
                         )}
                         onClick={() => setSelectedSkillKey(skill.skill_key)}
                       >
@@ -318,7 +341,9 @@ export function App() {
                             <Badge variant={lifecycleVariant(skill.status)}>
                               {toTitleCase(skill.status)}
                             </Badge>
-                            <Badge variant="outline">{toTitleCase(skill.scope)}</Badge>
+                            <Badge variant="outline">
+                              {toTitleCase(skill.scope)}
+                            </Badge>
                           </div>
                         </div>
                         {hasDistinctSkillKey ? (
@@ -333,7 +358,7 @@ export function App() {
                         ) : null}
                       </button>
                     </li>
-                  )
+                  );
                 })}
               </ul>
             </CardContent>
@@ -349,7 +374,9 @@ export function App() {
                 <CardHeader className="border-b border-border/80 pb-2">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <CardTitle className="text-base">{details.skill.name}</CardTitle>
+                      <CardTitle className="text-base">
+                        {details.skill.name}
+                      </CardTitle>
                       <p className="mt-1 font-mono text-xs text-muted-foreground">
                         {details.skill.skill_key}
                       </p>
@@ -358,7 +385,9 @@ export function App() {
                       <Badge variant={lifecycleVariant(details.skill.status)}>
                         {toTitleCase(details.skill.status)}
                       </Badge>
-                      <Badge variant="outline">{toTitleCase(details.skill.scope)}</Badge>
+                      <Badge variant="outline">
+                        {toTitleCase(details.skill.scope)}
+                      </Badge>
                     </div>
                   </div>
                 </CardHeader>
@@ -367,18 +396,26 @@ export function App() {
                   <dl className="grid gap-x-3 gap-y-2 text-xs sm:grid-cols-2">
                     <div>
                       <dt className="mb-1 text-muted-foreground">Workspace</dt>
-                      <dd className="break-all font-mono">{details.skill.workspace ?? '-'}</dd>
+                      <dd className="break-all font-mono">
+                        {details.skill.workspace ?? "-"}
+                      </dd>
                     </div>
                     <div>
                       <dt className="mb-1 text-muted-foreground">Updated</dt>
-                      <dd>{formatUnixTime(details.last_modified_unix_seconds)}</dd>
+                      <dd>
+                        {formatUnixTime(details.last_modified_unix_seconds)}
+                      </dd>
                     </div>
                     <div>
                       <dt className="mb-1 text-muted-foreground">Main file</dt>
-                      <dd className="break-all font-mono">{details.main_file_path}</dd>
+                      <dd className="break-all font-mono">
+                        {details.main_file_path}
+                      </dd>
                     </div>
                     <div>
-                      <dt className="mb-1 text-muted-foreground">Canonical path</dt>
+                      <dt className="mb-1 text-muted-foreground">
+                        Canonical path
+                      </dt>
                       <dd className="break-all font-mono">
                         {details.skill.canonical_source_path}
                       </dd>
@@ -391,7 +428,10 @@ export function App() {
                       variant="outline"
                       disabled={busy}
                       onClick={() =>
-                        void handleOpenSkillPath(details.skill.skill_key, 'folder')
+                        void handleOpenSkillPath(
+                          details.skill.skill_key,
+                          "folder",
+                        )
                       }
                     >
                       Open folder
@@ -401,31 +441,40 @@ export function App() {
                       variant="outline"
                       disabled={busy || !details.main_file_exists}
                       onClick={() =>
-                        void handleOpenSkillPath(details.skill.skill_key, 'file')
+                        void handleOpenSkillPath(
+                          details.skill.skill_key,
+                          "file",
+                        )
                       }
                     >
                       Open file
                     </Button>
 
-                    {details.skill.status === 'active' ? (
+                    {details.skill.status === "active" ? (
                       <>
                         <Button
                           size="sm"
                           variant="ghost"
                           disabled={busy}
                           onClick={() =>
-                            requestMutation('archive_skill', details.skill.skill_key)
+                            requestMutation(
+                              "archive_skill",
+                              details.skill.skill_key,
+                            )
                           }
                         >
                           Archive
                         </Button>
-                        {details.skill.scope === 'project' ? (
+                        {details.skill.scope === "project" ? (
                           <Button
                             size="sm"
                             variant="ghost"
                             disabled={busy}
                             onClick={() =>
-                              requestMutation('make_global', details.skill.skill_key)
+                              requestMutation(
+                                "make_global",
+                                details.skill.skill_key,
+                              )
                             }
                           >
                             Make global
@@ -438,7 +487,10 @@ export function App() {
                         variant="ghost"
                         disabled={busy}
                         onClick={() =>
-                          requestMutation('restore_skill', details.skill.skill_key)
+                          requestMutation(
+                            "restore_skill",
+                            details.skill.skill_key,
+                          )
                         }
                       >
                         Restore
@@ -450,24 +502,29 @@ export function App() {
                       variant="destructive"
                       disabled={busy}
                       onClick={() =>
-                        requestMutation('delete_skill', details.skill.skill_key)
+                        requestMutation("delete_skill", details.skill.skill_key)
                       }
                     >
                       Delete
                     </Button>
                   </div>
 
-                  {details.skill.status === 'active' ? (
+                  {details.skill.status === "active" ? (
                     <form
                       className="flex flex-wrap items-center gap-2 border-t border-border/80 pt-3"
                       onSubmit={(event) => {
-                        event.preventDefault()
-                        void handleRenameSkill(details.skill.skill_key, renameDraft)
+                        event.preventDefault();
+                        void handleRenameSkill(
+                          details.skill.skill_key,
+                          renameDraft,
+                        );
                       }}
                     >
                       <Input
                         value={renameDraft}
-                        onChange={(event) => setRenameDraft(event.currentTarget.value)}
+                        onChange={(event) =>
+                          setRenameDraft(event.currentTarget.value)
+                        }
                         placeholder="New skill title"
                         className="h-8 min-w-[220px] flex-1"
                       />
@@ -496,13 +553,16 @@ export function App() {
                         </pre>
                         {details.main_file_body_preview_truncated ? (
                           <p className="text-[11px] text-muted-foreground">
-                            Preview truncated.{' '}
+                            Preview truncated.{" "}
                             <button
                               type="button"
                               disabled={busy || !details.main_file_exists}
                               className="underline underline-offset-2 transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
                               onClick={() =>
-                                void handleOpenSkillPath(details.skill.skill_key, 'file')
+                                void handleOpenSkillPath(
+                                  details.skill.skill_key,
+                                  "file",
+                                )
                               }
                             >
                               watch full
@@ -545,7 +605,9 @@ export function App() {
                       Targets
                     </h3>
                     {details.skill.target_paths.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No target paths.</p>
+                      <p className="text-xs text-muted-foreground">
+                        No target paths.
+                      </p>
                     ) : (
                       <ul className="space-y-1 text-xs">
                         {details.skill.target_paths.map((path) => (
@@ -566,5 +628,5 @@ export function App() {
         </main>
       </div>
     </div>
-  )
+  );
 }

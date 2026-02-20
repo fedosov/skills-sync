@@ -16,6 +16,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -51,16 +52,6 @@ pub enum ScopeFilter {
 }
 
 impl ScopeFilter {
-    pub fn from_str(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "all" => Some(Self::All),
-            "global" => Some(Self::Global),
-            "project" => Some(Self::Project),
-            "archived" => Some(Self::Archived),
-            _ => None,
-        }
-    }
-
     pub fn matches(self, skill: &SkillRecord) -> bool {
         match self {
             Self::All => true,
@@ -69,6 +60,20 @@ impl ScopeFilter {
                 skill.status == SkillLifecycleStatus::Active && skill.scope == "project"
             }
             Self::Archived => skill.status == SkillLifecycleStatus::Archived,
+        }
+    }
+}
+
+impl FromStr for ScopeFilter {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "all" => Ok(Self::All),
+            "global" => Ok(Self::Global),
+            "project" => Ok(Self::Project),
+            "archived" => Ok(Self::Archived),
+            _ => Err(()),
         }
     }
 }
@@ -1523,11 +1528,9 @@ fn update_skill_title(path: &Path, new_title: &str) -> Result<(), SyncEngineErro
 
 fn updated_skill_contents(original: &str, title: &str) -> String {
     let normalized = original.replace("\r\n", "\n");
-    if normalized.starts_with("---\n") {
-        if let Some(fm_end_idx) = normalized[4..].find("\n---") {
-            let fm_start = 4;
-            let fm_end = fm_start + fm_end_idx;
-            let fm_raw = &normalized[fm_start..fm_end];
+    if let Some(without_frontmatter_start) = normalized.strip_prefix("---\n") {
+        if let Some(fm_end_idx) = without_frontmatter_start.find("\n---") {
+            let fm_raw = &without_frontmatter_start[..fm_end_idx];
             let mut lines: Vec<String> = fm_raw.lines().map(|line| line.to_string()).collect();
             let mut replaced = false;
             for line in &mut lines {
@@ -1542,7 +1545,7 @@ fn updated_skill_contents(original: &str, title: &str) -> String {
             if !replaced {
                 lines.push(format!("title: {title}"));
             }
-            let suffix = &normalized[(fm_end + 4)..];
+            let suffix = &without_frontmatter_start[(fm_end_idx + 4)..];
             return format!("---\n{}\n---{suffix}", lines.join("\n"));
         }
     }

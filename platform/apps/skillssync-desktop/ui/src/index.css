@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -43,8 +43,16 @@
   body {
     @apply bg-background text-foreground antialiased;
     background-image:
-      radial-gradient(circle at 18% -12%, hsl(216 33% 18% / 0.45) 0%, transparent 45%),
-      radial-gradient(circle at 86% -18%, hsl(196 30% 14% / 0.45) 0%, transparent 40%);
+      radial-gradient(
+        circle at 18% -12%,
+        hsl(216 33% 18% / 0.45) 0%,
+        transparent 45%
+      ),
+      radial-gradient(
+        circle at 86% -18%,
+        hsl(196 30% 14% / 0.45) 0%,
+        transparent 40%
+      );
   }
 
   ::selection {

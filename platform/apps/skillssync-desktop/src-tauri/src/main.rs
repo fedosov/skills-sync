@@ -50,7 +50,9 @@ fn list_skills(scope: Option<String>) -> Result<Vec<SkillRecord>, String> {
     let scope_filter = scope
         .as_deref()
         .map(|value| {
-            ScopeFilter::from_str(value).ok_or_else(|| format!("unsupported scope: {value}"))
+            value
+                .parse::<ScopeFilter>()
+                .map_err(|_| format!("unsupported scope: {value}"))
         })
         .transpose()?
         .unwrap_or(ScopeFilter::All);
@@ -397,9 +399,6 @@ mod tests {
         let (tree, truncated) = read_skill_dir_tree(Path::new(&root), 2);
 
         assert!(truncated);
-        assert_eq!(
-            tree,
-            Some(String::from("beta-skill/\n|-- a.md\n|-- b.md"))
-        );
+        assert_eq!(tree, Some(String::from("beta-skill/\n|-- a.md\n|-- b.md")));
     }
 }

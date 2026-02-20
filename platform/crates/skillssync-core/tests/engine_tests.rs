@@ -298,12 +298,7 @@ fn delete_active_skill_moves_payload_to_trash_and_removes_state_entry() {
     let has_alpha = fs::read_dir(&trash)
         .expect("trash dir")
         .filter_map(Result::ok)
-        .any(|entry| {
-            entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with("alpha")
-        });
+        .any(|entry| entry.file_name().to_string_lossy().starts_with("alpha"));
     assert!(has_alpha);
 }
 
@@ -348,7 +343,11 @@ fn make_global_moves_project_skill_to_global_scope() {
         .home_directory
         .join("Dev")
         .join("workspace-a");
-    write_skill(&workspace.join(".claude").join("skills"), "project-1", "# P");
+    write_skill(
+        &workspace.join(".claude").join("skills"),
+        "project-1",
+        "# P",
+    );
 
     let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
     let project = find_skill(&engine, "project-1", Some(SkillLifecycleStatus::Active));

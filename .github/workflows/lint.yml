@@ -1,0 +1,49 @@
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  rust-lint:
+    name: Rust Lint (macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: platform
+
+      - name: Run Rust lint
+        run: make lint-rust
+
+  ui-lint:
+    name: UI Lint (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/apps/skillssync-desktop/ui/package-lock.json
+
+      - name: Install UI dependencies
+        working-directory: platform/apps/skillssync-desktop/ui
+        run: npm ci
+
+      - name: Run UI lint
+        run: make lint-ui

@@ -83,9 +83,9 @@ fn main() -> Result<()> {
             }
         }
         Commands::List { scope, json } => {
-            let scope_filter = ScopeFilter::from_str(&scope).ok_or_else(|| {
-                anyhow!("unsupported scope: {scope} (all|global|project|archived)")
-            })?;
+            let scope_filter = scope
+                .parse::<ScopeFilter>()
+                .map_err(|_| anyhow!("unsupported scope: {scope} (all|global|project|archived)"))?;
             let skills = engine.list_skills(scope_filter);
             if json {
                 println!("{}", serde_json::to_string_pretty(&skills)?);
