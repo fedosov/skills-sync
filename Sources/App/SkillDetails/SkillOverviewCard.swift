@@ -11,6 +11,7 @@ struct SkillOverviewCard: View {
     let skill: SkillRecord
     let previewData: SkillPreviewData?
     let validationIssuesCount: Int
+    let hasCodexVisibilityIssues: Bool
     @Binding var editableTitle: String
     let canApplyTitle: Bool
     let onTitleChange: () -> Void
@@ -45,6 +46,16 @@ struct SkillOverviewCard: View {
                 )
             )
         }
+        items.append(
+            StatusChip(
+                label: hasCodexVisibilityIssues ? "Codex hidden" : "Codex visible",
+                symbol: hasCodexVisibilityIssues ? "eye.slash.fill" : "eye.fill",
+                tint: hasCodexVisibilityIssues ? .orange : .green,
+                helpText: hasCodexVisibilityIssues
+                    ? "Codex visibility checks reported warnings."
+                    : "Codex visibility checks passed."
+            )
+        )
         return items
     }
 

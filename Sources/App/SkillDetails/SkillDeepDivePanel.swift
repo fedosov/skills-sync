@@ -117,12 +117,14 @@ private struct PathLine: View {
     let value: String
 
     var body: some View {
-        LabeledContent(label) {
+        LabeledContent {
             Text(value)
                 .font(.app(.pathMono))
                 .lineLimit(nil)
                 .multilineTextAlignment(.leading)
                 .textSelection(.enabled)
+        } label: {
+            Text(label)
         }
     }
 }

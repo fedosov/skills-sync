@@ -329,8 +329,26 @@ final class SkillsSyncSharedTests: XCTestCase {
 
         Read `resources/guide.md`.
         """)
+        let codexDir = tempDir.appendingPathComponent("workspace-valid/.codex/skills/valid", isDirectory: true)
+        try writeFile(codexDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: valid
+        description: Valid codex metadata.
+        ---
 
-        let result = validator.validate(skill: makeSkill(id: "sv1", name: "valid", scope: "global", sourcePath: skillDir.path))
+        # Valid Skill
+        """)
+
+        let result = validator.validate(
+            skill: makeSkill(
+                id: "sv1",
+                name: "valid",
+                scope: "global",
+                sourcePath: skillDir.path,
+                targetPaths: [codexDir.path],
+                skillKey: "valid"
+            )
+        )
 
         XCTAssertTrue(result.issues.isEmpty)
         XCTAssertFalse(result.hasWarnings)
@@ -488,6 +506,353 @@ final class SkillsSyncSharedTests: XCTestCase {
         XCTAssertTrue(result.issues.contains(where: { $0.code == "broken_reference" && $0.message.contains("scripts/missing.sh") }))
     }
 
+    func testSkillValidatorReportsCodexTargetNotDeclared() throws {
+        let validator = SkillValidator()
+        let skillDir = tempDir.appendingPathComponent("validator-codex-no-target", isDirectory: true)
+        try writeFile(skillDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: codex-no-target
+        description: Has no codex target path.
+        ---
+        """)
+        let skill = SkillRecord(
+            id: "sv13",
+            name: "codex-no-target",
+            scope: "global",
+            workspace: nil,
+            canonicalSourcePath: skillDir.path,
+            targetPaths: ["/tmp/.claude/skills/codex-no-target", "/tmp/.agents/skills/codex-no-target"],
+            exists: true,
+            isSymlinkCanonical: false,
+            packageType: "dir",
+            skillKey: "codex-no-target",
+            symlinkTarget: skillDir.path
+        )
+
+        let result = validator.validate(skill: skill)
+
+        XCTAssertTrue(result.issues.contains(where: { $0.code == "codex_target_not_declared" }))
+    }
+
+    func testSkillValidatorReportsCodexTargetMissingOnDisk() throws {
+        let validator = SkillValidator()
+        let skillDir = tempDir.appendingPathComponent("validator-codex-target-missing", isDirectory: true)
+        try writeFile(skillDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: codex-target-missing
+        description: Codex target does not exist.
+        ---
+        """)
+        let missingCodexPath = tempDir
+            .appendingPathComponent("workspace-a/.codex/skills/codex-target-missing", isDirectory: true)
+            .path
+        let skill = SkillRecord(
+            id: "sv14",
+            name: "codex-target-missing",
+            scope: "global",
+            workspace: nil,
+            canonicalSourcePath: skillDir.path,
+            targetPaths: [missingCodexPath],
+            exists: true,
+            isSymlinkCanonical: false,
+            packageType: "dir",
+            skillKey: "codex-target-missing",
+            symlinkTarget: skillDir.path
+        )
+
+        let result = validator.validate(skill: skill)
+
+        XCTAssertTrue(result.issues.contains(where: { $0.code == "codex_target_missing_on_disk" }))
+    }
+
+    func testSkillValidatorReportsCodexTargetBrokenSymlink() throws {
+        let validator = SkillValidator()
+        let skillDir = tempDir.appendingPathComponent("validator-codex-broken-symlink-source", isDirectory: true)
+        try writeFile(skillDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: codex-broken-symlink
+        description: Codex target symlink is broken.
+        ---
+        """)
+
+        let codexDir = tempDir.appendingPathComponent("workspace-b/.codex/skills", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexDir, withIntermediateDirectories: true)
+        let brokenLink = codexDir.appendingPathComponent("codex-broken-symlink", isDirectory: true)
+        let missingDestination = tempDir.appendingPathComponent("missing/codex-broken-symlink", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: brokenLink, withDestinationURL: missingDestination)
+
+        let skill = SkillRecord(
+            id: "sv15",
+            name: "codex-broken-symlink",
+            scope: "global",
+            workspace: nil,
+            canonicalSourcePath: skillDir.path,
+            targetPaths: [brokenLink.path],
+            exists: true,
+            isSymlinkCanonical: false,
+            packageType: "dir",
+            skillKey: "codex-broken-symlink",
+            symlinkTarget: skillDir.path
+        )
+
+        let result = validator.validate(skill: skill)
+
+        XCTAssertTrue(result.issues.contains(where: { $0.code == "codex_target_broken_symlink" }))
+    }
+
+    func testSkillValidatorReportsCodexTargetMissingSkillMD() throws {
+        let validator = SkillValidator()
+        let skillDir = tempDir.appendingPathComponent("validator-codex-missing-skill-md-source", isDirectory: true)
+        try writeFile(skillDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: codex-missing-skill-md
+        description: Codex target misses SKILL.md.
+        ---
+        """)
+
+        let codexSkillDir = tempDir.appendingPathComponent("workspace-c/.codex/skills/codex-missing-skill-md", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexSkillDir, withIntermediateDirectories: true)
+
+        let skill = SkillRecord(
+            id: "sv16",
+            name: "codex-missing-skill-md",
+            scope: "global",
+            workspace: nil,
+            canonicalSourcePath: skillDir.path,
+            targetPaths: [codexSkillDir.path],
+            exists: true,
+            isSymlinkCanonical: false,
+            packageType: "dir",
+            skillKey: "codex-missing-skill-md",
+            symlinkTarget: skillDir.path
+        )
+
+        let result = validator.validate(skill: skill)
+
+        XCTAssertTrue(result.issues.contains(where: { $0.code == "codex_target_missing_skill_md" }))
+    }
+
+    func testSkillValidatorReportsMissingFrontmatterName() throws {
+        let validator = SkillValidator()
+        let sourceDir = tempDir.appendingPathComponent("validator-missing-frontmatter-name-source", isDirectory: true)
+        try writeFile(sourceDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        title: Only title
+        description: Description exists.
+        ---
+        """)
+        let codexDir = tempDir.appendingPathComponent("workspace-d/.codex/skills/missing-frontmatter-name", isDirectory: true)
+        try writeFile(codexDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        description: Present description only.
+        ---
+        """)
+
+        let skill = SkillRecord(
+            id: "sv17",
+            name: "missing-frontmatter-name",
+            scope: "global",
+            workspace: nil,
+            canonicalSourcePath: sourceDir.path,
+            targetPaths: [codexDir.path],
+            exists: true,
+            isSymlinkCanonical: false,
+            packageType: "dir",
+            skillKey: "missing-frontmatter-name",
+            symlinkTarget: sourceDir.path
+        )
+
+        let result = validator.validate(skill: skill)
+
+        XCTAssertTrue(result.issues.contains(where: { $0.code == "missing_frontmatter_name" }))
+    }
+
+    func testSkillValidatorReportsMissingFrontmatterDescription() throws {
+        let validator = SkillValidator()
+        let sourceDir = tempDir.appendingPathComponent("validator-missing-frontmatter-description-source", isDirectory: true)
+        try writeFile(sourceDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: missing-frontmatter-description
+        description: Source description.
+        ---
+        """)
+        let codexDir = tempDir.appendingPathComponent("workspace-e/.codex/skills/missing-frontmatter-description", isDirectory: true)
+        try writeFile(codexDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: missing-frontmatter-description
+        ---
+        """)
+
+        let skill = SkillRecord(
+            id: "sv18",
+            name: "missing-frontmatter-description",
+            scope: "global",
+            workspace: nil,
+            canonicalSourcePath: sourceDir.path,
+            targetPaths: [codexDir.path],
+            exists: true,
+            isSymlinkCanonical: false,
+            packageType: "dir",
+            skillKey: "missing-frontmatter-description",
+            symlinkTarget: sourceDir.path
+        )
+
+        let result = validator.validate(skill: skill)
+
+        XCTAssertTrue(result.issues.contains(where: { $0.code == "missing_frontmatter_description" }))
+    }
+
+    func testSkillValidatorReportsFrontmatterNameMismatchWithSkillKey() throws {
+        let validator = SkillValidator()
+        let sourceDir = tempDir.appendingPathComponent("validator-frontmatter-name-mismatch-source", isDirectory: true)
+        try writeFile(sourceDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: frontmatter-name-mismatch
+        description: Source description.
+        ---
+        """)
+        let codexDir = tempDir.appendingPathComponent("workspace-f/.codex/skills/frontmatter-name-mismatch", isDirectory: true)
+        try writeFile(codexDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: different-name
+        description: Present description.
+        ---
+        """)
+
+        let skill = SkillRecord(
+            id: "sv19",
+            name: "frontmatter-name-mismatch",
+            scope: "global",
+            workspace: nil,
+            canonicalSourcePath: sourceDir.path,
+            targetPaths: [codexDir.path],
+            exists: true,
+            isSymlinkCanonical: false,
+            packageType: "dir",
+            skillKey: "frontmatter-name-mismatch",
+            symlinkTarget: sourceDir.path
+        )
+
+        let result = validator.validate(skill: skill)
+
+        XCTAssertTrue(result.issues.contains(where: { $0.code == "frontmatter_name_mismatch_skill_key" }))
+    }
+
+    func testSkillValidatorReportsArchivedSkillNotVisibleInCodex() throws {
+        let validator = SkillValidator()
+        let sourceDir = tempDir.appendingPathComponent("validator-archived-skill-source", isDirectory: true)
+        try writeFile(sourceDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: archived-codex-skill
+        description: Archived skill.
+        ---
+        """)
+        let codexDir = tempDir.appendingPathComponent("workspace-g/.codex/skills/archived-codex-skill", isDirectory: true)
+        try writeFile(codexDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: archived-codex-skill
+        description: Archived skill.
+        ---
+        """)
+
+        let skill = SkillRecord(
+            id: "sv20",
+            name: "archived-codex-skill",
+            scope: "global",
+            workspace: nil,
+            canonicalSourcePath: sourceDir.path,
+            targetPaths: [codexDir.path],
+            exists: true,
+            isSymlinkCanonical: false,
+            packageType: "dir",
+            skillKey: "archived-codex-skill",
+            symlinkTarget: sourceDir.path,
+            status: .archived,
+            archivedAt: "2026-02-20T00:00:00Z",
+            archivedBundlePath: "/tmp/archive",
+            archivedOriginalScope: "global",
+            archivedOriginalWorkspace: nil
+        )
+
+        let result = validator.validate(skill: skill)
+
+        XCTAssertTrue(result.issues.contains(where: { $0.code == "archived_skill_not_visible_in_codex" }))
+    }
+
+    func testSkillValidatorReportsCodexFrontmatterInvalidYAML() throws {
+        let validator = SkillValidator()
+        let sourceDir = tempDir.appendingPathComponent("validator-invalid-yaml-source", isDirectory: true)
+        try writeFile(sourceDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: invalid-yaml
+        description: Source file.
+        ---
+        """)
+        let codexDir = tempDir.appendingPathComponent("workspace-h/.codex/skills/invalid-yaml", isDirectory: true)
+        try writeFile(codexDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: invalid-yaml
+        description: Present metadata.
+        argument-hint: [--full|--quick] [plan-file-path]
+        ---
+        """)
+
+        let skill = SkillRecord(
+            id: "sv21",
+            name: "invalid-yaml",
+            scope: "global",
+            workspace: nil,
+            canonicalSourcePath: sourceDir.path,
+            targetPaths: [codexDir.path],
+            exists: true,
+            isSymlinkCanonical: false,
+            packageType: "dir",
+            skillKey: "invalid-yaml",
+            symlinkTarget: sourceDir.path
+        )
+
+        let result = validator.validate(skill: skill)
+
+        XCTAssertTrue(result.issues.contains(where: { $0.code == "codex_frontmatter_invalid_yaml" }))
+    }
+
+    func testSkillValidatorAcceptsQuotedArgumentHintForCodexYAML() throws {
+        let validator = SkillValidator()
+        let sourceDir = tempDir.appendingPathComponent("validator-valid-yaml-source", isDirectory: true)
+        try writeFile(sourceDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: valid-yaml
+        description: Source file.
+        ---
+        """)
+        let codexDir = tempDir.appendingPathComponent("workspace-i/.codex/skills/valid-yaml", isDirectory: true)
+        try writeFile(codexDir.appendingPathComponent("SKILL.md"), contents: """
+        ---
+        name: valid-yaml
+        description: Present metadata.
+        argument-hint: "[--full|--quick] [plan-file-path]"
+        ---
+        """)
+
+        let skill = SkillRecord(
+            id: "sv22",
+            name: "valid-yaml",
+            scope: "global",
+            workspace: nil,
+            canonicalSourcePath: sourceDir.path,
+            targetPaths: [codexDir.path],
+            exists: true,
+            isSymlinkCanonical: false,
+            packageType: "dir",
+            skillKey: "valid-yaml",
+            symlinkTarget: sourceDir.path
+        )
+
+        let result = validator.validate(skill: skill)
+
+        XCTAssertFalse(result.issues.contains(where: { $0.code == "codex_frontmatter_invalid_yaml" }))
+    }
+
     func testRepairPromptBuilderIncludesSkillIdentityAndIssue() {
         let skill = makeSkill(
             id: "sv8",
@@ -588,20 +953,28 @@ final class SkillsSyncSharedTests: XCTestCase {
         XCTAssertNil(WindowStateGeometry.validFrameRect(from: invalid, screensVisibleFrames: []))
     }
 
-    private func makeSkill(id: String, name: String, scope: String, sourcePath: String? = nil) -> SkillRecord {
+    private func makeSkill(
+        id: String,
+        name: String,
+        scope: String,
+        sourcePath: String? = nil,
+        targetPaths: [String]? = nil,
+        skillKey: String? = nil,
+        status: SkillLifecycleStatus = .active
+    ) -> SkillRecord {
         SkillRecord(
             id: id,
             name: name,
             scope: scope,
             workspace: scope == "project" ? "/tmp/project" : nil,
             canonicalSourcePath: sourcePath ?? "/tmp/\(id)",
-            targetPaths: ["/tmp/target/\(id)"],
+            targetPaths: targetPaths ?? ["/tmp/target/\(id)"],
             exists: true,
             isSymlinkCanonical: false,
             packageType: "dir",
-            skillKey: name.lowercased(),
+            skillKey: skillKey ?? name.lowercased(),
             symlinkTarget: "/tmp/\(id)",
-            status: .active,
+            status: status,
             archivedAt: nil,
             archivedBundlePath: nil,
             archivedOriginalScope: nil,

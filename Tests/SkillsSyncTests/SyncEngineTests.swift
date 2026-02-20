@@ -44,6 +44,57 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(store.loadState().skills.count, 3)
     }
 
+    func testRunSyncWritesManagedCodexSkillsConfig() async throws {
+        try writeSkill(root: path(".claude/skills"), key: "alpha", body: "A")
+        configureEngine()
+
+        let engine = SyncEngine()
+        _ = try await engine.runSync(trigger: .manual)
+
+        let config = try String(contentsOf: path(".codex/config.toml"), encoding: .utf8)
+        XCTAssertTrue(config.contains("# skills-sync:begin"))
+        XCTAssertTrue(config.contains("# skills-sync:end"))
+        XCTAssertTrue(config.contains("[[skills.config]]"))
+        XCTAssertTrue(config.contains("path = \"\(path(".agents/skills/alpha").path)\""))
+        XCTAssertTrue(config.contains("enabled = true"))
+    }
+
+    func testRunSyncCodexSkillsConfigPreservesManualContentAndIsIdempotent() async throws {
+        try writeSkill(root: path(".claude/skills"), key: "alpha", body: "A")
+        let configPath = path(".codex/config.toml")
+        try FileManager.default.createDirectory(at: configPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        [model_providers.openai]
+        name = "OpenAI"
+        """.data(using: .utf8)?.write(to: configPath)
+
+        configureEngine()
+        let engine = SyncEngine()
+        _ = try await engine.runSync(trigger: .manual)
+        let first = try String(contentsOf: configPath, encoding: .utf8)
+        _ = try await engine.runSync(trigger: .manual)
+        let second = try String(contentsOf: configPath, encoding: .utf8)
+
+        XCTAssertTrue(first.contains("[model_providers.openai]"))
+        XCTAssertEqual(first, second)
+    }
+
+    func testRunSyncFailsWhenCodexRegistryWriteFails() async throws {
+        try writeSkill(root: path(".claude/skills"), key: "alpha", body: "A")
+        let invalidConfigPath = path(".codex/config.toml")
+        try FileManager.default.createDirectory(at: invalidConfigPath, withIntermediateDirectories: true)
+        configureEngine()
+
+        let engine = SyncEngine()
+        await XCTAssertThrowsErrorAsync {
+            _ = try await engine.runSync(trigger: .manual)
+        } assertion: { error in
+            XCTAssertTrue(error.localizedDescription.contains("Failed to update Codex skills registry"))
+        }
+
+        XCTAssertEqual(store.loadState().sync.status, .failed)
+    }
+
     func testRunSyncDiscoversProjectSkillInCodexSkillsDirectory() async throws {
         try writeSkill(root: path("Dev/workspace-a/.codex/skills"), key: "project-codex", body: "PC")
         configureEngine()
@@ -691,6 +742,31 @@ final class SyncEngineTests: XCTestCase {
         let text = try String(contentsOf: file, encoding: .utf8)
         XCTAssertTrue(text.hasPrefix("---\ntitle: Created Title\n---\n"))
         XCTAssertTrue(text.contains("# Body Heading"))
+    }
+
+    func testRepairCodexFrontmatterQuotesInvalidArgumentHintAndResyncs() async throws {
+        let source = path(".claude/skills/plan-check")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try """
+        ---
+        name: plan-check
+        description: Plan checker
+        argument-hint: [--full|--quick] [plan-file-path]
+        ---
+        """.data(using: .utf8)?.write(to: source.appendingPathComponent("SKILL.md"))
+        configureEngine()
+
+        let engine = SyncEngine()
+        let initial = try await engine.runSync(trigger: .manual)
+        let skill = try XCTUnwrap(initial.skills.first(where: { $0.skillKey == "plan-check" }))
+
+        let repairedState = try await engine.repairCodexFrontmatter(skill: skill)
+        let repairedText = try String(contentsOf: source.appendingPathComponent("SKILL.md"), encoding: .utf8)
+        XCTAssertTrue(repairedText.contains("argument-hint: \"[--full|--quick] [plan-file-path]\""))
+
+        let repairedSkill = try XCTUnwrap(repairedState.skills.first(where: { $0.skillKey == "plan-check" }))
+        let validation = SkillValidator().validate(skill: repairedSkill)
+        XCTAssertFalse(validation.issues.contains(where: { $0.code == "codex_frontmatter_invalid_yaml" }))
     }
 
     func testRenameSkillRejectsEmptySlugAfterNormalization() async throws {

@@ -665,13 +665,19 @@ final class SyncPresentationTests: XCTestCase {
             .deletingLastPathComponent()
         let detailFile = repoRoot.appendingPathComponent("Sources/App/SkillDetails/SkillDetailView.swift")
         let panelFile = repoRoot.appendingPathComponent("Sources/App/SkillDetails/SkillValidationPanel.swift")
+        let overviewFile = repoRoot.appendingPathComponent("Sources/App/SkillDetails/SkillOverviewCard.swift")
         let detailSource = try String(contentsOf: detailFile, encoding: .utf8)
         let panelSource = try String(contentsOf: panelFile, encoding: .utf8)
+        let overviewSource = try String(contentsOf: overviewFile, encoding: .utf8)
 
         XCTAssertTrue(detailSource.contains("Section(\"Validation\")"))
         XCTAssertTrue(detailSource.contains("exclamationmark.triangle.fill"))
         XCTAssertTrue(detailSource.contains("validation issue(s)"))
         XCTAssertTrue(detailSource.contains("No validation warnings"))
+        XCTAssertTrue(panelSource.contains("Codex visibility"))
+        XCTAssertTrue(overviewSource.contains("Codex visible"))
+        XCTAssertTrue(overviewSource.contains("Codex hidden"))
+        XCTAssertTrue(panelSource.contains("Repair for Codex"))
         XCTAssertTrue(panelSource.contains("Select an issue to copy a repair prompt."))
         XCTAssertTrue(detailSource.contains("SkillRepairPromptBuilder.prompt"))
         XCTAssertTrue(detailSource.contains("NSPasteboard.general"))
@@ -865,6 +871,7 @@ private final class MockSyncEngine: SyncEngineControlling {
     private let onRestore: (SkillRecord) async throws -> SyncState
     private let onMakeGlobal: (SkillRecord) async throws -> SyncState
     private let onRename: (SkillRecord, String) async throws -> SyncState
+    private let onRepairCodexFrontmatter: (SkillRecord) async throws -> SyncState
     private(set) var runSyncTriggers: [SyncTrigger] = []
 
     init(
@@ -873,7 +880,8 @@ private final class MockSyncEngine: SyncEngineControlling {
         onArchive: @escaping (SkillRecord) async throws -> SyncState = { _ in .empty },
         onRestore: @escaping (SkillRecord) async throws -> SyncState = { _ in .empty },
         onMakeGlobal: @escaping (SkillRecord) async throws -> SyncState = { _ in .empty },
-        onRename: @escaping (SkillRecord, String) async throws -> SyncState = { _, _ in .empty }
+        onRename: @escaping (SkillRecord, String) async throws -> SyncState = { _, _ in .empty },
+        onRepairCodexFrontmatter: @escaping (SkillRecord) async throws -> SyncState = { _ in .empty }
     ) {
         self.onRunSync = onRunSync
         self.onDelete = onDelete
@@ -881,6 +889,7 @@ private final class MockSyncEngine: SyncEngineControlling {
         self.onRestore = onRestore
         self.onMakeGlobal = onMakeGlobal
         self.onRename = onRename
+        self.onRepairCodexFrontmatter = onRepairCodexFrontmatter
     }
 
     func runSync(trigger: SyncTrigger) async throws -> SyncState {
@@ -910,6 +919,10 @@ private final class MockSyncEngine: SyncEngineControlling {
 
     func renameSkill(skill: SkillRecord, newTitle: String) async throws -> SyncState {
         try await onRename(skill, newTitle)
+    }
+
+    func repairCodexFrontmatter(skill: SkillRecord) async throws -> SyncState {
+        try await onRepairCodexFrontmatter(skill)
     }
 }
 

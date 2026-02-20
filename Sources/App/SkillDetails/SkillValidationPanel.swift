@@ -5,6 +5,7 @@ struct SkillValidationPanel: View {
     @Binding var copiedIssueID: String?
     @Binding var isExpanded: Bool
     let onCopyIssue: (SkillValidationIssue) -> Void
+    let onRepairIssue: (SkillValidationIssue) -> Void
 
     private var summary: SkillDetailPresentation.ValidationSummary {
         SkillDetailPresentation.validationSummary(issuesCount: validation.issues.count)
@@ -25,37 +26,51 @@ struct SkillValidationPanel: View {
                             .foregroundStyle(.secondary)
 
                         ForEach(validation.issues, id: \.id) { issue in
-                            Button {
-                                onCopyIssue(issue)
-                            } label: {
-                                HStack(alignment: .top, spacing: AppSpacing.sm) {
-                                    Image(systemName: copiedIssueID == issue.id ? "checkmark.circle.fill" : "doc.on.doc")
-                                        .foregroundStyle(copiedIssueID == issue.id ? .green : .secondary)
-                                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                                        Text(issue.message)
-                                            .font(.app(.secondary))
-                                            .foregroundStyle(.secondary)
-                                            .multilineTextAlignment(.leading)
-                                        if let source = issue.sourceLocationText {
-                                            Text("Source: \(source)")
-                                                .font(.app(.meta))
+                            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                                Button {
+                                    onCopyIssue(issue)
+                                } label: {
+                                    HStack(alignment: .top, spacing: AppSpacing.sm) {
+                                        Image(systemName: copiedIssueID == issue.id ? "checkmark.circle.fill" : "doc.on.doc")
+                                            .foregroundStyle(copiedIssueID == issue.id ? .green : .secondary)
+                                        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                                            if issue.code.hasPrefix("codex_") || issue.code == "archived_skill_not_visible_in_codex" {
+                                                Text("Codex visibility")
+                                                    .font(.app(.meta))
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            Text(issue.message)
+                                                .font(.app(.secondary))
                                                 .foregroundStyle(.secondary)
                                                 .multilineTextAlignment(.leading)
-                                                .textSelection(.enabled)
+                                            if let source = issue.sourceLocationText {
+                                                Text("Source: \(source)")
+                                                    .font(.app(.meta))
+                                                    .foregroundStyle(.secondary)
+                                                    .multilineTextAlignment(.leading)
+                                                    .textSelection(.enabled)
+                                            }
+                                            if !issue.details.isEmpty {
+                                                Text("Details: \(issue.details)")
+                                                    .font(.app(.meta))
+                                                    .foregroundStyle(.secondary)
+                                                    .multilineTextAlignment(.leading)
+                                            }
                                         }
-                                        if !issue.details.isEmpty {
-                                            Text("Details: \(issue.details)")
-                                                .font(.app(.meta))
-                                                .foregroundStyle(.secondary)
-                                                .multilineTextAlignment(.leading)
-                                        }
+                                        Spacer(minLength: 0)
                                     }
-                                    Spacer(minLength: 0)
+                                    .contentShape(Rectangle())
                                 }
-                                .contentShape(Rectangle())
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Copy repair prompt for issue: \(issue.message)")
+
+                                if issue.code == "codex_frontmatter_invalid_yaml" {
+                                    Button("Repair for Codex") {
+                                        onRepairIssue(issue)
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Copy repair prompt for issue: \(issue.message)")
                         }
                     }
                     .padding(.top, AppSpacing.xs)

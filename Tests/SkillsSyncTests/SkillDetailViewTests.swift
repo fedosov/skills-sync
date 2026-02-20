@@ -82,4 +82,29 @@ final class SkillDetailViewTests: XCTestCase {
         XCTAssertTrue(source.contains(".buttonStyle(.plain)"))
         XCTAssertFalse(source.contains("DisclosureGroup(isExpanded: $isDeepDiveExpanded)"))
     }
+
+    func testValidationPanelShowsCodexVisibilityLabelForCodexIssues() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let panelFile = repoRoot.appendingPathComponent("Sources/App/SkillDetails/SkillValidationPanel.swift")
+        let source = try String(contentsOf: panelFile, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Codex visibility"))
+        XCTAssertTrue(source.contains("hasPrefix(\"codex_\")"))
+        XCTAssertTrue(source.contains("Repair for Codex"))
+    }
+
+    func testOverviewCardContainsCodexVisibilityChips() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let overviewFile = repoRoot.appendingPathComponent("Sources/App/SkillDetails/SkillOverviewCard.swift")
+        let source = try String(contentsOf: overviewFile, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Codex visible"))
+        XCTAssertTrue(source.contains("Codex hidden"))
+    }
 }

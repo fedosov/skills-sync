@@ -76,6 +76,7 @@ private struct ContentView: View {
                 onRestoreToGlobal: viewModel.restoreToGlobal,
                 onMakeGlobal: viewModel.makeGlobal,
                 onRename: viewModel.rename,
+                onRepairCodexFrontmatter: viewModel.repairCodexFrontmatter,
                 onArchiveSelected: viewModel.archiveSelectedSkills,
                 onTrashSelected: viewModel.deleteSelectedSkills,
                 previewProvider: viewModel.preview,
@@ -238,6 +239,7 @@ private struct DetailPaneView: View {
     let onRestoreToGlobal: (SkillRecord) -> Void
     let onMakeGlobal: (SkillRecord) -> Void
     let onRename: (SkillRecord, String) -> Void
+    let onRepairCodexFrontmatter: (SkillRecord) -> Void
     let onArchiveSelected: () -> Void
     let onTrashSelected: () -> Void
     let previewProvider: (SkillRecord) async -> SkillPreviewData
@@ -254,6 +256,7 @@ private struct DetailPaneView: View {
                 onRestoreToGlobal: onRestoreToGlobal,
                 onMakeGlobal: onMakeGlobal,
                 onRename: onRename,
+                onRepairCodexFrontmatter: onRepairCodexFrontmatter,
                 previewProvider: previewProvider,
                 validationProvider: validationProvider
             )

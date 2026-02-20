@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		14047E85A5EB82899A287692 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D7EA389C7F2CCB1F73CFFD29 /* Assets.xcassets */; };
 		2BA20D1A45C987E3A6EFC3C2 /* SkillsSyncSharedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD727AEEDFD6802944F1D016 /* SkillsSyncSharedTests.swift */; };
 		424484FD68A9017C4A5CA60F /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 647720FDC4534B8E25CBEF36 /* SyncEngine.swift */; };
 		454C5629D2CD9595C521C0FF /* AppSpacing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F67DB7D2128AD14EE01B56D /* AppSpacing.swift */; };
@@ -16,6 +17,7 @@
 		53B411A30218743C89BC6550 /* AutoSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A522E41A68DEC58884084AFC /* AutoSyncCoordinator.swift */; };
 		53CB1ADA2789A03334B44510 /* SyncStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02B72351E85AD5A64F858F7C /* SyncStateStore.swift */; };
 		543D4F2D0FDFB533D3AF5CA3 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75916AF05215B08D62932045 /* Models.swift */; };
+		59EA586C28420DF78DE859DD /* CodexSkillsRegistryWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD513A63AF4A4264263E3570 /* CodexSkillsRegistryWriter.swift */; };
 		5CACADC50C8F8FEC86FDC44F /* SyncPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CD3472125F35FDBECAFFE8B /* SyncPaths.swift */; };
 		5D78B2135CD93FC3A887F6B6 /* Intents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FFEFD525ED4642D44514C61 /* Intents.swift */; };
 		A80CFAA3773B310AA8FA6897 /* SkillRepairPromptBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90E8B9772FC89BC45E5E297D /* SkillRepairPromptBuilder.swift */; };
@@ -69,10 +71,12 @@
 		A522E41A68DEC58884084AFC /* AutoSyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoSyncCoordinator.swift; sourceTree = "<group>"; };
 		B7725D359EF5E770B0AAB67E /* WindowStateCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowStateCoordinator.swift; sourceTree = "<group>"; };
 		BD4B6A7DF8648C3520418922 /* SkillDeepDivePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillDeepDivePanel.swift; sourceTree = "<group>"; };
+		BD513A63AF4A4264263E3570 /* CodexSkillsRegistryWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexSkillsRegistryWriter.swift; sourceTree = "<group>"; };
 		C22F5067FCAFB7E48F14D295 /* SyncPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPresentation.swift; sourceTree = "<group>"; };
 		CE6657D3ABD350EA8FD1EECF /* SkillDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillDetailView.swift; sourceTree = "<group>"; };
 		D3DF3BB9C0DED69665C8AF3D /* SkillDetailViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillDetailViewTests.swift; sourceTree = "<group>"; };
 		D7A4A272B451C5676DEC603F /* SkillOverviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillOverviewCard.swift; sourceTree = "<group>"; };
+		D7EA389C7F2CCB1F73CFFD29 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E86C4267CE6596BF273FC9D5 /* SkillRiskPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillRiskPanel.swift; sourceTree = "<group>"; };
 		FD727AEEDFD6802944F1D016 /* SkillsSyncSharedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsSyncSharedTests.swift; sourceTree = "<group>"; };
 		FF5F0F7FB0C7F6161A8AD575 /* SkillsSyncTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SkillsSyncTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -94,6 +98,7 @@
 		5FABA9E265C652B1C44BC4DF /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				BD513A63AF4A4264263E3570 /* CodexSkillsRegistryWriter.swift */,
 				71B1FF0DC6FC627D54E72C2B /* DeepLink.swift */,
 				4FFEFD525ED4642D44514C61 /* Intents.swift */,
 				75916AF05215B08D62932045 /* Models.swift */,
@@ -141,6 +146,7 @@
 				7F67DB7D2128AD14EE01B56D /* AppSpacing.swift */,
 				78270507E464E5B08B215DAD /* AppTypography.swift */,
 				54F944AA3EF312EF6EE100D1 /* AppViewModel.swift */,
+				D7EA389C7F2CCB1F73CFFD29 /* Assets.xcassets */,
 				A522E41A68DEC58884084AFC /* AutoSyncCoordinator.swift */,
 				138612FAE9DDE47730C0114D /* SkillsSyncApp.swift */,
 				B7725D359EF5E770B0AAB67E /* WindowStateCoordinator.swift */,
@@ -196,6 +202,7 @@
 			buildConfigurationList = E6BF16C3169E96D3A0062877 /* Build configuration list for PBXNativeTarget "SkillsSyncApp" */;
 			buildPhases = (
 				1B632EA81D4B30812D09616F /* Sources */,
+				A3A737C0D7EAE44D035BCF5D /* Resources */,
 			);
 			buildRules = (
 			);
@@ -247,6 +254,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		A3A737C0D7EAE44D035BCF5D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14047E85A5EB82899A287692 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		131315786A15EE83AECA3CB9 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -268,6 +286,7 @@
 				A88F99EC7D8F55338EFC16B6 /* AppTypography.swift in Sources */,
 				51A39AD0D616EB4AAB4BD585 /* AppViewModel.swift in Sources */,
 				53B411A30218743C89BC6550 /* AutoSyncCoordinator.swift in Sources */,
+				59EA586C28420DF78DE859DD /* CodexSkillsRegistryWriter.swift in Sources */,
 				C2BBC39037C663095C8A879B /* DeepLink.swift in Sources */,
 				5D78B2135CD93FC3A887F6B6 /* Intents.swift in Sources */,
 				543D4F2D0FDFB533D3AF5CA3 /* Models.swift in Sources */,

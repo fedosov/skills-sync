@@ -39,6 +39,7 @@ struct SkillDetailView: View {
     let onRestoreToGlobal: (SkillRecord) -> Void
     let onMakeGlobal: (SkillRecord) -> Void
     let onRename: (SkillRecord, String) -> Void
+    let onRepairCodexFrontmatter: (SkillRecord) -> Void
     let previewProvider: (SkillRecord) async -> SkillPreviewData
     let validationProvider: (SkillRecord) -> SkillValidationResult
 
@@ -74,6 +75,7 @@ struct SkillDetailView: View {
                     skill: skill,
                     previewData: previewData,
                     validationIssuesCount: validation.issues.count,
+                    hasCodexVisibilityIssues: validation.issues.contains(where: { $0.code.hasPrefix("codex_") }),
                     editableTitle: $editableTitle,
                     canApplyTitle: canApplyTitle,
                     onTitleChange: {
@@ -88,7 +90,8 @@ struct SkillDetailView: View {
                     validation: validation,
                     copiedIssueID: $copiedIssueID,
                     isExpanded: $isValidationExpanded,
-                    onCopyIssue: copyRepairPrompt
+                    onCopyIssue: copyRepairPrompt,
+                    onRepairIssue: repairIssue
                 )
             }
 
@@ -232,6 +235,13 @@ struct SkillDetailView: View {
         let title = editableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         onRename(skill, title)
         isTitleDirty = false
+    }
+
+    private func repairIssue(_ issue: SkillValidationIssue) {
+        guard issue.code == "codex_frontmatter_invalid_yaml" else {
+            return
+        }
+        onRepairCodexFrontmatter(skill)
     }
 
     private func normalized(_ value: String) -> String {

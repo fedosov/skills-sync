@@ -23,6 +23,7 @@ protocol SyncEngineControlling {
     func restoreArchivedSkillToGlobal(skill: SkillRecord, confirmed: Bool) async throws -> SyncState
     func makeGlobal(skill: SkillRecord, confirmed: Bool) async throws -> SyncState
     func renameSkill(skill: SkillRecord, newTitle: String) async throws -> SyncState
+    func repairCodexFrontmatter(skill: SkillRecord) async throws -> SyncState
 }
 
 extension SyncEngine: SyncEngineControlling { }
@@ -31,6 +32,10 @@ extension SyncEngine: SyncEngineControlling { }
 final class AppViewModel: ObservableObject {
     @Published var state: SyncState = .empty {
         didSet {
+            if state.generatedAt != oldValue.generatedAt {
+                previewCache.removeAll()
+                validationCache.removeAll()
+            }
             prunePreviewCacheToCurrentState()
         }
     }
@@ -470,6 +475,28 @@ final class AppViewModel: ObservableObject {
                 localBanner = InlineBannerPresentation(
                     title: "Skill renamed",
                     message: "Updated to \(trimmedTitle).",
+                    symbol: "checkmark.circle.fill",
+                    role: .success,
+                    recoveryActionTitle: nil
+                )
+            } catch {
+                load()
+                alertMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func repairCodexFrontmatter(skill: SkillRecord) {
+        Task {
+            do {
+                let engine = makeEngine()
+                state = try await engine.repairCodexFrontmatter(skill: skill)
+                previewCache.removeAll()
+                validationCache.removeAll()
+                pruneSelectionToCurrentSkills()
+                localBanner = InlineBannerPresentation(
+                    title: "Codex frontmatter repaired",
+                    message: "\(skill.name) was repaired and synced.",
                     symbol: "checkmark.circle.fill",
                     role: .success,
                     recoveryActionTitle: nil

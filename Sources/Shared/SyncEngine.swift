@@ -42,6 +42,11 @@ enum SyncEngineError: LocalizedError {
     case renameOutsideAllowedRoots
     case renameConflictTargetExists
     case renameNoOp
+    case codexRegistryWriteFailed(reason: String)
+    case repairCodexFrontmatterMainFileMissing
+    case repairCodexFrontmatterUnreadable
+    case repairCodexFrontmatterNoFrontmatter
+    case repairCodexFrontmatterNoChangesNeeded
     case migrationFailed(skillKey: String, reason: String)
 
     var errorDescription: String? {
@@ -104,6 +109,16 @@ enum SyncEngineError: LocalizedError {
             return "Rename blocked: target already exists"
         case .renameNoOp:
             return "Rename is a no-op: generated key is unchanged"
+        case let .codexRegistryWriteFailed(reason):
+            return "Failed to update Codex skills registry: \(reason)"
+        case .repairCodexFrontmatterMainFileMissing:
+            return "Repair failed: SKILL.md was not found for this skill"
+        case .repairCodexFrontmatterUnreadable:
+            return "Repair failed: SKILL.md is unreadable as UTF-8"
+        case .repairCodexFrontmatterNoFrontmatter:
+            return "Repair failed: frontmatter block was not found"
+        case .repairCodexFrontmatterNoChangesNeeded:
+            return "No Codex frontmatter repair was needed"
         case let .migrationFailed(skillKey, reason):
             return "Migration failed for \(skillKey): \(reason)"
         }
@@ -233,6 +248,15 @@ struct SyncEngine {
 
         do {
             let result = try runCoreSync()
+            do {
+                let registryWriter = CodexSkillsRegistryWriter(
+                    homeDirectory: environment.homeDirectory,
+                    fileManager: fileManager
+                )
+                try registryWriter.writeManagedRegistry(skills: result.entries)
+            } catch {
+                throw SyncEngineError.codexRegistryWriteFailed(reason: error.localizedDescription)
+            }
             let finishedAt = Date()
             let state = makeState(
                 status: .ok,
@@ -273,6 +297,28 @@ struct SyncEngine {
             try? store.saveState(failed)
             throw error
         }
+    }
+
+    func repairCodexFrontmatter(skill: SkillRecord) async throws -> SyncState {
+        let skillFile = resolveMainSkillFile(skill: skill)
+        guard fileManager.fileExists(atPath: skillFile.path) else {
+            throw SyncEngineError.repairCodexFrontmatterMainFileMissing
+        }
+        guard let raw = try? String(contentsOf: skillFile, encoding: .utf8) else {
+            throw SyncEngineError.repairCodexFrontmatterUnreadable
+        }
+        guard let frontmatter = extractFrontmatter(raw) else {
+            throw SyncEngineError.repairCodexFrontmatterNoFrontmatter
+        }
+
+        let repaired = repairFrontmatterForCodex(frontmatter.raw)
+        guard repaired.changed else {
+            throw SyncEngineError.repairCodexFrontmatterNoChangesNeeded
+        }
+
+        let updated = frontmatter.prefix + repaired.text + frontmatter.suffix
+        try updated.write(to: skillFile, atomically: true, encoding: .utf8)
+        return try await runSync(trigger: .manual)
     }
 
     func openInZed(skill: SkillRecord) throws {
@@ -1576,6 +1622,90 @@ struct SyncEngine {
         } catch {
             throw SyncEngineError.restoreManifestMissing
         }
+    }
+
+    private func resolveMainSkillFile(skill: SkillRecord) -> URL {
+        let source = URL(fileURLWithPath: skill.canonicalSourcePath, isDirectory: true)
+        if skill.packageType == "dir" {
+            return source.appendingPathComponent("SKILL.md")
+        }
+        return source
+    }
+
+    private func extractFrontmatter(_ raw: String) -> (prefix: String, raw: String, suffix: String)? {
+        let normalized = raw.replacingOccurrences(of: "\r\n", with: "\n")
+        guard normalized.hasPrefix("---\n") else {
+            return nil
+        }
+        let fmStart = normalized.index(normalized.startIndex, offsetBy: 4)
+        guard let fmEnd = normalized.range(of: "\n---", range: fmStart..<normalized.endIndex) else {
+            return nil
+        }
+        let prefix = String(normalized[..<fmStart])
+        let fmRaw = String(normalized[fmStart..<fmEnd.lowerBound])
+        let suffix = String(normalized[fmEnd.lowerBound...])
+        return (prefix: prefix, raw: fmRaw, suffix: suffix)
+    }
+
+    private func repairFrontmatterForCodex(_ frontmatter: String) -> (text: String, changed: Bool) {
+        let lines = frontmatter.components(separatedBy: .newlines)
+        var changed = false
+        var repaired: [String] = []
+
+        for line in lines {
+            guard let colonIndex = line.firstIndex(of: ":") else {
+                repaired.append(line)
+                continue
+            }
+            let key = line[..<colonIndex]
+            let valueStart = line.index(after: colonIndex)
+            let value = line[valueStart...]
+            let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedValue.isEmpty || isQuotedYAMLScalar(trimmedValue) || !needsCodexScalarQuoting(trimmedValue) {
+                repaired.append(line)
+                continue
+            }
+
+            let leadingWhitespace = value.prefix { $0 == " " || $0 == "\t" }
+            let escaped = trimmedValue
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            repaired.append("\(key):\(leadingWhitespace)\"\(escaped)\"")
+            changed = true
+        }
+
+        return (text: repaired.joined(separator: "\n"), changed: changed)
+    }
+
+    private func isQuotedYAMLScalar(_ value: String) -> Bool {
+        guard let first = value.first else {
+            return false
+        }
+        return first == "\"" || first == "'"
+    }
+
+    private func needsCodexScalarQuoting(_ value: String) -> Bool {
+        if value.contains("] [") {
+            return true
+        }
+        if value.hasPrefix("[") && !looksLikeSimpleFlowSequence(value) {
+            return true
+        }
+        return false
+    }
+
+    private func looksLikeSimpleFlowSequence(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("["), trimmed.hasSuffix("]") else {
+            return false
+        }
+        var balance = 0
+        for char in trimmed {
+            if char == "[" { balance += 1 }
+            if char == "]" { balance -= 1 }
+            if balance < 0 { return false }
+        }
+        return balance == 0
     }
 
     private func loadArchivedEntries() -> [SkillRecord] {
