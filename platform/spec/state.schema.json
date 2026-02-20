@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skillssync.dev/schema/state.v1.json",
+  "title": "SkillsSync State",
+  "type": "object",
+  "required": ["version", "generated_at", "sync", "summary", "skills", "top_skills"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "sync": {
+      "type": "object",
+      "required": ["status", "last_started_at", "last_finished_at", "duration_ms", "error"],
+      "properties": {
+        "status": { "type": "string", "enum": ["ok", "failed", "syncing", "unknown"] },
+        "last_started_at": { "type": ["string", "null"], "format": "date-time" },
+        "last_finished_at": { "type": ["string", "null"], "format": "date-time" },
+        "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "error": { "type": ["string", "null"] }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["global_count", "project_count", "conflict_count"],
+      "properties": {
+        "global_count": { "type": "integer", "minimum": 0 },
+        "project_count": { "type": "integer", "minimum": 0 },
+        "conflict_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "scope",
+          "workspace",
+          "canonical_source_path",
+          "target_paths",
+          "exists",
+          "is_symlink_canonical",
+          "package_type",
+          "skill_key",
+          "symlink_target",
+          "status",
+          "archived_at",
+          "archived_bundle_path",
+          "archived_original_scope",
+          "archived_original_workspace"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "scope": { "type": "string" },
+          "workspace": { "type": ["string", "null"] },
+          "canonical_source_path": { "type": "string" },
+          "target_paths": { "type": "array", "items": { "type": "string" } },
+          "exists": { "type": "boolean" },
+          "is_symlink_canonical": { "type": "boolean" },
+          "package_type": { "type": "string" },
+          "skill_key": { "type": "string" },
+          "symlink_target": { "type": "string" },
+          "status": { "type": "string", "enum": ["active", "archived"] },
+          "archived_at": { "type": ["string", "null"], "format": "date-time" },
+          "archived_bundle_path": { "type": ["string", "null"] },
+          "archived_original_scope": { "type": ["string", "null"] },
+          "archived_original_workspace": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "top_skills": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

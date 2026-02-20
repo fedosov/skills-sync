@@ -1,0 +1,30 @@
+{
+  "tier1": {
+    "platforms": ["macos", "windows", "linux", "cli"],
+    "features": [
+      "sync",
+      "list",
+      "delete",
+      "archive",
+      "restore",
+      "make_global",
+      "rename",
+      "watch"
+    ]
+  },
+  "tier2_companion": {
+    "platforms": ["ios", "android", "web"],
+    "features": [
+      "get_state",
+      "run_sync",
+      "doctor"
+    ],
+    "restricted": [
+      "delete",
+      "archive",
+      "restore",
+      "make_global",
+      "rename"
+    ]
+  }
+}

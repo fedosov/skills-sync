@@ -8,4 +8,4 @@ script = ""
 [[actions]]
 name = "Run"
 icon = "run"
-command = "./scripts/run-app.sh"
+command = "./scripts/run-tauri-gui.sh"

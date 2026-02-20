@@ -1,0 +1,50 @@
+{
+  "binary": "skillssync",
+  "commands": [
+    {
+      "name": "sync",
+      "args": ["--trigger", "--json"],
+      "example": "skillssync sync --trigger manual --json"
+    },
+    {
+      "name": "list",
+      "args": ["--scope", "--json"],
+      "example": "skillssync list --scope project"
+    },
+    {
+      "name": "delete",
+      "args": ["--skill-key", "--confirm"],
+      "example": "skillssync delete --skill-key alpha --confirm"
+    },
+    {
+      "name": "archive",
+      "args": ["--skill-key", "--confirm"],
+      "example": "skillssync archive --skill-key alpha --confirm"
+    },
+    {
+      "name": "restore",
+      "args": ["--skill-key", "--confirm"],
+      "example": "skillssync restore --skill-key alpha --confirm"
+    },
+    {
+      "name": "make-global",
+      "args": ["--skill-key", "--confirm"],
+      "example": "skillssync make-global --skill-key alpha --confirm"
+    },
+    {
+      "name": "rename",
+      "args": ["--skill-key", "--title"],
+      "example": "skillssync rename --skill-key alpha --title \"New Title\""
+    },
+    {
+      "name": "watch",
+      "args": [],
+      "example": "skillssync watch"
+    },
+    {
+      "name": "doctor",
+      "args": [],
+      "example": "skillssync doctor"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "generated_at": "",
+  "sync": {
+    "status": "unknown",
+    "last_started_at": null,
+    "last_finished_at": null,
+    "duration_ms": null,
+    "error": null
+  },
+  "summary": {
+    "global_count": 0,
+    "project_count": 0,
+    "conflict_count": 0
+  },
+  "skills": [],
+  "top_skills": []
+}

@@ -1,0 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --background: 220 17% 7%;
+    --foreground: 210 20% 96%;
+
+    --card: 220 15% 10%;
+    --card-foreground: 210 20% 96%;
+
+    --primary: 210 20% 89%;
+    --primary-foreground: 220 17% 8%;
+
+    --muted: 220 12% 15%;
+    --muted-foreground: 215 11% 65%;
+
+    --accent: 218 13% 13%;
+    --accent-foreground: 210 20% 96%;
+
+    --destructive: 0 64% 43%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 217 14% 22%;
+    --input: 217 14% 22%;
+    --ring: 212 21% 83%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at 18% -12%, hsl(216 33% 18% / 0.45) 0%, transparent 45%),
+      radial-gradient(circle at 86% -18%, hsl(196 30% 14% / 0.45) 0%, transparent 40%);
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.26);
+  }
+}
+
+@layer utilities {
+  .text-dense {
+    letter-spacing: -0.01em;
+  }
+}

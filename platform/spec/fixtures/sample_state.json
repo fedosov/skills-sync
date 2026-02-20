@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "generated_at": "2026-02-20T10:00:00Z",
+  "sync": {
+    "status": "ok",
+    "last_started_at": "2026-02-20T09:59:59Z",
+    "last_finished_at": "2026-02-20T10:00:00Z",
+    "duration_ms": 923,
+    "error": null
+  },
+  "summary": {
+    "global_count": 1,
+    "project_count": 1,
+    "conflict_count": 0
+  },
+  "skills": [
+    {
+      "id": "skill-abc123def456",
+      "name": "alpha",
+      "scope": "global",
+      "workspace": null,
+      "canonical_source_path": "/Users/example/.claude/skills/alpha",
+      "target_paths": [
+        "/Users/example/.agents/skills/alpha",
+        "/Users/example/.claude/skills/alpha",
+        "/Users/example/.codex/skills/alpha"
+      ],
+      "exists": true,
+      "is_symlink_canonical": false,
+      "package_type": "dir",
+      "skill_key": "alpha",
+      "symlink_target": "/Users/example/.claude/skills/alpha",
+      "status": "active",
+      "archived_at": null,
+      "archived_bundle_path": null,
+      "archived_original_scope": null,
+      "archived_original_workspace": null
+    }
+  ],
+  "top_skills": [
+    "skill-abc123def456"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SkillsSync Desktop",
+  "version": "0.1.0",
+  "identifier": "dev.fedosov.skillssync.desktop",
+  "build": {
+    "beforeDevCommand": "npm --prefix ./ui run dev",
+    "beforeBuildCommand": "npm --prefix ./ui run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "SkillsSync Desktop",
+        "width": 1280,
+        "height": 820,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": []
+  }
+}

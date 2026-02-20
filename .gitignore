@@ -1,6 +1,5 @@
 .DS_Store
-build/
-DerivedData/
-*.xcuserstate
-*.xcworkspace/xcuserdata/
-*.xcodeproj/xcuserdata/
+platform/target/
+platform/apps/skillssync-desktop/ui/node_modules/
+platform/apps/skillssync-desktop/ui/dist/
+platform/apps/skillssync-desktop/ui/coverage/
