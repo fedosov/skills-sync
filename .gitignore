@@ -3,6 +3,7 @@ platform/target/
 platform/apps/skillssync-desktop/ui/node_modules/
 platform/apps/skillssync-desktop/ui/dist/
 platform/apps/skillssync-desktop/ui/coverage/
+platform/apps/skillssync-desktop/src-tauri/bin/dotagents/
 output/
 .env
 .env.*

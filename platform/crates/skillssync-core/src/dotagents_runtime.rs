@@ -1,19 +1,15 @@
 use crate::error::SyncEngineError;
+use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use std::env;
 use std::path::{Path, PathBuf};
 
 const DEFAULT_DOTAGENTS_VERSION: &str = "0.10.0";
 const DOTAGENTS_BINARY_NAME: &str = "dotagents";
+const DOTAGENTS_WINDOWS_CMD_BINARY_NAME: &str = "dotagents.cmd";
+const DOTAGENTS_WINDOWS_BINARY_NAME: &str = "dotagents.exe";
 const DOTAGENTS_TARGET_PREFIX: &str = "dotagents";
-
-const TARGET_CHECKSUMS: &[(&str, &str, &str)] = &[
-    ("darwin", "arm64", ""),
-    ("darwin", "x64", ""),
-    ("linux", "x64", ""),
-    ("linux", "arm64", ""),
-    ("windows", "x64", ""),
-];
+const CHECKSUM_MANIFEST_FILE: &str = "checksums.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DotagentsBinarySource {
@@ -134,9 +130,9 @@ impl DotagentsRuntimeManager {
             });
         }
 
-        if let Some(path) = self.find_bundled_binary(target) {
+        for path in self.find_bundled_binary_candidates(target) {
             self.ensure_binary_exists(&path)?;
-            if self.has_checksum_manifest_for_target(target) {
+            if self.has_checksum_manifest_for_binary(&path, target) {
                 return Ok(DotagentsResolvedBinary {
                     path,
                     source: DotagentsBinarySource::Bundled,
@@ -167,7 +163,7 @@ impl DotagentsRuntimeManager {
         let expected = self
             .checksum_override
             .clone()
-            .or_else(|| expected_checksum_for_target(binary.target))
+            .or_else(|| self.expected_checksum_for_bundled_binary_path(&binary.path, binary.target))
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| {
                 SyncEngineError::DotagentsUnavailable(format!(
@@ -212,39 +208,32 @@ impl DotagentsRuntimeManager {
             .map(PathBuf::from)
     }
 
-    fn find_bundled_binary(&self, target: DotagentsTarget) -> Option<PathBuf> {
-        let binary_name = dotagents_binary_name();
-
+    fn find_bundled_binary_candidates(&self, target: DotagentsTarget) -> Vec<PathBuf> {
+        let mut candidates = Vec::new();
         for root in self.bundled_candidate_roots() {
             for prefix in [
                 PathBuf::from(DOTAGENTS_TARGET_PREFIX),
                 PathBuf::from("bin").join(DOTAGENTS_TARGET_PREFIX),
             ] {
-                let candidate = root
-                    .join(&prefix)
-                    .join(target.identifier())
-                    .join(binary_name);
-                if candidate.exists() {
-                    return Some(candidate);
+                let target_dir = root.join(&prefix).join(target.identifier());
+                for binary_name in dotagents_binary_candidates() {
+                    let candidate = target_dir.join(binary_name);
+                    if candidate.exists() {
+                        candidates.push(candidate);
+                    }
                 }
             }
         }
 
-        None
+        candidates
     }
 
-    fn has_checksum_manifest_for_target(&self, target: DotagentsTarget) -> bool {
-        if self
-            .checksum_override
-            .as_deref()
-            .map(str::trim)
-            .map(|value| !value.is_empty())
-            .unwrap_or(false)
-        {
-            return true;
-        }
-
-        expected_checksum_for_target(target)
+    fn has_checksum_manifest_for_binary(
+        &self,
+        binary_path: &Path,
+        target: DotagentsTarget,
+    ) -> bool {
+        self.expected_checksum_for_bundled_binary_path(binary_path, target)
             .as_deref()
             .map(str::trim)
             .map(|value| !value.is_empty())
@@ -288,10 +277,34 @@ impl DotagentsRuntimeManager {
         }
 
         let path_env = env::var_os("PATH")?;
-        let binary_name = dotagents_binary_name();
-        env::split_paths(&path_env)
-            .map(|entry| entry.join(binary_name))
-            .find(|candidate| candidate.exists())
+        for entry in env::split_paths(&path_env) {
+            for binary_name in dotagents_binary_candidates() {
+                let candidate = entry.join(binary_name);
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn expected_checksum_for_bundled_binary_path(
+        &self,
+        binary_path: &Path,
+        target: DotagentsTarget,
+    ) -> Option<String> {
+        if let Some(checksum) = self
+            .checksum_override
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(checksum.to_string());
+        }
+
+        let manifest_path = bundled_manifest_path(binary_path)?;
+        checksum_from_manifest(&manifest_path, target)
     }
 
     fn ensure_binary_exists(&self, path: &Path) -> Result<(), SyncEngineError> {
@@ -321,18 +334,48 @@ fn is_numeric_version_token(token: &str) -> bool {
             .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
 }
 
-fn expected_checksum_for_target(target: DotagentsTarget) -> Option<String> {
-    TARGET_CHECKSUMS
-        .iter()
-        .find(|(os, arch, _)| *os == target.os && *arch == target.arch)
-        .map(|(_, _, checksum)| checksum.to_string())
+fn bundled_manifest_path(binary_path: &Path) -> Option<PathBuf> {
+    binary_path
+        .parent()
+        .and_then(Path::parent)
+        .map(|directory| directory.join(CHECKSUM_MANIFEST_FILE))
 }
 
-fn dotagents_binary_name() -> &'static str {
+fn checksum_from_manifest(manifest_path: &Path, target: DotagentsTarget) -> Option<String> {
+    let raw = std::fs::read_to_string(manifest_path).ok()?;
+    let manifest: JsonValue = serde_json::from_str(&raw).ok()?;
+    let target_identifier = target.identifier();
+    checksum_value_for_target(&manifest, &target_identifier)
+}
+
+fn checksum_value_for_target(manifest: &JsonValue, target_identifier: &str) -> Option<String> {
+    for object in [
+        manifest.get("checksums").and_then(JsonValue::as_object),
+        manifest.get("targets").and_then(JsonValue::as_object),
+        manifest.as_object(),
+    ] {
+        if let Some(checksum) = object
+            .and_then(|values| values.get(target_identifier))
+            .and_then(JsonValue::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(checksum.to_string());
+        }
+    }
+
+    None
+}
+
+fn dotagents_binary_candidates() -> &'static [&'static str] {
     if env::consts::OS == "windows" {
-        "dotagents.exe"
+        &[
+            DOTAGENTS_WINDOWS_CMD_BINARY_NAME,
+            DOTAGENTS_WINDOWS_BINARY_NAME,
+            DOTAGENTS_BINARY_NAME,
+        ]
     } else {
-        DOTAGENTS_BINARY_NAME
+        &[DOTAGENTS_BINARY_NAME]
     }
 }
 
@@ -359,14 +402,15 @@ fn dedup_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{dotagents_binary_name, DotagentsBinarySource, DotagentsRuntimeManager};
+    use super::{sha256_file, DotagentsBinarySource, DotagentsRuntimeManager};
     use std::fs;
+    use std::path::Path;
     use tempfile::TempDir;
 
     #[test]
     fn resolve_binary_prefers_override_path() {
         let temp = TempDir::new().expect("tempdir");
-        let binary_path = temp.path().join(dotagents_binary_name());
+        let binary_path = temp.path().join(dotagents_test_binary_name());
         fs::write(&binary_path, "#!/bin/sh\necho ok\n").expect("write fake binary");
 
         let manager = DotagentsRuntimeManager::new(temp.path().to_path_buf())
@@ -411,7 +455,7 @@ mod tests {
                 .join("dotagents")
                 .join(format!("{}-{}", runtime_os(), runtime_arch()));
         fs::create_dir_all(&binary_dir).expect("create binary dir");
-        let binary_path = binary_dir.join(dotagents_binary_name());
+        let binary_path = binary_dir.join(dotagents_test_binary_name());
         fs::write(&binary_path, "binary").expect("write fake binary");
 
         let manager = DotagentsRuntimeManager::new(temp.path().to_path_buf())
@@ -435,7 +479,7 @@ mod tests {
                 .join("dotagents")
                 .join(format!("{}-{}", runtime_os(), runtime_arch()));
         fs::create_dir_all(&binary_dir).expect("create binary dir");
-        let binary_path = binary_dir.join(dotagents_binary_name());
+        let binary_path = binary_dir.join(dotagents_test_binary_name());
         fs::write(&binary_path, "binary").expect("write fake binary");
 
         let manager = DotagentsRuntimeManager::new(temp.path().to_path_buf())
@@ -449,6 +493,102 @@ mod tests {
     }
 
     #[test]
+    fn verify_checksum_accepts_manifest_checksum_for_bundled_binary() {
+        let temp = TempDir::new().expect("tempdir");
+        let binary_dir =
+            temp.path()
+                .join("dotagents")
+                .join(format!("{}-{}", runtime_os(), runtime_arch()));
+        fs::create_dir_all(&binary_dir).expect("create binary dir");
+        let binary_path = binary_dir.join(dotagents_test_binary_name());
+        fs::write(&binary_path, "binary").expect("write fake binary");
+        let checksum = sha256_file(&binary_path).expect("compute checksum");
+        write_checksum_manifest(
+            binary_dir
+                .parent()
+                .expect("target directory parent should exist"),
+            runtime_target_identifier(),
+            checksum,
+        );
+
+        let manager = DotagentsRuntimeManager::new(temp.path().to_path_buf())
+            .with_bundled_root_override(temp.path().to_path_buf())
+            .with_system_path_lookup_disabled();
+        let resolved = manager.resolve_binary().expect("resolve bundled binary");
+
+        assert_eq!(resolved.source, DotagentsBinarySource::Bundled);
+        manager
+            .verify_checksum(&resolved)
+            .expect("checksum manifest should validate bundled binary");
+    }
+
+    #[test]
+    fn resolve_binary_skips_manifest_without_target_checksum() {
+        let temp = TempDir::new().expect("tempdir");
+        let binary_dir =
+            temp.path()
+                .join("dotagents")
+                .join(format!("{}-{}", runtime_os(), runtime_arch()));
+        fs::create_dir_all(&binary_dir).expect("create binary dir");
+        let binary_path = binary_dir.join(dotagents_test_binary_name());
+        fs::write(&binary_path, "binary").expect("write fake binary");
+        write_checksum_manifest(
+            binary_dir
+                .parent()
+                .expect("target directory parent should exist"),
+            String::from("unrelated-target"),
+            String::from("deadbeef"),
+        );
+
+        let manager = DotagentsRuntimeManager::new(temp.path().to_path_buf())
+            .with_bundled_root_override(temp.path().to_path_buf())
+            .with_system_path_lookup_disabled();
+
+        let error = manager
+            .resolve_binary()
+            .expect_err("bundled binary without matching checksum entry must be skipped");
+        assert!(error.to_string().contains("dotagents binary not found"));
+    }
+
+    #[test]
+    fn resolve_binary_continues_after_unverifiable_bundled_candidate() {
+        let temp = TempDir::new().expect("tempdir");
+        let target_identifier = runtime_target_identifier();
+
+        let unverifiable_dir = temp.path().join("dotagents").join(&target_identifier);
+        fs::create_dir_all(&unverifiable_dir).expect("create primary binary dir");
+        let unverifiable_binary = unverifiable_dir.join(dotagents_test_binary_name());
+        fs::write(&unverifiable_binary, "unverifiable").expect("write primary binary");
+
+        let fallback_dir = temp
+            .path()
+            .join("bin")
+            .join("dotagents")
+            .join(&target_identifier);
+        fs::create_dir_all(&fallback_dir).expect("create fallback binary dir");
+        let fallback_binary = fallback_dir.join(dotagents_test_binary_name());
+        fs::write(&fallback_binary, "fallback").expect("write fallback binary");
+        let checksum = sha256_file(&fallback_binary).expect("compute checksum");
+        write_checksum_manifest(
+            fallback_dir
+                .parent()
+                .expect("target directory parent should exist"),
+            target_identifier,
+            checksum,
+        );
+
+        let manager = DotagentsRuntimeManager::new(temp.path().to_path_buf())
+            .with_bundled_root_override(temp.path().to_path_buf())
+            .with_system_path_lookup_disabled();
+        let resolved = manager.resolve_binary().expect(
+            "resolver must continue scanning bundled candidates after an unverifiable match",
+        );
+
+        assert_eq!(resolved.source, DotagentsBinarySource::Bundled);
+        assert_eq!(resolved.path, fallback_binary);
+    }
+
+    #[test]
     fn resolve_binary_finds_bundled_binary_in_bin_dotagents_layout() {
         let temp = TempDir::new().expect("tempdir");
         let binary_dir = temp.path().join("bin").join("dotagents").join(format!(
@@ -457,7 +597,7 @@ mod tests {
             runtime_arch()
         ));
         fs::create_dir_all(&binary_dir).expect("create binary dir");
-        let binary_path = binary_dir.join(dotagents_binary_name());
+        let binary_path = binary_dir.join(dotagents_test_binary_name());
         fs::write(&binary_path, "binary").expect("write fake binary");
 
         let manager = DotagentsRuntimeManager::new(temp.path().to_path_buf())
@@ -467,6 +607,36 @@ mod tests {
 
         assert_eq!(resolved.source, DotagentsBinarySource::Bundled);
         assert_eq!(resolved.path, binary_path);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolve_binary_supports_windows_cmd_launcher() {
+        let temp = TempDir::new().expect("tempdir");
+        let binary_dir =
+            temp.path()
+                .join("dotagents")
+                .join(format!("{}-{}", runtime_os(), runtime_arch()));
+        fs::create_dir_all(&binary_dir).expect("create binary dir");
+        let cmd_path = binary_dir.join("dotagents.cmd");
+        fs::write(&cmd_path, "@echo off\r\necho ok\r\n").expect("write cmd launcher");
+        let exe_path = binary_dir.join("dotagents.exe");
+        fs::write(&exe_path, "legacy").expect("write fallback exe launcher");
+        let checksum = sha256_file(&cmd_path).expect("compute checksum");
+        write_checksum_manifest(
+            binary_dir
+                .parent()
+                .expect("target directory parent should exist"),
+            runtime_target_identifier(),
+            checksum,
+        );
+
+        let manager = DotagentsRuntimeManager::new(temp.path().to_path_buf())
+            .with_bundled_root_override(temp.path().to_path_buf())
+            .with_system_path_lookup_disabled();
+        let resolved = manager.resolve_binary().expect("resolve bundled binary");
+
+        assert_eq!(resolved.path, cmd_path);
     }
 
     fn runtime_os() -> &'static str {
@@ -484,5 +654,31 @@ mod tests {
             "aarch64" => "arm64",
             _ => "unknown",
         }
+    }
+
+    fn runtime_target_identifier() -> String {
+        format!("{}-{}", runtime_os(), runtime_arch())
+    }
+
+    fn dotagents_test_binary_name() -> &'static str {
+        if std::env::consts::OS == "windows" {
+            "dotagents.cmd"
+        } else {
+            "dotagents"
+        }
+    }
+
+    fn write_checksum_manifest(directory: &Path, target_identifier: String, checksum: String) {
+        let content = serde_json::json!({
+            "version": 1,
+            "checksums": {
+                target_identifier: checksum,
+            },
+        });
+        fs::write(
+            directory.join("checksums.json"),
+            serde_json::to_string_pretty(&content).expect("serialize checksum manifest"),
+        )
+        .expect("write checksum manifest");
     }
 }

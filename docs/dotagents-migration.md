@@ -7,8 +7,9 @@ SkillsSync strict mode requires `agents.toml` contracts for both user and projec
 ## Migration
 
 1. Backup current skill roots (`~/.claude/skills`, `~/.agents/skills`, workspace `.agents/skills`).
-2. Ensure `dotagents` is installed and available on `PATH`:
+2. For standalone CLI migration flows, ensure `dotagents` is installed and available on `PATH`:
    - `npm install -g @sentry/dotagents@0.10.0`
+   - Desktop app bundles include `dotagents` runtime automatically and do not require global `dotagents`.
 3. Initialize strict contracts:
    - user scope: `skillssync migrate-dotagents --scope user`
    - project scope: `skillssync migrate-dotagents --scope project`

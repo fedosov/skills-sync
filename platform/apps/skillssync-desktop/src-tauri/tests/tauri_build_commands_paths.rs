@@ -19,9 +19,9 @@ fn before_dev_command_targets_ui_package() {
     let config = read_tauri_config();
     let command = get_build_command(&config, "beforeDevCommand");
     assert!(
-        command.contains("--prefix . run dev")
-            && command.contains("--prefix ./ui run dev")
-            && command.contains("--prefix ../ui run dev"),
+        command.contains("--prefix . run dev:tauri")
+            && command.contains("--prefix ./ui run dev:tauri")
+            && command.contains("--prefix ../ui run dev:tauri"),
         "beforeDevCommand must support cwd fallbacks for ui package, got: {command}"
     );
 }
@@ -31,30 +31,28 @@ fn before_build_command_targets_ui_package() {
     let config = read_tauri_config();
     let command = get_build_command(&config, "beforeBuildCommand");
     assert!(
-        command.contains("--prefix . run build")
-            && command.contains("--prefix ./ui run build")
-            && command.contains("--prefix ../ui run build"),
+        command.contains("--prefix . run build:tauri")
+            && command.contains("--prefix ./ui run build:tauri")
+            && command.contains("--prefix ../ui run build:tauri"),
         "beforeBuildCommand must support cwd fallbacks for ui package, got: {command}"
     );
 }
 
 #[test]
-fn bundle_resources_do_not_include_dotagents_placeholders() {
+fn bundle_resources_include_dotagents_runtime_tree() {
     let config = read_tauri_config();
     let resources = config["bundle"]["resources"]
         .as_array()
         .cloned()
         .unwrap_or_default();
 
-    let includes_dotagents = resources.iter().any(|value| {
-        value
-            .as_str()
-            .map(|item| item.contains("dotagents"))
-            .unwrap_or(false)
-    });
+    let includes_dotagents = resources
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .any(|item| item == "bin/dotagents");
 
     assert!(
-        !includes_dotagents,
-        "dotagents placeholder resources must not be bundled"
+        includes_dotagents,
+        "bundle.resources must include bin/dotagents for bundled dotagents runtime"
     );
 }

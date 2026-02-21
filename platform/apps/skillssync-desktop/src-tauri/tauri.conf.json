@@ -4,8 +4,8 @@
   "version": "0.2.1",
   "identifier": "dev.fedosov.skillssync.desktop",
   "build": {
-    "beforeDevCommand": "npm --prefix . run dev || npm --prefix ./ui run dev || npm --prefix ../ui run dev",
-    "beforeBuildCommand": "npm --prefix . run build || npm --prefix ./ui run build || npm --prefix ../ui run build",
+    "beforeDevCommand": "npm --prefix . run dev:tauri || npm --prefix ./ui run dev:tauri || npm --prefix ../ui run dev:tauri",
+    "beforeBuildCommand": "npm --prefix . run build:tauri || npm --prefix ./ui run build:tauri || npm --prefix ../ui run build:tauri",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../ui/dist"
   },
@@ -25,6 +25,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "bin/dotagents"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",

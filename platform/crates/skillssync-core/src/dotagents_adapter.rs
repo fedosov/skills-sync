@@ -69,8 +69,32 @@ impl DotagentsAdapter {
         cwd: &Path,
         user_scope: bool,
     ) -> Result<DotagentsCommandOutput, SyncEngineError> {
-        let mut rendered_command = vec![binary.path.display().to_string()];
-        let mut command = Command::new(&binary.path);
+        let mut rendered_command: Vec<String>;
+        let mut command: Command;
+
+        #[cfg(windows)]
+        {
+            if is_windows_shell_script(&binary.path) {
+                rendered_command = vec![
+                    String::from("cmd.exe"),
+                    String::from("/C"),
+                    binary.path.display().to_string(),
+                ];
+                command = Command::new("cmd.exe");
+                command.arg("/C");
+                command.arg(&binary.path);
+            } else {
+                rendered_command = vec![binary.path.display().to_string()];
+                command = Command::new(&binary.path);
+            }
+        }
+
+        #[cfg(not(windows))]
+        {
+            rendered_command = vec![binary.path.display().to_string()];
+            command = Command::new(&binary.path);
+        }
+
         command.current_dir(cwd);
         command.env("HOME", self.runtime.home_directory());
         command.env("NO_COLOR", "1");
@@ -105,14 +129,33 @@ impl DotagentsAdapter {
     }
 }
 
+#[cfg(any(windows, test))]
+fn is_windows_shell_script(binary_path: &Path) -> bool {
+    binary_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::DotagentsAdapter;
+    use super::{is_windows_shell_script, DotagentsAdapter};
     use crate::dotagents_runtime::DotagentsRuntimeManager;
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
     use tempfile::TempDir;
+
+    #[test]
+    fn detects_windows_shell_script_extensions() {
+        assert!(is_windows_shell_script(Path::new("dotagents.cmd")));
+        assert!(is_windows_shell_script(Path::new("dotagents.CMD")));
+        assert!(is_windows_shell_script(Path::new("dotagents.bat")));
+        assert!(!is_windows_shell_script(Path::new("dotagents.exe")));
+        assert!(!is_windows_shell_script(Path::new("dotagents")));
+    }
 
     #[test]
     #[cfg(unix)]

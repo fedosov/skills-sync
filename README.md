@@ -4,7 +4,7 @@ Keep one canonical catalog for `skills`, `subagents`, and managed `MCP servers`,
 
 If an item exists in one ecosystem but is missing in another, SkillsSync reconciles it by rebuilding managed links and updating managed registry entries.
 
-`skills` and `mcp` now run in strict `dotagents` mode (`sync` + `install --frozen` + declaration-based management). `subagents` stay on the existing SkillsSync pipeline in this phase.
+`skills` and `mcp` now run in strict [`dotagents`](https://github.com/getsentry/dotagents) mode (`sync` + `install --frozen` + declaration-based management). `subagents` stay on the existing SkillsSync pipeline in this phase.
 
 ## Screenshot
 
@@ -173,8 +173,10 @@ skillssync watch --scope all --interval-seconds 15
 
 - Rust and Cargo
 - Node.js and npm
-- `dotagents` CLI (`@sentry/dotagents@0.10.0`) available on `PATH`
+- [`dotagents`](https://github.com/getsentry/dotagents) CLI (`@sentry/dotagents@0.10.0`) available on `PATH` for standalone `skillssync` CLI usage
 - Tauri system dependencies installed for your OS
+
+Desktop bundles include a self-contained [`dotagents`](https://github.com/getsentry/dotagents) runtime (Node.js + `@sentry/dotagents@0.10.0`) and do not require global [`dotagents`](https://github.com/getsentry/dotagents) on `PATH`.
 
 ## Run Tests
 

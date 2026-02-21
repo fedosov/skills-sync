@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 1420 --strictPort",
+    "dev:tauri": "npm run dotagents:prepare && npm run dev",
     "build": "tsc -p tsconfig.app.json && vite build",
+    "build:tauri": "npm run dotagents:prepare && npm run build",
+    "dotagents:prepare": "node ./scripts/prepare-dotagents-bundle.mjs",
     "preview": "vite preview",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
