@@ -5,10 +5,10 @@
 @layer base {
   :root {
     color-scheme: light dark;
-    --background: 0 0% 96%;
+    --background: 0 0% 95%;
     --foreground: 0 0% 16%;
 
-    --card: 0 0% 99%;
+    --card: 0 0% 98%;
     --card-foreground: 0 0% 16%;
 
     --primary: 0 0% 24%;
@@ -23,8 +23,8 @@
     --destructive: 0 72% 45%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 79%;
-    --input: 0 0% 77%;
+    --border: 0 0% 74%;
+    --input: 0 0% 72%;
     --ring: 0 0% 34%;
 
     --radius-lg: 8px;
@@ -77,26 +77,26 @@
 
   @media (prefers-color-scheme: dark) {
     :root {
-      --background: 0 0% 7%;
+      --background: 0 0% 8%;
       --foreground: 0 0% 90%;
 
-      --card: 0 0% 10%;
+      --card: 0 0% 11%;
       --card-foreground: 0 0% 90%;
 
       --primary: 0 0% 82%;
       --primary-foreground: 0 0% 8%;
 
-      --muted: 0 0% 14%;
+      --muted: 0 0% 15%;
       --muted-foreground: 0 0% 67%;
 
-      --accent: 0 0% 16%;
+      --accent: 0 0% 17%;
       --accent-foreground: 0 0% 90%;
 
       --destructive: 0 70% 54%;
       --destructive-foreground: 0 0% 100%;
 
-      --border: 0 0% 22%;
-      --input: 0 0% 24%;
+      --border: 0 0% 20%;
+      --input: 0 0% 21%;
       --ring: 0 0% 66%;
     }
   }

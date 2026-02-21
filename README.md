@@ -6,7 +6,7 @@ If an item exists in one ecosystem but is missing in another, SkillsSync reconci
 
 ## Screenshot
 
-![SkillsSync screenshot](docs/images/skillssync-latest-screenshot.png?v=20260221-123317)
+![SkillsSync screenshot](docs/images/skillssync-screenshot-0dc5b2dbb21f.png)
 
 ## What SkillsSync Solves
 

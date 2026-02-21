@@ -5,10 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { cn } from "./lib/utils";
 import {
-  getStarredSkillIds,
   getSkillDetails,
-  getSubagentDetails,
   getState,
+  getSubagentDetails,
   listSubagents,
   mutateSkill,
   openSubagentPath,
@@ -16,7 +15,6 @@ import {
   renameSkill,
   runSync,
   setMcpServerEnabled,
-  setSkillStarred,
 } from "./tauriApi";
 import {
   formatUnixTime,
@@ -25,15 +23,18 @@ import {
   sortAndFilterSkills,
 } from "./skillUtils";
 import type {
-  MutationCommand,
   McpServerRecord,
+  MutationCommand,
   SubagentDetails,
   SubagentRecord,
   SkillDetails,
-  SkillLifecycleStatus,
   SyncHealthStatus,
   SyncState,
 } from "./types";
+
+type FocusKind = "skills" | "subagents" | "mcp";
+type DeleteDialogState = { skillKey: string; confirmText: string } | null;
+type OpenTargetMenu = "skill" | "subagent" | null;
 
 function toTitleCase(value: string): string {
   if (!value) {
@@ -59,36 +60,33 @@ function syncStatusVariant(status: SyncHealthStatus | undefined) {
   }
 }
 
-function lifecycleVariant(status: SkillLifecycleStatus) {
-  return status === "active" ? ("success" as const) : ("outline" as const);
+function compactPath(path: string | null | undefined): string {
+  if (!path) {
+    return "-";
+  }
+  const segments = path.split("/").filter(Boolean);
+  if (segments.length <= 3) {
+    return path;
+  }
+  return `/${segments[0]}/.../${segments[segments.length - 1]}`;
 }
 
-type StarIconProps = {
-  active: boolean;
-  className?: string;
-};
-
-function StarIcon({ active, className }: StarIconProps) {
+function ScopeMarker({ scope }: { scope: string }) {
+  const scopeLabel = scope === "global" ? "Global" : "Project";
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className={className}
-      fill={active ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth={1.75}
-      aria-hidden="true"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="m12 3.5 2.67 5.41 5.98.87-4.32 4.21 1.02 5.95L12 17.13 6.65 19.94l1.02-5.95-4.32-4.21 5.98-.87L12 3.5Z"
+    <span className="inline-flex items-center gap-1">
+      <span
+        aria-hidden="true"
+        title={scopeLabel}
+        className={cn(
+          "inline-block h-2 w-2 rounded-full",
+          scope === "global" ? "bg-emerald-500/80" : "bg-sky-500/80",
+        )}
       />
-    </svg>
+      <span className="text-[10px] text-muted-foreground">{scopeLabel}</span>
+    </span>
   );
 }
-
-type PendingMutation = { command: MutationCommand; skillKey: string };
-type CatalogTab = "skills" | "subagents" | "mcp";
 
 export function App() {
   const [state, setState] = useState<SyncState | null>(null);
@@ -96,7 +94,7 @@ export function App() {
   const [subagents, setSubagents] = useState<SubagentRecord[]>([]);
   const [subagentDetails, setSubagentDetails] =
     useState<SubagentDetails | null>(null);
-  const [activeTab, setActiveTab] = useState<CatalogTab>("skills");
+  const [focusKind, setFocusKind] = useState<FocusKind>("skills");
   const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
   const [selectedSubagentId, setSelectedSubagentId] = useState<string | null>(
     null,
@@ -104,11 +102,11 @@ export function App() {
   const [selectedMcpKey, setSelectedMcpKey] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [renameDraft, setRenameDraft] = useState("");
-  const [starredSkillIds, setStarredSkillIds] = useState<string[]>([]);
-  const [pendingMutation, setPendingMutation] =
-    useState<PendingMutation | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openTargetMenu, setOpenTargetMenu] = useState<OpenTargetMenu>(null);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>(null);
 
   const applyState = useCallback(
     (next: SyncState, preferredKey?: string | null) => {
@@ -126,11 +124,7 @@ export function App() {
       setError(null);
       try {
         const next = await runSync();
-        const [nextStarred, nextSubagents] = await Promise.all([
-          getStarredSkillIds(),
-          listSubagents("all"),
-        ]);
-        setStarredSkillIds(nextStarred);
+        const nextSubagents = await listSubagents("all");
         setSubagents(nextSubagents);
         setSelectedSubagentId((prev) => {
           if (
@@ -148,10 +142,10 @@ export function App() {
       } catch (invokeError) {
         setError(String(invokeError));
         try {
-          const [fallbackState, nextStarred, nextSubagents] = await Promise.all(
-            [getState(), getStarredSkillIds(), listSubagents("all")],
-          );
-          setStarredSkillIds(nextStarred);
+          const [fallbackState, nextSubagents] = await Promise.all([
+            getState(),
+            listSubagents("all"),
+          ]);
           setSubagents(nextSubagents);
           setSelectedSubagentId((prev) => {
             if (prev && nextSubagents.some((i) => i.id === prev)) {
@@ -182,7 +176,6 @@ export function App() {
       setDetails(null);
       return;
     }
-
     setSelectedSkillKey((current) =>
       pickSelectedSkillKey(state.skills, current),
     );
@@ -252,10 +245,26 @@ export function App() {
     });
   }, [state]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      setOpenTargetMenu(null);
+      setActionsMenuOpen(false);
+      setDeleteDialog(null);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
   const filteredSkills = useMemo(() => {
     if (!state) return [];
-    return sortAndFilterSkills(state.skills, query, starredSkillIds);
-  }, [query, state, starredSkillIds]);
+    return sortAndFilterSkills(state.skills, query, []);
+  }, [query, state]);
 
   const filteredSubagents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -304,30 +313,17 @@ export function App() {
     });
   }, [query, state]);
 
-  async function handleSetSkillStarred(skillId: string, starred: boolean) {
-    setBusy(true);
-    setError(null);
-    try {
-      const next = await setSkillStarred(skillId, starred);
-      setStarredSkillIds(next);
-    } catch (invokeError) {
-      setError(String(invokeError));
-    } finally {
-      setBusy(false);
+  const selectedMcpServer =
+    state?.mcp_servers?.find(
+      (item) => mcpSelectionKey(item) === selectedMcpKey,
+    ) ?? null;
+
+  async function executeMutation(command: MutationCommand, skillKey: string) {
+    if (busy) {
+      return;
     }
-  }
-
-  function requestMutation(command: MutationCommand, skillKey: string) {
-    setPendingMutation({ command, skillKey });
-  }
-
-  async function handlePendingMutation() {
-    if (!pendingMutation) return;
-    const { command, skillKey } = pendingMutation;
-
     setBusy(true);
     setError(null);
-    setPendingMutation(null);
     try {
       const next = await mutateSkill(command, skillKey);
       applyState(next, skillKey);
@@ -369,6 +365,7 @@ export function App() {
   ) {
     setBusy(true);
     setError(null);
+    setOpenTargetMenu(null);
     try {
       await openSkillPath(skillKey, target);
     } catch (invokeError) {
@@ -384,6 +381,7 @@ export function App() {
   ) {
     setBusy(true);
     setError(null);
+    setOpenTargetMenu(null);
     try {
       await openSubagentPath(subagentId, target);
     } catch (invokeError) {
@@ -416,29 +414,29 @@ export function App() {
     }
   }
 
+  async function copyPath(path: string, errorLabel: string) {
+    try {
+      await navigator.clipboard.writeText(path);
+    } catch {
+      setError(errorLabel);
+    }
+  }
+
   const activeSkillCount =
     state?.skills.filter((skill) => skill.status === "active").length ?? 0;
   const archivedSkillCount =
     state?.skills.filter((skill) => skill.status === "archived").length ?? 0;
-  const isDetailsSkillStarred =
-    details != null && starredSkillIds.includes(details.skill.id);
   const activeSubagentCount = subagents.length;
-  const selectedMcpServer =
-    state?.mcp_servers?.find(
-      (item) => mcpSelectionKey(item) === selectedMcpKey,
-    ) ?? null;
   const mcpCount = state?.summary.mcp_count ?? state?.mcp_servers?.length ?? 0;
-  const skillsFiltered = filteredSkills.length;
-  const skillsTotal = state?.skills.length ?? 0;
-  const subagentsFiltered = filteredSubagents.length;
-  const subagentsTotal = subagents.length;
-  const mcpFiltered = filteredMcpServers.length;
-  const mcpTotal = mcpCount;
+
+  const showSkill = focusKind === "skills" && details;
+  const showSubagent = focusKind === "subagents" && subagentDetails;
+  const showMcp = focusKind === "mcp" && selectedMcpServer;
 
   return (
     <div className="min-h-full bg-background text-foreground lg:h-screen lg:overflow-hidden">
-      <div className="mx-auto flex min-h-full max-w-[1400px] flex-col gap-2 p-2.5 lg:h-full lg:min-h-0 lg:p-3">
-        <header className="shrink-0 rounded-md border border-border/90 bg-card px-2.5 py-2 shadow-none">
+      <div className="mx-auto flex min-h-full max-w-[1500px] flex-col gap-3 p-3 lg:h-full lg:min-h-0 lg:p-4">
+        <header className="shrink-0 border-b border-border/60 px-1 pb-3">
           <div className="flex flex-wrap items-start justify-between gap-2.5">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
@@ -455,114 +453,27 @@ export function App() {
                 {activeSubagentCount} · MCP {mcpCount}
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void refreshState(selectedSkillKey)}
-              >
-                Refresh
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              aria-label="Refresh"
+              onClick={() => void refreshState(selectedSkillKey)}
+            >
+              Refresh
+            </Button>
           </div>
-          <div className="mt-2">
+          <div className="mt-2.5">
             <Input
               value={query}
               placeholder="Search by name, key, scope or workspace"
               onChange={(event) => setQuery(event.currentTarget.value)}
             />
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <Button
-                aria-label="Skills"
-                size="default"
-                variant={activeTab === "skills" ? "default" : "outline"}
-                className={cn(
-                  "h-[var(--control-height)] rounded-sm px-3 text-[12px]",
-                  activeTab === "skills"
-                    ? "border-transparent"
-                    : "border-border/85",
-                )}
-                disabled={busy}
-                onClick={() => setActiveTab("skills")}
-              >
-                <span className="text-dense font-semibold tracking-tight">
-                  Skills
-                </span>
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "ml-1.5 inline-flex min-w-10 items-center justify-center rounded-sm px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none",
-                    activeTab === "skills"
-                      ? "bg-primary-foreground/16 text-primary-foreground"
-                      : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {skillsFiltered}/{skillsTotal}
-                </span>
-              </Button>
-              <Button
-                aria-label="Subagents"
-                size="default"
-                variant={activeTab === "subagents" ? "default" : "outline"}
-                className={cn(
-                  "h-[var(--control-height)] rounded-sm px-3 text-[12px]",
-                  activeTab === "subagents"
-                    ? "border-transparent"
-                    : "border-border/85",
-                )}
-                disabled={busy}
-                onClick={() => setActiveTab("subagents")}
-              >
-                <span className="text-dense font-semibold tracking-tight">
-                  Subagents
-                </span>
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "ml-1.5 inline-flex min-w-10 items-center justify-center rounded-sm px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none",
-                    activeTab === "subagents"
-                      ? "bg-primary-foreground/16 text-primary-foreground"
-                      : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {subagentsFiltered}/{subagentsTotal}
-                </span>
-              </Button>
-              <Button
-                aria-label="MCP"
-                size="default"
-                variant={activeTab === "mcp" ? "default" : "outline"}
-                className={cn(
-                  "h-[var(--control-height)] rounded-sm px-3 text-[12px]",
-                  activeTab === "mcp"
-                    ? "border-transparent"
-                    : "border-border/85",
-                )}
-                disabled={busy}
-                onClick={() => setActiveTab("mcp")}
-              >
-                <span className="text-dense font-semibold tracking-tight">
-                  MCP
-                </span>
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "ml-1.5 inline-flex min-w-10 items-center justify-center rounded-sm px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none",
-                    activeTab === "mcp"
-                      ? "bg-primary-foreground/16 text-primary-foreground"
-                      : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {mcpFiltered}/{mcpTotal}
-                </span>
-              </Button>
-            </div>
           </div>
         </header>
 
         {error ? (
-          <Card className="shrink-0 border-destructive/60 bg-destructive/10">
+          <Card className="shrink-0 border-destructive/35 bg-destructive/10">
             <CardContent className="p-2 text-xs text-destructive">
               {error}
             </CardContent>
@@ -570,392 +481,444 @@ export function App() {
         ) : null}
 
         {state?.sync.error ? (
-          <Card className="shrink-0 border-destructive/60 bg-destructive/10">
+          <Card className="shrink-0 border-destructive/35 bg-destructive/10">
             <CardContent className="p-2 text-xs text-destructive">
               {state.sync.error}
             </CardContent>
           </Card>
         ) : null}
 
-        {pendingMutation ? (
-          <Card className="shrink-0 border-amber-500/60 bg-amber-500/10">
-            <CardContent className="flex flex-wrap items-center justify-between gap-2 p-2">
-              <p className="text-xs text-foreground">
-                Review action: {pendingMutation.command} on{" "}
-                {pendingMutation.skillKey}.
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void handlePendingMutation()}
-                >
-                  Apply change
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => setPendingMutation(null)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
-
-        <main className="grid gap-2 lg:min-h-0 lg:flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <main className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
           <Card className="min-h-[520px] overflow-hidden lg:flex lg:h-full lg:min-h-0 lg:flex-col">
-            <CardHeader className="border-b border-border/80 pb-2">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle>
-                  {activeTab === "skills"
-                    ? "Skills"
-                    : activeTab === "subagents"
-                      ? "Subagents"
-                      : "MCP Servers"}
-                </CardTitle>
-                <Badge variant="outline">
-                  {activeTab === "skills"
-                    ? filteredSkills.length
-                    : activeTab === "subagents"
-                      ? filteredSubagents.length
-                      : filteredMcpServers.length}
-                </Badge>
-              </div>
+            <CardHeader className="pb-2">
+              <CardTitle>Catalog</CardTitle>
             </CardHeader>
-            <CardContent className="p-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-              <ul className="space-y-1">
-                {activeTab === "subagents"
-                  ? filteredSubagents.map((subagent) => {
-                      const selected = subagent.id === selectedSubagentId;
-                      return (
-                        <li key={subagent.id}>
-                          <button
-                            type="button"
-                            className={cn(
-                              "w-full rounded-sm border px-2 py-1.5 text-left transition-colors duration-150",
-                              "hover:border-border hover:bg-accent/65",
-                              selected
-                                ? "border-primary/45 bg-accent/80 text-foreground"
-                                : "border-border/70 bg-transparent text-foreground",
-                            )}
-                            onClick={() => setSelectedSubagentId(subagent.id)}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="truncate text-sm font-medium leading-tight">
-                                {subagent.name}
-                              </p>
-                              <Badge variant="outline">
-                                {toTitleCase(subagent.scope)}
-                              </Badge>
-                            </div>
-                            <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
-                              {subagent.subagent_key}
-                            </p>
-                            {subagent.workspace ? (
-                              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                {subagent.workspace}
-                              </p>
-                            ) : null}
-                          </button>
-                        </li>
-                      );
-                    })
-                  : activeTab === "mcp"
-                    ? filteredMcpServers.map((server) => {
-                        const selectionKey = mcpSelectionKey(server);
-                        const selected = selectionKey === selectedMcpKey;
-                        return (
-                          <li key={selectionKey}>
-                            <button
-                              type="button"
-                              className={cn(
-                                "w-full rounded-sm border px-2 py-1.5 text-left transition-colors duration-150",
-                                "hover:border-border hover:bg-accent/65",
-                                selected
-                                  ? "border-primary/45 bg-accent/80 text-foreground"
-                                  : "border-border/70 bg-transparent text-foreground",
-                              )}
-                              onClick={() => setSelectedMcpKey(selectionKey)}
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="truncate text-sm font-medium leading-tight">
-                                  {server.server_key}
-                                </p>
-                                <Badge variant="outline">
-                                  {`${server.transport.toUpperCase()} · ${toTitleCase(server.scope)}`}
-                                </Badge>
-                              </div>
-                              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                {server.command ??
-                                  server.url ??
-                                  "No command/url"}
-                              </p>
-                              {server.workspace ? (
-                                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                  {server.workspace}
-                                </p>
-                              ) : null}
-                            </button>
-                          </li>
-                        );
-                      })
-                    : filteredSkills.map((skill) => {
-                        const selected = skill.skill_key === selectedSkillKey;
-                        const isSkillStarred = starredSkillIds.includes(
-                          skill.id,
-                        );
-                        const hasDistinctSkillKey =
-                          skill.name.trim().toLowerCase() !==
-                          skill.skill_key.trim().toLowerCase();
-                        return (
-                          <li key={skill.id}>
-                            <button
-                              type="button"
-                              className={cn(
-                                "w-full rounded-sm border px-2 py-1.5 text-left transition-colors duration-150",
-                                "hover:border-border hover:bg-accent/65",
-                                selected
-                                  ? "border-primary/45 bg-accent/80 text-foreground"
-                                  : "border-border/70 bg-transparent text-foreground",
-                              )}
-                              onClick={() =>
-                                setSelectedSkillKey(skill.skill_key)
-                              }
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="truncate text-sm font-medium leading-tight">
-                                  {isSkillStarred ? (
-                                    <StarIcon
-                                      active
-                                      className="mr-1 inline-block h-3.5 w-3.5 align-[-2px] text-amber-500"
-                                    />
-                                  ) : null}
-                                  {skill.name}
-                                </p>
-                                <div className="flex items-center gap-1.5">
-                                  {skill.status !== "active" ? (
-                                    <Badge
-                                      variant={lifecycleVariant(skill.status)}
-                                    >
-                                      {toTitleCase(skill.status)}
-                                    </Badge>
-                                  ) : null}
-                                  <Badge variant="outline">
-                                    {toTitleCase(skill.scope)}
-                                  </Badge>
-                                </div>
-                              </div>
-                              {hasDistinctSkillKey ? (
-                                <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
-                                  {skill.skill_key}
-                                </p>
-                              ) : null}
-                              {skill.workspace ? (
-                                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                  {skill.workspace}
-                                </p>
-                              ) : null}
-                            </button>
-                          </li>
-                        );
-                      })}
-              </ul>
-            </CardContent>
-          </Card>
-
-          <Card className="min-h-[520px] overflow-hidden lg:flex lg:h-full lg:min-h-0 lg:flex-col">
-            {activeTab === "skills" && !details ? (
-              <CardContent className="flex h-full items-center justify-center text-sm text-muted-foreground lg:min-h-0 lg:flex-1">
-                Select a skill to view details.
-              </CardContent>
-            ) : activeTab === "subagents" && !subagentDetails ? (
-              <CardContent className="flex h-full items-center justify-center text-sm text-muted-foreground lg:min-h-0 lg:flex-1">
-                Select a subagent to view details.
-              </CardContent>
-            ) : activeTab === "mcp" && !selectedMcpServer ? (
-              <CardContent className="flex h-full items-center justify-center text-sm text-muted-foreground lg:min-h-0 lg:flex-1">
-                Select an MCP server to view details.
-              </CardContent>
-            ) : activeTab === "skills" && details ? (
-              <>
-                <CardHeader className="border-b border-border/80 pb-2">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <CardTitle className="text-base">
-                          {details.skill.name}
-                        </CardTitle>
+            <CardContent className="space-y-3 p-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+              <section className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-muted-foreground">
+                    Skills
+                  </h3>
+                  <span className="text-[11px] text-muted-foreground">
+                    {filteredSkills.length}/{state?.skills.length ?? 0}
+                  </span>
+                </div>
+                <ul className="space-y-0.5">
+                  {filteredSkills.map((skill) => {
+                    const selected =
+                      focusKind === "skills" &&
+                      skill.skill_key === selectedSkillKey;
+                    return (
+                      <li key={skill.id}>
                         <button
                           type="button"
-                          disabled={busy}
-                          aria-label={isDetailsSkillStarred ? "Unstar" : "Star"}
-                          title={isDetailsSkillStarred ? "Unstar" : "Star"}
                           className={cn(
-                            "inline-flex h-5.5 w-5.5 items-center justify-center rounded-sm border transition-colors",
-                            "disabled:pointer-events-none disabled:opacity-50",
-                            isDetailsSkillStarred
-                              ? "border-amber-500/65 bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 dark:text-amber-300"
-                              : "border-border bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+                            "w-full rounded-md px-2.5 py-2 text-left transition-colors",
+                            selected
+                              ? "bg-accent/85 text-foreground"
+                              : "hover:bg-accent/55",
                           )}
-                          onClick={() =>
-                            void handleSetSkillStarred(
-                              details.skill.id,
-                              !isDetailsSkillStarred,
-                            )
-                          }
+                          onClick={() => {
+                            setFocusKind("skills");
+                            setSelectedSkillKey(skill.skill_key);
+                            setActionsMenuOpen(false);
+                            setOpenTargetMenu(null);
+                          }}
                         >
-                          <StarIcon
-                            active={isDetailsSkillStarred}
-                            className="h-4 w-4"
-                          />
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-medium">
+                              {skill.name}
+                            </span>
+                            <ScopeMarker scope={skill.scope} />
+                          </div>
+                          <p
+                            aria-hidden="true"
+                            className="mt-0.5 truncate text-[11px] text-muted-foreground"
+                          >
+                            {skill.skill_key}
+                          </p>
                         </button>
-                      </div>
-                      <p className="mt-1 font-mono text-xs text-muted-foreground">
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+
+              <section className="space-y-1.5 border-t border-border/50 pt-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-muted-foreground">
+                    Subagents
+                  </h3>
+                  <span className="text-[11px] text-muted-foreground">
+                    {filteredSubagents.length}/{subagents.length}
+                  </span>
+                </div>
+                <ul className="space-y-0.5">
+                  {filteredSubagents.map((subagent) => {
+                    const selected =
+                      focusKind === "subagents" &&
+                      subagent.id === selectedSubagentId;
+                    return (
+                      <li key={subagent.id}>
+                        <button
+                          type="button"
+                          className={cn(
+                            "w-full rounded-md px-2.5 py-2 text-left transition-colors",
+                            selected
+                              ? "bg-accent/85 text-foreground"
+                              : "hover:bg-accent/55",
+                          )}
+                          onClick={() => {
+                            setFocusKind("subagents");
+                            setSelectedSubagentId(subagent.id);
+                            setActionsMenuOpen(false);
+                            setOpenTargetMenu(null);
+                          }}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-medium">
+                              {subagent.name}
+                            </span>
+                            <ScopeMarker scope={subagent.scope} />
+                          </div>
+                          <p
+                            aria-hidden="true"
+                            className="mt-0.5 truncate text-[11px] text-muted-foreground"
+                          >
+                            {subagent.subagent_key}
+                          </p>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+
+              <section className="space-y-1.5 border-t border-border/50 pt-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-muted-foreground">
+                    MCP
+                  </h3>
+                  <span className="text-[11px] text-muted-foreground">
+                    {filteredMcpServers.length}/{mcpCount}
+                  </span>
+                </div>
+                <ul className="space-y-0.5">
+                  {filteredMcpServers.map((server) => {
+                    const key = mcpSelectionKey(server);
+                    const selected =
+                      focusKind === "mcp" && key === selectedMcpKey;
+                    return (
+                      <li key={key}>
+                        <button
+                          type="button"
+                          className={cn(
+                            "w-full rounded-md px-2.5 py-2 text-left transition-colors",
+                            selected
+                              ? "bg-accent/85 text-foreground"
+                              : "hover:bg-accent/55",
+                          )}
+                          onClick={() => {
+                            setFocusKind("mcp");
+                            setSelectedMcpKey(key);
+                            setActionsMenuOpen(false);
+                            setOpenTargetMenu(null);
+                          }}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-medium">
+                              {server.server_key}
+                            </span>
+                            <ScopeMarker scope={server.scope} />
+                          </div>
+                          <p
+                            aria-hidden="true"
+                            className="mt-0.5 truncate text-[11px] text-muted-foreground"
+                          >
+                            {server.workspace ?? server.transport.toUpperCase()}
+                          </p>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            </CardContent>
+          </Card>
+
+          <Card className="min-h-[520px] overflow-hidden lg:flex lg:h-full lg:min-h-0 lg:flex-col">
+            {!showSkill && !showSubagent && !showMcp ? (
+              <CardContent className="flex h-full items-center justify-center text-sm text-muted-foreground lg:min-h-0 lg:flex-1">
+                Select an item to view details.
+              </CardContent>
+            ) : null}
+
+            {showSkill ? (
+              <>
+                <CardHeader className="border-b border-border/60 pb-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <CardTitle className="text-lg leading-tight">
+                        {details.skill.name}
+                      </CardTitle>
+                      <p className="mt-1 text-xs text-muted-foreground">
                         {details.skill.skill_key}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {details.skill.status !== "active" ? (
-                        <Badge variant={lifecycleVariant(details.skill.status)}>
-                          {toTitleCase(details.skill.status)}
-                        </Badge>
+                    <div className="relative flex items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        aria-expanded={openTargetMenu === "skill"}
+                        onClick={() => {
+                          setOpenTargetMenu((prev) =>
+                            prev === "skill" ? null : "skill",
+                          );
+                          setActionsMenuOpen(false);
+                        }}
+                      >
+                        Open…
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label="More actions"
+                        disabled={busy}
+                        aria-expanded={actionsMenuOpen}
+                        onClick={() => {
+                          setActionsMenuOpen((prev) => !prev);
+                          setOpenTargetMenu(null);
+                        }}
+                      >
+                        ⋯
+                      </Button>
+
+                      {openTargetMenu === "skill" ? (
+                        <div
+                          role="menu"
+                          className="absolute right-14 top-8 z-20 min-w-36 rounded-md border border-border/70 bg-card p-1 shadow-sm"
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent"
+                            onClick={() =>
+                              void handleOpenSkillPath(
+                                details.skill.skill_key,
+                                "folder",
+                              )
+                            }
+                          >
+                            Open folder
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={!details.main_file_exists}
+                            className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50"
+                            onClick={() =>
+                              void handleOpenSkillPath(
+                                details.skill.skill_key,
+                                "file",
+                              )
+                            }
+                          >
+                            Open file
+                          </button>
+                        </div>
                       ) : null}
-                      <Badge variant="outline">
-                        {toTitleCase(details.skill.scope)}
-                      </Badge>
+
+                      {actionsMenuOpen ? (
+                        <div
+                          role="menu"
+                          className="absolute right-0 top-8 z-20 min-w-36 rounded-md border border-border/70 bg-card p-1 shadow-sm"
+                        >
+                          {details.skill.status === "active" ? (
+                            <>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                disabled={busy}
+                                className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                                onClick={() => {
+                                  setActionsMenuOpen(false);
+                                  void executeMutation(
+                                    "archive_skill",
+                                    details.skill.skill_key,
+                                  );
+                                }}
+                              >
+                                Archive
+                              </button>
+                              {details.skill.scope === "project" ? (
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  disabled={busy}
+                                  className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                                  onClick={() => {
+                                    setActionsMenuOpen(false);
+                                    void executeMutation(
+                                      "make_global",
+                                      details.skill.skill_key,
+                                    );
+                                  }}
+                                >
+                                  Make global
+                                </button>
+                              ) : null}
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={busy}
+                              className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => {
+                                setActionsMenuOpen(false);
+                                void executeMutation(
+                                  "restore_skill",
+                                  details.skill.skill_key,
+                                );
+                              }}
+                            >
+                              Restore
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={busy}
+                            className="block w-full rounded-sm px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => {
+                              setActionsMenuOpen(false);
+                              setDeleteDialog({
+                                skillKey: details.skill.skill_key,
+                                confirmText: "",
+                              });
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </CardHeader>
 
-                <CardContent className="space-y-2.5 p-2.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-                  <dl className="grid gap-x-3 gap-y-2 text-xs sm:grid-cols-2">
+                <CardContent className="space-y-3 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+                  <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
                     <div>
-                      <dt className="mb-1 text-muted-foreground">Workspace</dt>
-                      <dd className="break-all font-mono">
+                      <dt className="text-muted-foreground">Workspace</dt>
+                      <dd className="mt-0.5 break-all font-mono">
                         {details.skill.workspace ?? "-"}
                       </dd>
                     </div>
                     <div>
-                      <dt className="mb-1 text-muted-foreground">Updated</dt>
-                      <dd>
+                      <dt className="text-muted-foreground">Updated</dt>
+                      <dd className="mt-0.5">
                         {formatUnixTime(details.last_modified_unix_seconds)}
                       </dd>
                     </div>
                     <div>
-                      <dt className="mb-1 text-muted-foreground">Main file</dt>
-                      <dd className="break-all font-mono">
-                        {details.main_file_path}
+                      <dt className="text-muted-foreground">Main file</dt>
+                      <dd className="mt-0.5 flex items-center gap-2 font-mono">
+                        <span title={details.main_file_path}>
+                          {compactPath(details.main_file_path)}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label="Copy main path"
+                          onClick={() =>
+                            void copyPath(
+                              details.main_file_path,
+                              "Copy main path failed.",
+                            )
+                          }
+                        >
+                          Copy
+                        </Button>
                       </dd>
                     </div>
                     <div>
-                      <dt className="mb-1 text-muted-foreground">
-                        Canonical path
-                      </dt>
-                      <dd className="break-all font-mono">
-                        {details.skill.canonical_source_path}
+                      <dt className="text-muted-foreground">Canonical path</dt>
+                      <dd className="mt-0.5 flex items-center gap-2 font-mono">
+                        <span title={details.skill.canonical_source_path}>
+                          {compactPath(details.skill.canonical_source_path)}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label="Copy canonical path"
+                          onClick={() =>
+                            void copyPath(
+                              details.skill.canonical_source_path,
+                              "Copy canonical path failed.",
+                            )
+                          }
+                        >
+                          Copy
+                        </Button>
                       </dd>
                     </div>
                   </dl>
 
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/80 pt-2.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() =>
-                          void handleOpenSkillPath(
-                            details.skill.skill_key,
-                            "folder",
-                          )
-                        }
-                      >
-                        Open folder
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy || !details.main_file_exists}
-                        onClick={() =>
-                          void handleOpenSkillPath(
-                            details.skill.skill_key,
-                            "file",
-                          )
-                        }
-                      >
-                        Open file
-                      </Button>
-                    </div>
+                  <section className="space-y-1.5 border-t border-border/50 pt-3">
+                    <h3 className="text-xs font-semibold text-muted-foreground">
+                      SKILL.md preview
+                    </h3>
+                    {details.main_file_body_preview ? (
+                      <pre className="max-h-64 overflow-auto rounded-md bg-muted/30 p-2 font-mono text-[11px] leading-relaxed">
+                        {details.main_file_body_preview}
+                      </pre>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No readable preview available.
+                      </p>
+                    )}
+                  </section>
 
-                    <div className="ml-auto flex flex-wrap items-center gap-2">
-                      {details.skill.status === "active" ? (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={busy}
-                            onClick={() =>
-                              requestMutation(
-                                "archive_skill",
-                                details.skill.skill_key,
-                              )
-                            }
+                  <section className="space-y-1.5 border-t border-border/50 pt-3">
+                    <h3 className="text-xs font-semibold text-muted-foreground">
+                      SKILL dir tree
+                    </h3>
+                    {details.skill_dir_tree_preview ? (
+                      <pre className="max-h-48 overflow-auto rounded-md bg-muted/30 p-2 font-mono text-[11px] leading-relaxed">
+                        {details.skill_dir_tree_preview}
+                      </pre>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No readable directory tree available.
+                      </p>
+                    )}
+                  </section>
+
+                  <section className="space-y-1.5 border-t border-border/50 pt-3">
+                    <h3 className="text-xs font-semibold text-muted-foreground">
+                      Targets
+                    </h3>
+                    {details.skill.target_paths.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        No target paths.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1 text-xs">
+                        {details.skill.target_paths.map((path) => (
+                          <li
+                            key={path}
+                            className="rounded-md bg-muted/20 p-2 font-mono"
                           >
-                            Archive
-                          </Button>
-                          {details.skill.scope === "project" ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={busy}
-                              onClick={() =>
-                                requestMutation(
-                                  "make_global",
-                                  details.skill.skill_key,
-                                )
-                              }
-                            >
-                              Make global
-                            </Button>
-                          ) : null}
-                        </>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() =>
-                            requestMutation(
-                              "restore_skill",
-                              details.skill.skill_key,
-                            )
-                          }
-                        >
-                          Restore
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={busy}
-                        onClick={() =>
-                          requestMutation(
-                            "delete_skill",
-                            details.skill.skill_key,
-                          )
-                        }
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
+                            {path}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
 
                   {details.skill.status === "active" ? (
                     <form
-                      className="flex flex-wrap items-center gap-2 border-t border-border/80 pt-2.5"
+                      className="flex flex-wrap items-center gap-2 border-t border-border/50 pt-3"
                       onSubmit={(event) => {
                         event.preventDefault();
                         void handleRenameSkill(
@@ -985,135 +948,43 @@ export function App() {
                       </Button>
                     </form>
                   ) : null}
-
-                  <section className="space-y-1.5 border-t border-border/80 pt-2.5">
-                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
-                      SKILL.md preview
-                    </h3>
-                    {details.main_file_body_preview ? (
-                      <>
-                        <pre className="max-h-64 overflow-auto rounded-md border border-border/70 bg-muted/35 p-2 font-mono text-[11px] leading-relaxed">
-                          {details.main_file_body_preview}
-                        </pre>
-                        {details.main_file_body_preview_truncated ? (
-                          <p className="text-[11px] text-muted-foreground">
-                            Preview truncated.{" "}
-                            <button
-                              type="button"
-                              disabled={busy || !details.main_file_exists}
-                              className="underline underline-offset-2 transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
-                              onClick={() =>
-                                void handleOpenSkillPath(
-                                  details.skill.skill_key,
-                                  "file",
-                                )
-                              }
-                            >
-                              watch full
-                            </button>
-                            .
-                          </p>
-                        ) : null}
-                      </>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        No readable preview available.
-                      </p>
-                    )}
-                  </section>
-
-                  <section className="space-y-1.5 border-t border-border/80 pt-2.5">
-                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
-                      SKILL dir tree
-                    </h3>
-                    {details.skill_dir_tree_preview ? (
-                      <>
-                        <pre className="max-h-48 overflow-auto rounded-md border border-border/70 bg-muted/35 p-2 font-mono text-[11px] leading-relaxed">
-                          {details.skill_dir_tree_preview}
-                        </pre>
-                        {details.skill_dir_tree_preview_truncated ? (
-                          <p className="text-[11px] text-muted-foreground">
-                            Tree preview truncated for performance.
-                          </p>
-                        ) : null}
-                      </>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        No readable directory tree available.
-                      </p>
-                    )}
-                  </section>
-
-                  <section className="space-y-1.5 border-t border-border/80 pt-2.5">
-                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
-                      Targets
-                    </h3>
-                    {details.skill.target_paths.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        No target paths.
-                      </p>
-                    ) : (
-                      <ul className="space-y-1 text-xs">
-                        {details.skill.target_paths.map((path) => (
-                          <li
-                            key={path}
-                            className="break-all rounded-md border border-border/60 bg-muted/20 p-2 font-mono"
-                          >
-                            {path}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
                 </CardContent>
               </>
-            ) : activeTab === "mcp" && selectedMcpServer ? (
+            ) : null}
+
+            {showMcp ? (
               <>
-                <CardHeader className="border-b border-border/80 pb-2">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+                <CardHeader className="border-b border-border/60 pb-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <CardTitle className="text-base">
+                      <CardTitle className="text-lg leading-tight">
                         {selectedMcpServer.server_key}
                       </CardTitle>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {`${selectedMcpServer.transport.toUpperCase()} · ${toTitleCase(selectedMcpServer.scope)}`}
                       </p>
                     </div>
-                    <Badge variant="outline">
-                      {selectedMcpServer.warnings.length > 0
-                        ? `${selectedMcpServer.warnings.length} warning(s)`
-                        : "Clean"}
-                    </Badge>
+                    <div />
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-2.5 p-2.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-                  <dl className="grid gap-x-3 gap-y-2 text-xs sm:grid-cols-2">
+                <CardContent className="space-y-3 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+                  <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
                     <div>
-                      <dt className="mb-1 text-muted-foreground">Command</dt>
-                      <dd className="break-all font-mono">
+                      <dt className="text-muted-foreground">Command</dt>
+                      <dd className="mt-0.5 break-all font-mono">
                         {selectedMcpServer.command ?? "-"}
                       </dd>
                     </div>
                     <div>
-                      <dt className="mb-1 text-muted-foreground">URL</dt>
-                      <dd className="break-all font-mono">
+                      <dt className="text-muted-foreground">URL</dt>
+                      <dd className="mt-0.5 break-all font-mono">
                         {selectedMcpServer.url ?? "-"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="mb-1 text-muted-foreground">Scope</dt>
-                      <dd>{toTitleCase(selectedMcpServer.scope)}</dd>
-                    </div>
-                    <div>
-                      <dt className="mb-1 text-muted-foreground">Workspace</dt>
-                      <dd className="break-all font-mono">
-                        {selectedMcpServer.workspace ?? "-"}
                       </dd>
                     </div>
                   </dl>
 
-                  <section className="space-y-1.5 border-t border-border/80 pt-2.5">
-                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
+                  <section className="space-y-1.5 border-t border-border/50 pt-3">
+                    <h3 className="text-xs font-semibold text-muted-foreground">
                       Enable by agent
                     </h3>
                     <div className="flex flex-wrap gap-3">
@@ -1126,7 +997,7 @@ export function App() {
                         return (
                           <div
                             key={agent}
-                            className="inline-flex items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-2 py-1"
+                            className="inline-flex items-center gap-2 px-1 py-1"
                           >
                             <span className="text-xs font-medium">{agent}</span>
                             <button
@@ -1163,8 +1034,8 @@ export function App() {
                     </div>
                   </section>
 
-                  <section className="space-y-1.5 border-t border-border/80 pt-2.5">
-                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
+                  <section className="space-y-1.5 border-t border-border/50 pt-3">
+                    <h3 className="text-xs font-semibold text-muted-foreground">
                       Args
                     </h3>
                     {selectedMcpServer.args.length === 0 ? (
@@ -1174,7 +1045,7 @@ export function App() {
                         {selectedMcpServer.args.map((arg) => (
                           <li
                             key={arg}
-                            className="break-all rounded-md border border-border/60 bg-muted/20 p-2 font-mono"
+                            className="rounded-md bg-muted/20 p-2 font-mono"
                           >
                             {arg}
                           </li>
@@ -1183,8 +1054,8 @@ export function App() {
                     )}
                   </section>
 
-                  <section className="space-y-1.5 border-t border-border/80 pt-2.5">
-                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
+                  <section className="space-y-1.5 border-t border-border/50 pt-3">
+                    <h3 className="text-xs font-semibold text-muted-foreground">
                       Targets
                     </h3>
                     {selectedMcpServer.targets.length === 0 ? (
@@ -1196,7 +1067,7 @@ export function App() {
                         {selectedMcpServer.targets.map((path) => (
                           <li
                             key={path}
-                            className="break-all rounded-md border border-border/60 bg-muted/20 p-2 font-mono"
+                            className="rounded-md bg-muted/20 p-2 font-mono"
                           >
                             {path}
                           </li>
@@ -1204,143 +1075,112 @@ export function App() {
                       </ul>
                     )}
                   </section>
-
-                  <section className="space-y-1.5 border-t border-border/80 pt-2.5">
-                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
-                      Env
-                    </h3>
-                    {Object.keys(selectedMcpServer.env).length === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        No env values.
-                      </p>
-                    ) : (
-                      <ul className="space-y-1 text-xs">
-                        {Object.entries(selectedMcpServer.env).map(
-                          ([key, value]) => (
-                            <li
-                              key={key}
-                              className="break-all rounded-md border border-border/60 bg-muted/20 p-2 font-mono"
-                            >
-                              {key}={value}
-                            </li>
-                          ),
-                        )}
-                      </ul>
-                    )}
-                  </section>
                 </CardContent>
               </>
-            ) : subagentDetails ? (
+            ) : null}
+
+            {showSubagent ? (
               <>
-                <CardHeader className="border-b border-border/80 pb-2">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+                <CardHeader className="border-b border-border/60 pb-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <CardTitle className="text-base">
+                      <CardTitle className="text-lg leading-tight">
                         {subagentDetails.subagent.name}
                       </CardTitle>
-                      <p className="mt-1 font-mono text-xs text-muted-foreground">
+                      <p className="mt-1 text-xs text-muted-foreground">
                         {subagentDetails.subagent.subagent_key}
                       </p>
                     </div>
-                    <Badge variant="outline">
-                      {toTitleCase(subagentDetails.subagent.scope)}
-                    </Badge>
+                    <div className="relative flex items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        aria-expanded={openTargetMenu === "subagent"}
+                        onClick={() => {
+                          setOpenTargetMenu((prev) =>
+                            prev === "subagent" ? null : "subagent",
+                          );
+                          setActionsMenuOpen(false);
+                        }}
+                      >
+                        Open…
+                      </Button>
+
+                      {openTargetMenu === "subagent" ? (
+                        <div
+                          role="menu"
+                          className="absolute right-0 top-8 z-20 min-w-36 rounded-md border border-border/70 bg-card p-1 shadow-sm"
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent"
+                            onClick={() =>
+                              void handleOpenSubagentPath(
+                                subagentDetails.subagent.id,
+                                "folder",
+                              )
+                            }
+                          >
+                            Open folder
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={!subagentDetails.main_file_exists}
+                            className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50"
+                            onClick={() =>
+                              void handleOpenSubagentPath(
+                                subagentDetails.subagent.id,
+                                "file",
+                              )
+                            }
+                          >
+                            Open file
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-2.5 p-2.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-                  <dl className="grid gap-x-3 gap-y-2 text-xs sm:grid-cols-2">
+
+                <CardContent className="space-y-3 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+                  <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
                     <div>
-                      <dt className="mb-1 text-muted-foreground">Workspace</dt>
-                      <dd className="break-all font-mono">
+                      <dt className="text-muted-foreground">Workspace</dt>
+                      <dd className="mt-0.5 break-all font-mono">
                         {subagentDetails.subagent.workspace ?? "-"}
                       </dd>
                     </div>
                     <div>
-                      <dt className="mb-1 text-muted-foreground">Updated</dt>
-                      <dd>
+                      <dt className="text-muted-foreground">Updated</dt>
+                      <dd className="mt-0.5">
                         {formatUnixTime(
                           subagentDetails.last_modified_unix_seconds,
                         )}
                       </dd>
                     </div>
                     <div>
-                      <dt className="mb-1 text-muted-foreground">Main file</dt>
-                      <dd className="break-all font-mono">
-                        {subagentDetails.main_file_path}
+                      <dt className="text-muted-foreground">Main file</dt>
+                      <dd className="mt-0.5 break-all font-mono">
+                        {compactPath(subagentDetails.main_file_path)}
                       </dd>
                     </div>
                     <div>
-                      <dt className="mb-1 text-muted-foreground">
-                        Canonical path
-                      </dt>
-                      <dd className="break-all font-mono">
-                        {subagentDetails.subagent.canonical_source_path}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="mb-1 text-muted-foreground">
-                        Description
-                      </dt>
-                      <dd className="break-all">
-                        {subagentDetails.subagent.description}
+                      <dt className="text-muted-foreground">Canonical path</dt>
+                      <dd
+                        className="mt-0.5 break-all font-mono"
+                        title={subagentDetails.subagent.canonical_source_path}
+                      >
+                        {compactPath(
+                          subagentDetails.subagent.canonical_source_path,
+                        )}
                       </dd>
                     </div>
                   </dl>
-                  <section className="space-y-1.5 border-t border-border/80 pt-2.5">
-                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
-                      Symlink metadata
-                    </h3>
-                    <dl className="grid gap-x-3 gap-y-2 text-xs sm:grid-cols-2">
-                      <div>
-                        <dt className="mb-1 text-muted-foreground">
-                          Symlink target (recorded)
-                        </dt>
-                        <dd className="break-all font-mono">
-                          {subagentDetails.subagent.symlink_target || "-"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="mb-1 text-muted-foreground">
-                          Is canonical symlink
-                        </dt>
-                        <dd>
-                          {subagentDetails.subagent.is_symlink_canonical
-                            ? "Yes"
-                            : "No"}
-                        </dd>
-                      </div>
-                    </dl>
-                  </section>
-                  <div className="flex flex-wrap items-center gap-2 border-t border-border/80 pt-2.5">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() =>
-                        void handleOpenSubagentPath(
-                          subagentDetails.subagent.id,
-                          "folder",
-                        )
-                      }
-                    >
-                      Open folder
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy || !subagentDetails.main_file_exists}
-                      onClick={() =>
-                        void handleOpenSubagentPath(
-                          subagentDetails.subagent.id,
-                          "file",
-                        )
-                      }
-                    >
-                      Open file
-                    </Button>
-                  </div>
-                  <section className="space-y-1.5 border-t border-border/80 pt-2.5">
-                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
+
+                  <section className="space-y-1.5 border-t border-border/50 pt-3">
+                    <h3 className="text-xs font-semibold text-muted-foreground">
                       Targets
                     </h3>
                     {subagentDetails.subagent.target_paths.length === 0 ? (
@@ -1352,7 +1192,7 @@ export function App() {
                         {subagentDetails.subagent.target_paths.map((path) => (
                           <li
                             key={path}
-                            className="break-all rounded-md border border-border/60 bg-muted/20 p-2 font-mono"
+                            className="rounded-md bg-muted/20 p-2 font-mono"
                           >
                             {path}
                           </li>
@@ -1360,51 +1200,13 @@ export function App() {
                       </ul>
                     )}
                   </section>
-                  <section className="space-y-1.5 border-t border-border/80 pt-2.5">
-                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
-                      Target link status
-                    </h3>
-                    {subagentDetails.target_statuses.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        No target diagnostics available.
-                      </p>
-                    ) : (
-                      <ul className="space-y-2 text-xs">
-                        {subagentDetails.target_statuses.map((target) => (
-                          <li
-                            key={target.path}
-                            className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-2"
-                          >
-                            <p className="break-all font-mono text-[11px]">
-                              {target.path}
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              <Badge variant="outline">{target.kind}</Badge>
-                              <Badge variant="outline">
-                                exists:{target.exists ? "yes" : "no"}
-                              </Badge>
-                              <Badge variant="outline">
-                                symlink:{target.is_symlink ? "yes" : "no"}
-                              </Badge>
-                              <Badge variant="outline">
-                                canonical:
-                                {target.points_to_canonical ? "yes" : "no"}
-                              </Badge>
-                            </div>
-                            <p className="break-all font-mono text-[11px] text-muted-foreground">
-                              symlink_target: {target.symlink_target ?? "-"}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-                  <section className="space-y-1.5 border-t border-border/80 pt-2.5">
-                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
+
+                  <section className="space-y-1.5 border-t border-border/50 pt-3">
+                    <h3 className="text-xs font-semibold text-muted-foreground">
                       Subagent prompt preview
                     </h3>
                     {subagentDetails.main_file_body_preview ? (
-                      <pre className="max-h-64 overflow-auto rounded-md border border-border/70 bg-muted/35 p-2 font-mono text-[11px] leading-relaxed">
+                      <pre className="max-h-64 overflow-auto rounded-md bg-muted/30 p-2 font-mono text-[11px] leading-relaxed">
                         {subagentDetails.main_file_body_preview}
                       </pre>
                     ) : (
@@ -1419,6 +1221,66 @@ export function App() {
           </Card>
         </main>
       </div>
+
+      {deleteDialog ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm delete"
+            className="w-full max-w-sm rounded-md border border-border/70 bg-card p-4"
+          >
+            <h2 className="text-sm font-semibold">Confirm delete</h2>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Type DELETE to remove this skill.
+            </p>
+            <label
+              className="mt-3 block text-xs text-muted-foreground"
+              htmlFor="delete-confirm-input"
+            >
+              Type DELETE to confirm
+            </label>
+            <Input
+              id="delete-confirm-input"
+              aria-label="Type DELETE to confirm"
+              value={deleteDialog.confirmText}
+              onChange={(event) => {
+                const nextValue = event.currentTarget.value;
+                setDeleteDialog((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        confirmText: nextValue,
+                      }
+                    : prev,
+                );
+              }}
+              className="mt-1"
+            />
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setDeleteDialog(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={deleteDialog.confirmText !== "DELETE" || busy}
+                onClick={() => {
+                  const skillKey = deleteDialog.skillKey;
+                  setDeleteDialog(null);
+                  void executeMutation("delete_skill", skillKey);
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
