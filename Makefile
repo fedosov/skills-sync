@@ -5,7 +5,7 @@ PLATFORM_DIR := $(ROOT_DIR)/platform
 UI_DIR := $(PLATFORM_DIR)/apps/skillssync-desktop/ui
 TAURI_DIR := $(PLATFORM_DIR)/apps/skillssync-desktop/src-tauri
 
-.PHONY: all build run app lint lint-fix lint-rust lint-fix-rust lint-ui lint-fix-ui lint-workflows
+.PHONY: all build run app lint lint-fix lint-rust lint-fix-rust lint-ui lint-fix-ui lint-workflows test test-rust
 
 all: app
 
@@ -54,3 +54,9 @@ lint-workflows:
 	fi
 	actionlint
 	yamllint -c .yamllint.yml .github/workflows
+
+test: test-rust
+
+test-rust:
+	mkdir -p "$(UI_DIR)/dist"
+	cd "$(PLATFORM_DIR)" && cargo test --workspace

@@ -75,6 +75,50 @@ jobs:
       - name: Run UI lint
         run: make lint-ui
 
+  rust-test:
+    name: Rust Test (macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: platform
+
+      - name: Create UI dist stub
+        run: mkdir -p platform/apps/skillssync-desktop/ui/dist
+
+      - name: Run Rust tests
+        working-directory: platform
+        run: cargo test --workspace
+
+  ui-build:
+    name: UI Build (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/apps/skillssync-desktop/ui/package-lock.json
+
+      - name: Install UI dependencies
+        working-directory: platform/apps/skillssync-desktop/ui
+        run: npm ci
+
+      - name: Build UI
+        working-directory: platform/apps/skillssync-desktop/ui
+        run: npm run build
+
   windows-tauri-preflight:
     name: Windows Tauri Preflight
     runs-on: windows-latest
@@ -87,6 +131,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Validate Tauri UI command resolution
-        working-directory: platform/apps/skillssync-desktop/src-tauri
-        run: node ./scripts/tauri-ui-command.mjs build --dry-run
+      - name: Install and build UI
+        working-directory: platform/apps/skillssync-desktop/ui
+        run: |
+          npm ci
+          npm run build

@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "dev.fedosov.skillssync.desktop",
   "build": {
-    "beforeDevCommand": "node ./src-tauri/scripts/tauri-ui-command.mjs dev",
-    "beforeBuildCommand": "node ./src-tauri/scripts/tauri-ui-command.mjs build",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../ui/dist"
   },
