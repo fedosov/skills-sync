@@ -1,110 +1,49 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
-    <!-- Background Gradients -->
-    <linearGradient id="bgGradient" x1="100" y1="100" x2="924" y2="924" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#1E293B" />
-      <stop offset="100%" stop-color="#020617" />
+    <!-- Solid Dark macOS Background -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2C2C2E" />
+      <stop offset="100%" stop-color="#1C1C1E" />
     </linearGradient>
 
-    <!-- Dev Braces Gradient -->
-    <linearGradient id="braceGradient" x1="160" y1="280" x2="864" y2="744" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#38BDF8" />
-      <stop offset="100%" stop-color="#818CF8" />
-    </linearGradient>
-
-    <!-- Sync Arrows Gradient -->
-    <linearGradient id="syncGradient" x1="232" y1="232" x2="792" y2="792" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#00E5FF" />
-      <stop offset="100%" stop-color="#7C3AED" />
-    </linearGradient>
-
-    <!-- Hammer Gradients -->
-    <linearGradient id="hammerHandle" x1="472" y1="320" x2="552" y2="800" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#FBBF24" />
-      <stop offset="100%" stop-color="#B45309" />
-    </linearGradient>
-
-    <linearGradient id="hammerGrip" x1="456" y1="520" x2="568" y2="780" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#334155" />
-      <stop offset="100%" stop-color="#0F172A" />
-    </linearGradient>
-
-    <linearGradient id="hammerHead" x1="422" y1="220" x2="602" y2="360" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#F1F5F9" />
-      <stop offset="100%" stop-color="#94A3B8" />
-    </linearGradient>
-
-    <linearGradient id="hammerEnd" x1="260" y1="240" x2="764" y2="340" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#CBD5E1" />
-      <stop offset="100%" stop-color="#475569" />
-    </linearGradient>
-
-    <!-- macOS Edge Highlights & Shadows -->
-    <linearGradient id="topGlow" x1="100" y1="100" x2="100" y2="924" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.5" />
-      <stop offset="25%" stop-color="#FFFFFF" stop-opacity="0.0" />
-    </linearGradient>
-
-    <linearGradient id="bottomShadow" x1="100" y1="100" x2="100" y2="924" gradientUnits="userSpaceOnUse">
-      <stop offset="75%" stop-color="#000000" stop-opacity="0.0" />
-      <stop offset="100%" stop-color="#000000" stop-opacity="0.6" />
-    </linearGradient>
-
-    <!-- Drop Shadows -->
-    <filter id="appShadow" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#000000" flood-opacity="0.4"/>
-      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000000" flood-opacity="0.2"/>
-    </filter>
-
-    <filter id="dropShadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="18" stdDeviation="16" flood-color="#000000" flood-opacity="0.5"/>
-      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000000" flood-opacity="0.3"/>
+    <!-- Unified Drop Shadow for high readability -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#000" flood-opacity="0.4" />
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000" flood-opacity="0.2" />
     </filter>
   </defs>
 
-  <!-- App Base Squircle -->
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bgGradient)" filter="url(#appShadow)" />
-  
-  <!-- Braces (Subtle Dev Background) -->
-  <g stroke="url(#braceGradient)" stroke-width="80" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-opacity="0.3">
-    <path d="M 320 280 L 160 512 L 320 744" />
-    <path d="M 704 280 L 864 512 L 704 744" />
-  </g>
+  <!-- Base Squircle -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" />
+  <!-- Subtle inner border for macOS physical edge effect -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="none" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="4" />
 
-  <!-- Back Sync Arrow (Behind Hammer) -->
-  <g filter="url(#dropShadow)">
-    <path d="M 232 512 A 280 280 0 0 1 792 512" fill="none" stroke="url(#syncGradient)" stroke-width="70" stroke-linecap="round" />
-    <!-- Arrowhead Right -->
-    <g transform="translate(792, 512) rotate(90)">
-      <polygon points="-40,-80 80,0 -40,80" fill="url(#syncGradient)" stroke="url(#syncGradient)" stroke-width="8" stroke-linejoin="round" />
+  <g filter="url(#shadow)">
+    <!-- Braces < > (Thick, Minimal) -->
+    <g stroke="#48484A" stroke-width="72" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M 320 340 L 160 512 L 320 684" />
+      <path d="M 704 340 L 864 512 L 704 684" />
+    </g>
+
+    <!-- Sync Arrows (Clean arcs, no gradients) -->
+    <g transform="rotate(15 512 512)">
+      <!-- Top Arc -->
+      <path d="M 272 512 A 240 240 0 0 1 752 512" fill="none" stroke="#0A84FF" stroke-width="64" stroke-linecap="round" />
+      <!-- Top Arrowhead -->
+      <path d="M 662 490 L 752 610 L 842 490 Z" fill="#0A84FF" stroke="#0A84FF" stroke-width="12" stroke-linejoin="round" />
+
+      <!-- Bottom Arc -->
+      <path d="M 752 512 A 240 240 0 0 1 272 512" fill="none" stroke="#0A84FF" stroke-width="64" stroke-linecap="round" />
+      <!-- Bottom Arrowhead -->
+      <path d="M 182 534 L 272 414 L 362 534 Z" fill="#0A84FF" stroke="#0A84FF" stroke-width="12" stroke-linejoin="round" />
+    </g>
+
+    <!-- Minimal Hammer (Flat white with subtle contrast) -->
+    <g transform="rotate(-45 512 512)">
+      <!-- Handle -->
+      <rect x="472" y="320" width="80" height="420" rx="40" fill="#D1D5DB" />
+      <!-- Head -->
+      <rect x="332" y="240" width="360" height="120" rx="40" fill="#FFFFFF" />
     </g>
   </g>
-
-  <!-- Bold Hammer -->
-  <g filter="url(#dropShadow)" transform="rotate(-45 512 512)">
-    <!-- Handle Base -->
-    <rect x="472" y="320" width="80" height="480" rx="35" fill="url(#hammerHandle)" />
-    <!-- Rubber Grip -->
-    <rect x="456" y="520" width="112" height="260" rx="20" fill="url(#hammerGrip)" />
-    
-    <!-- Metallic Head Ends -->
-    <rect x="260" y="240" width="180" height="100" rx="25" fill="url(#hammerEnd)" />
-    <rect x="584" y="240" width="180" height="100" rx="25" fill="url(#hammerEnd)" />
-    
-    <!-- Metallic Head Center -->
-    <rect x="422" y="220" width="180" height="140" rx="35" fill="url(#hammerHead)" />
-  </g>
-
-  <!-- Front Sync Arrow (In Front of Hammer) -->
-  <g filter="url(#dropShadow)">
-    <path d="M 792 512 A 280 280 0 0 1 232 512" fill="none" stroke="url(#syncGradient)" stroke-width="70" stroke-linecap="round" />
-    <!-- Arrowhead Left -->
-    <g transform="translate(232, 512) rotate(-90)">
-      <polygon points="-40,-80 80,0 -40,80" fill="url(#syncGradient)" stroke="url(#syncGradient)" stroke-width="8" stroke-linejoin="round" />
-    </g>
-  </g>
-
-  <!-- App Squircle Inner Borders (Apple Guidelines Highlight/Shadow) -->
-  <rect x="104" y="104" width="816" height="816" rx="181" fill="none" stroke="url(#topGlow)" stroke-width="8" />
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="none" stroke="url(#bottomShadow)" stroke-width="6" />
 </svg>
