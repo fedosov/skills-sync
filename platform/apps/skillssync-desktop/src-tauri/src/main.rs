@@ -98,9 +98,7 @@ struct SubagentTargetStatus {
 }
 
 fn blocked_write_message(action: &str) -> String {
-    format!(
-        "Filesystem changes are disabled. Enable 'Allow filesystem changes' to run {action}."
-    )
+    format!("Filesystem changes are disabled. Enable 'Allow filesystem changes' to run {action}.")
 }
 
 fn ensure_write_allowed(engine: &SyncEngine, action: &str) -> Result<(), String> {
@@ -226,7 +224,10 @@ fn start_auto_watch(runtime: &RuntimeState, engine: &SyncEngine) -> Result<(), S
 }
 
 #[tauri::command]
-fn run_sync(trigger: Option<String>, runtime: tauri::State<RuntimeState>) -> Result<SyncState, String> {
+fn run_sync(
+    trigger: Option<String>,
+    runtime: tauri::State<RuntimeState>,
+) -> Result<SyncState, String> {
     let engine = SyncEngine::current();
     ensure_write_allowed(&engine, "run_sync")?;
     let parsed = trigger

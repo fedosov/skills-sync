@@ -42,6 +42,7 @@ type FocusKind = "skills" | "subagents" | "mcp";
 type DeleteDialogState = { skillKey: string; confirmText: string } | null;
 type OpenTargetMenu = "skill" | "subagent" | null;
 type AuditStatusFilter = AuditEventStatus | "all";
+const CATALOG_FOCUS_STORAGE_KEY = "skillssync.catalog.focusKind.v1";
 
 function toTitleCase(value: string): string {
   if (!value) {
@@ -86,6 +87,38 @@ function formatIsoTime(value: string): string {
   return date.toLocaleString();
 }
 
+function parseAuditStatusFilter(value: string): AuditStatusFilter {
+  switch (value) {
+    case "success":
+    case "failed":
+    case "blocked":
+    case "all":
+      return value;
+    default:
+      return "all";
+  }
+}
+
+function parseFocusKind(value: string | null): FocusKind {
+  if (value === "skills" || value === "subagents" || value === "mcp") {
+    return value;
+  }
+  return "skills";
+}
+
+function readStoredFocusKind(): FocusKind {
+  if (typeof window === "undefined") {
+    return "skills";
+  }
+  try {
+    return parseFocusKind(
+      window.localStorage.getItem(CATALOG_FOCUS_STORAGE_KEY),
+    );
+  } catch {
+    return "skills";
+  }
+}
+
 function ScopeMarker({ scope }: { scope: string }) {
   const scopeLabel = scope === "global" ? "Global" : "Project";
   return (
@@ -117,7 +150,9 @@ export function App() {
     useState<AuditStatusFilter>("all");
   const [auditActionFilter, setAuditActionFilter] = useState("");
   const [auditBusy, setAuditBusy] = useState(false);
-  const [focusKind, setFocusKind] = useState<FocusKind>("skills");
+  const [focusKind, setFocusKind] = useState<FocusKind>(() =>
+    readStoredFocusKind(),
+  );
   const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
   const [selectedSubagentId, setSelectedSubagentId] = useState<string | null>(
     null,
@@ -141,22 +176,22 @@ export function App() {
     [],
   );
 
-  const applySubagents = useCallback(
-    async (preferredKey?: string | null) => {
-      const nextSubagents = await listSubagents("all");
-      setSubagents(nextSubagents);
-      setSelectedSubagentId((prev) => {
-        if (preferredKey && nextSubagents.some((item) => item.id === preferredKey)) {
-          return preferredKey;
-        }
-        if (prev && nextSubagents.some((item) => item.id === prev)) {
-          return prev;
-        }
-        return nextSubagents[0]?.id ?? null;
-      });
-    },
-    [],
-  );
+  const applySubagents = useCallback(async (preferredKey?: string | null) => {
+    const nextSubagents = await listSubagents("all");
+    setSubagents(nextSubagents);
+    setSelectedSubagentId((prev) => {
+      if (
+        preferredKey &&
+        nextSubagents.some((item) => item.id === preferredKey)
+      ) {
+        return preferredKey;
+      }
+      if (prev && nextSubagents.some((item) => item.id === prev)) {
+        return prev;
+      }
+      return nextSubagents[0]?.id ?? null;
+    });
+  }, []);
 
   const refreshState = useCallback(
     async (
@@ -254,6 +289,14 @@ export function App() {
   }, [state]);
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem(CATALOG_FOCUS_STORAGE_KEY, focusKind);
+    } catch {
+      // Ignore storage errors in restricted environments.
+    }
+  }, [focusKind]);
+
+  useEffect(() => {
     if (!selectedSkillKey) {
       setDetails(null);
       return;
@@ -349,15 +392,22 @@ export function App() {
     return () => {
       window.clearInterval(timer);
     };
-  }, [auditOpen, loadAudit, refreshState, runtimeControls?.allow_filesystem_changes]);
+  }, [
+    auditOpen,
+    loadAudit,
+    refreshState,
+    runtimeControls?.allow_filesystem_changes,
+  ]);
 
   const filteredSkills = useMemo(() => {
     if (!state) return [];
-    return sortAndFilterSkills(state.skills, query, []);
-  }, [query, state]);
+    const activeQuery = focusKind === "skills" ? query : "";
+    return sortAndFilterSkills(state.skills, activeQuery, []);
+  }, [focusKind, query, state]);
 
   const filteredSubagents = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+    const normalizedQuery =
+      focusKind === "subagents" ? query.trim().toLowerCase() : "";
     const ordered = subagents
       .slice()
       .sort(
@@ -377,10 +427,11 @@ export function App() {
         item.description.toLowerCase().includes(normalizedQuery)
       );
     });
-  }, [query, subagents]);
+  }, [focusKind, query, subagents]);
 
   const filteredMcpServers = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+    const normalizedQuery =
+      focusKind === "mcp" ? query.trim().toLowerCase() : "";
     const servers = (state?.mcp_servers ?? []).slice().sort((lhs, rhs) => {
       return (
         lhs.server_key.localeCompare(rhs.server_key) ||
@@ -401,7 +452,7 @@ export function App() {
         (item.url ?? "").toLowerCase().includes(normalizedQuery)
       );
     });
-  }, [query, state]);
+  }, [focusKind, query, state]);
 
   const selectedMcpServer =
     state?.mcp_servers?.find(
@@ -527,12 +578,42 @@ export function App() {
     await loadAudit();
   }
 
+  function handleCatalogTabChange(next: FocusKind) {
+    setFocusKind(next);
+    setActionsMenuOpen(false);
+    setOpenTargetMenu(null);
+  }
+
   const activeSkillCount =
     state?.skills.filter((skill) => skill.status === "active").length ?? 0;
   const archivedSkillCount =
     state?.skills.filter((skill) => skill.status === "archived").length ?? 0;
   const activeSubagentCount = subagents.length;
   const mcpCount = state?.summary.mcp_count ?? state?.mcp_servers?.length ?? 0;
+  const catalogTabCounts = {
+    skills: state?.skills.length ?? 0,
+    subagents: subagents.length,
+    mcp: mcpCount,
+  };
+  const activeCatalogTitle =
+    focusKind === "skills"
+      ? "Skills"
+      : focusKind === "subagents"
+        ? "Subagents"
+        : "MCP";
+  const activeCatalogCount =
+    focusKind === "skills"
+      ? filteredSkills.length
+      : focusKind === "subagents"
+        ? filteredSubagents.length
+        : filteredMcpServers.length;
+  const activeCatalogTotal = catalogTabCounts[focusKind];
+  const activeCatalogEmptyText =
+    focusKind === "skills"
+      ? "No skills found."
+      : focusKind === "subagents"
+        ? "No subagents found."
+        : "No MCP servers found.";
 
   const showSkill = focusKind === "skills" && details;
   const showSubagent = focusKind === "subagents" && subagentDetails;
@@ -577,12 +658,19 @@ export function App() {
                 Audit log
               </Button>
               <div className="inline-flex items-center gap-2 rounded-md border border-border/70 px-2 py-1">
-                <span className="text-xs text-muted-foreground">Allow</span>
+                <span className="flex flex-col leading-tight">
+                  <span className="text-xs text-muted-foreground">Allow</span>
+                  <span className="text-[10px] text-muted-foreground/90">
+                    access to disk
+                  </span>
+                </span>
                 <button
                   type="button"
                   role="switch"
                   aria-label="Allow filesystem changes"
-                  aria-checked={runtimeControls?.allow_filesystem_changes ?? false}
+                  aria-checked={
+                    runtimeControls?.allow_filesystem_changes ?? false
+                  }
                   disabled={busy}
                   onClick={() =>
                     void handleAllowToggle(
@@ -645,154 +733,181 @@ export function App() {
               <CardTitle>Catalog</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 p-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-              <section className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-semibold text-muted-foreground">
-                    Skills
-                  </h3>
-                  <span className="text-[11px] text-muted-foreground">
-                    {filteredSkills.length}/{state?.skills.length ?? 0}
-                  </span>
-                </div>
-                <ul className="space-y-0.5">
-                  {filteredSkills.map((skill) => {
-                    const selected =
-                      focusKind === "skills" &&
-                      skill.skill_key === selectedSkillKey;
-                    return (
-                      <li key={skill.id}>
-                        <button
-                          type="button"
-                          className={cn(
-                            "w-full rounded-md px-2.5 py-2 text-left transition-colors",
-                            selected
-                              ? "bg-accent/85 text-foreground"
-                              : "hover:bg-accent/55",
-                          )}
-                          onClick={() => {
-                            setFocusKind("skills");
-                            setSelectedSkillKey(skill.skill_key);
-                            setActionsMenuOpen(false);
-                            setOpenTargetMenu(null);
-                          }}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm font-medium">
-                              {skill.name}
-                            </span>
-                            <ScopeMarker scope={skill.scope} />
-                          </div>
-                          <p
-                            aria-hidden="true"
-                            className="mt-0.5 truncate text-[11px] text-muted-foreground"
-                          >
-                            {skill.skill_key}
-                          </p>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(
+                  [
+                    ["skills", "Skills"],
+                    ["subagents", "Subagents"],
+                    ["mcp", "MCP"],
+                  ] as const
+                ).map(([kind, label]) => {
+                  const isActive = focusKind === kind;
+                  return (
+                    <Button
+                      key={kind}
+                      type="button"
+                      size="sm"
+                      variant={isActive ? "outline" : "ghost"}
+                      aria-label={`Switch catalog to ${label}`}
+                      aria-pressed={isActive}
+                      className={cn(
+                        "h-6 px-2 text-[11px]",
+                        isActive ? "bg-accent/70" : "text-muted-foreground",
+                      )}
+                      onClick={() => handleCatalogTabChange(kind)}
+                    >
+                      {`${label} (${catalogTabCounts[kind]})`}
+                    </Button>
+                  );
+                })}
+              </div>
 
               <section className="space-y-1.5 border-t border-border/50 pt-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-semibold text-muted-foreground">
-                    Subagents
-                  </h3>
+                  <p className="text-xs font-semibold text-muted-foreground">
+                    {activeCatalogTitle}
+                  </p>
                   <span className="text-[11px] text-muted-foreground">
-                    {filteredSubagents.length}/{subagents.length}
+                    {activeCatalogCount}/{activeCatalogTotal}
                   </span>
                 </div>
-                <ul className="space-y-0.5">
-                  {filteredSubagents.map((subagent) => {
-                    const selected =
-                      focusKind === "subagents" &&
-                      subagent.id === selectedSubagentId;
-                    return (
-                      <li key={subagent.id}>
-                        <button
-                          type="button"
-                          className={cn(
-                            "w-full rounded-md px-2.5 py-2 text-left transition-colors",
-                            selected
-                              ? "bg-accent/85 text-foreground"
-                              : "hover:bg-accent/55",
-                          )}
-                          onClick={() => {
-                            setFocusKind("subagents");
-                            setSelectedSubagentId(subagent.id);
-                            setActionsMenuOpen(false);
-                            setOpenTargetMenu(null);
-                          }}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm font-medium">
-                              {subagent.name}
-                            </span>
-                            <ScopeMarker scope={subagent.scope} />
-                          </div>
-                          <p
-                            aria-hidden="true"
-                            className="mt-0.5 truncate text-[11px] text-muted-foreground"
-                          >
-                            {subagent.subagent_key}
-                          </p>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
 
-              <section className="space-y-1.5 border-t border-border/50 pt-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-semibold text-muted-foreground">
-                    MCP
-                  </h3>
-                  <span className="text-[11px] text-muted-foreground">
-                    {filteredMcpServers.length}/{mcpCount}
-                  </span>
-                </div>
-                <ul className="space-y-0.5">
-                  {filteredMcpServers.map((server) => {
-                    const key = mcpSelectionKey(server);
-                    const selected =
-                      focusKind === "mcp" && key === selectedMcpKey;
-                    return (
-                      <li key={key}>
-                        <button
-                          type="button"
-                          className={cn(
-                            "w-full rounded-md px-2.5 py-2 text-left transition-colors",
-                            selected
-                              ? "bg-accent/85 text-foreground"
-                              : "hover:bg-accent/55",
-                          )}
-                          onClick={() => {
-                            setFocusKind("mcp");
-                            setSelectedMcpKey(key);
-                            setActionsMenuOpen(false);
-                            setOpenTargetMenu(null);
-                          }}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm font-medium">
-                              {server.server_key}
-                            </span>
-                            <ScopeMarker scope={server.scope} />
-                          </div>
-                          <p
-                            aria-hidden="true"
-                            className="mt-0.5 truncate text-[11px] text-muted-foreground"
-                          >
-                            {server.workspace ?? server.transport.toUpperCase()}
-                          </p>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
+                {focusKind === "skills" ? (
+                  filteredSkills.length === 0 ? (
+                    <p className="rounded-md bg-muted/20 px-2 py-2 text-xs text-muted-foreground">
+                      {activeCatalogEmptyText}
+                    </p>
+                  ) : (
+                    <ul className="space-y-0.5">
+                      {filteredSkills.map((skill) => {
+                        const selected = skill.skill_key === selectedSkillKey;
+                        return (
+                          <li key={skill.id}>
+                            <button
+                              type="button"
+                              className={cn(
+                                "w-full rounded-md px-2.5 py-2 text-left transition-colors",
+                                selected
+                                  ? "bg-accent/85 text-foreground"
+                                  : "hover:bg-accent/55",
+                              )}
+                              onClick={() => {
+                                setSelectedSkillKey(skill.skill_key);
+                                setActionsMenuOpen(false);
+                                setOpenTargetMenu(null);
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="truncate text-sm font-medium">
+                                  {skill.name}
+                                </span>
+                                <ScopeMarker scope={skill.scope} />
+                              </div>
+                              <p
+                                aria-hidden="true"
+                                className="mt-0.5 truncate text-[11px] text-muted-foreground"
+                              >
+                                {skill.skill_key}
+                              </p>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )
+                ) : null}
+
+                {focusKind === "subagents" ? (
+                  filteredSubagents.length === 0 ? (
+                    <p className="rounded-md bg-muted/20 px-2 py-2 text-xs text-muted-foreground">
+                      {activeCatalogEmptyText}
+                    </p>
+                  ) : (
+                    <ul className="space-y-0.5">
+                      {filteredSubagents.map((subagent) => {
+                        const selected = subagent.id === selectedSubagentId;
+                        return (
+                          <li key={subagent.id}>
+                            <button
+                              type="button"
+                              className={cn(
+                                "w-full rounded-md px-2.5 py-2 text-left transition-colors",
+                                selected
+                                  ? "bg-accent/85 text-foreground"
+                                  : "hover:bg-accent/55",
+                              )}
+                              onClick={() => {
+                                setSelectedSubagentId(subagent.id);
+                                setActionsMenuOpen(false);
+                                setOpenTargetMenu(null);
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="truncate text-sm font-medium">
+                                  {subagent.name}
+                                </span>
+                                <ScopeMarker scope={subagent.scope} />
+                              </div>
+                              <p
+                                aria-hidden="true"
+                                className="mt-0.5 truncate text-[11px] text-muted-foreground"
+                              >
+                                {subagent.subagent_key}
+                              </p>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )
+                ) : null}
+
+                {focusKind === "mcp" ? (
+                  filteredMcpServers.length === 0 ? (
+                    <p className="rounded-md bg-muted/20 px-2 py-2 text-xs text-muted-foreground">
+                      {activeCatalogEmptyText}
+                    </p>
+                  ) : (
+                    <ul className="space-y-0.5">
+                      {filteredMcpServers.map((server) => {
+                        const key = mcpSelectionKey(server);
+                        const selected = key === selectedMcpKey;
+                        return (
+                          <li key={key}>
+                            <button
+                              type="button"
+                              className={cn(
+                                "w-full rounded-md px-2.5 py-2 text-left transition-colors",
+                                selected
+                                  ? "bg-accent/85 text-foreground"
+                                  : "hover:bg-accent/55",
+                              )}
+                              onClick={() => {
+                                setSelectedMcpKey(key);
+                                setActionsMenuOpen(false);
+                                setOpenTargetMenu(null);
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="truncate text-sm font-medium">
+                                  {server.server_key}
+                                </span>
+                                <ScopeMarker scope={server.scope} />
+                              </div>
+                              <p
+                                aria-hidden="true"
+                                className="mt-0.5 truncate text-[11px] text-muted-foreground"
+                              >
+                                {server.workspace ??
+                                  server.transport.toUpperCase()}
+                              </p>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )
+                ) : null}
               </section>
             </CardContent>
           </Card>
@@ -1392,14 +1507,20 @@ export function App() {
               </Button>
             </div>
             <div className="mt-3 flex flex-wrap items-end gap-2">
-              <label className="text-xs text-muted-foreground">
+              <label
+                className="text-xs text-muted-foreground"
+                htmlFor="audit-status-filter"
+              >
                 Status
                 <select
+                  id="audit-status-filter"
                   aria-label="Audit status filter"
                   className="mt-1 block rounded-md border border-border/70 bg-background px-2 py-1 text-xs"
                   value={auditStatusFilter}
                   onChange={(event) =>
-                    setAuditStatusFilter(event.currentTarget.value as AuditStatusFilter)
+                    setAuditStatusFilter(
+                      parseAuditStatusFilter(event.currentTarget.value),
+                    )
                   }
                 >
                   <option value="all">all</option>
@@ -1408,13 +1529,19 @@ export function App() {
                   <option value="blocked">blocked</option>
                 </select>
               </label>
-              <label className="text-xs text-muted-foreground">
+              <label
+                className="text-xs text-muted-foreground"
+                htmlFor="audit-action-filter"
+              >
                 Action
                 <Input
+                  id="audit-action-filter"
                   aria-label="Audit action filter"
                   value={auditActionFilter}
                   placeholder="run_sync"
-                  onChange={(event) => setAuditActionFilter(event.currentTarget.value)}
+                  onChange={(event) =>
+                    setAuditActionFilter(event.currentTarget.value)
+                  }
                   className="mt-1 min-w-[220px]"
                 />
               </label>

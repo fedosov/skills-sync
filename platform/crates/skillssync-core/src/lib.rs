@@ -10,6 +10,7 @@ pub mod settings;
 pub mod state_store;
 pub mod watch;
 
+pub use audit_store::{SyncAuditStore, DEFAULT_AUDIT_LOG_LIMIT};
 pub use engine::{ScopeFilter, SkillLocator, SyncEngine, SyncEngineEnvironment};
 pub use error::SyncEngineError;
 pub use mcp_registry::McpAgent;
@@ -21,4 +22,3 @@ pub use models::{
 pub use paths::SyncPaths;
 pub use settings::{SyncAppSettings, SyncPreferencesStore};
 pub use state_store::SyncStateStore;
-pub use audit_store::{SyncAuditStore, DEFAULT_AUDIT_LOG_LIMIT};

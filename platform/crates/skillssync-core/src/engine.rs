@@ -190,7 +190,9 @@ impl SyncEngine {
     }
 
     pub fn allow_filesystem_changes(&self) -> bool {
-        self.preferences_store.load_settings().allow_filesystem_changes
+        self.preferences_store
+            .load_settings()
+            .allow_filesystem_changes
     }
 
     pub fn set_allow_filesystem_changes(&self, allow: bool) -> Result<(), SyncEngineError> {

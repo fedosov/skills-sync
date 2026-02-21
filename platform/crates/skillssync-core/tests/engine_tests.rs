@@ -1,7 +1,7 @@
 use serde_json::Value as JsonValue;
 use skillssync_core::{
-    McpAgent, ScopeFilter, SkillLifecycleStatus, SkillLocator, SyncEngine, SyncEngineEnvironment,
-    SyncPaths, SyncPreferencesStore, SyncStateStore, SyncTrigger, AuditEventStatus,
+    AuditEventStatus, McpAgent, ScopeFilter, SkillLifecycleStatus, SkillLocator, SyncEngine,
+    SyncEngineEnvironment, SyncPaths, SyncPreferencesStore, SyncStateStore, SyncTrigger,
 };
 use std::fs;
 use std::path::Path;
@@ -140,7 +140,8 @@ fn run_sync_records_success_audit_event() {
     );
 
     let _ = engine.run_sync(SyncTrigger::Manual).expect("sync state");
-    let events = engine.list_audit_events(Some(20), Some(AuditEventStatus::Success), Some("run_sync"));
+    let events =
+        engine.list_audit_events(Some(20), Some(AuditEventStatus::Success), Some("run_sync"));
 
     assert!(!events.is_empty());
     let event = &events[0];
@@ -182,7 +183,8 @@ fn run_sync_reports_conflict_when_hashes_differ() {
     assert_eq!(persisted.summary.conflict_count, 1);
     assert_eq!(persisted.subagent_summary.conflict_count, 0);
 
-    let failed_events = engine.list_audit_events(Some(20), Some(AuditEventStatus::Failed), Some("run_sync"));
+    let failed_events =
+        engine.list_audit_events(Some(20), Some(AuditEventStatus::Failed), Some("run_sync"));
     assert!(!failed_events.is_empty());
     assert_eq!(failed_events[0].action, "run_sync");
 }

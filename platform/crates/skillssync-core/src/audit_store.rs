@@ -135,11 +135,11 @@ mod tests {
 
         let events = store.load_events();
         assert_eq!(events.len(), limit);
-        assert_eq!(events.first().map(|item| item.id.as_str()), Some("event-10"));
         assert_eq!(
-            events.last().map(|item| item.id.as_str()),
-            Some("event-19")
+            events.first().map(|item| item.id.as_str()),
+            Some("event-10")
         );
+        assert_eq!(events.last().map(|item| item.id.as_str()), Some("event-19"));
     }
 
     #[test]
@@ -154,14 +154,14 @@ mod tests {
             .append_event(event(2, "run_sync", AuditEventStatus::Failed), 100)
             .expect("append");
         store
-            .append_event(event(3, "set_mcp_server_enabled", AuditEventStatus::Blocked), 100)
+            .append_event(
+                event(3, "set_mcp_server_enabled", AuditEventStatus::Blocked),
+                100,
+            )
             .expect("append");
 
-        let failed_sync = store.list_events(
-            Some(10),
-            Some(AuditEventStatus::Failed),
-            Some("run_sync"),
-        );
+        let failed_sync =
+            store.list_events(Some(10), Some(AuditEventStatus::Failed), Some("run_sync"));
         assert_eq!(failed_sync.len(), 1);
         assert_eq!(failed_sync[0].id, "event-2");
     }

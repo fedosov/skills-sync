@@ -29,6 +29,27 @@ vi.mock("./tauriApi", () => ({
 }));
 
 let clipboardWriteSpy: ReturnType<typeof vi.fn>;
+const CATALOG_FOCUS_STORAGE_KEY = "skillssync.catalog.focusKind.v1";
+
+function createLocalStorageMock(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: () => {
+      values.clear();
+    },
+    getItem: (key: string) => values.get(key) ?? null,
+    key: (index: number) => Array.from(values.keys())[index] ?? null,
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  };
+}
 
 const projectSkill: SkillRecord = {
   id: "project-1",
@@ -185,6 +206,10 @@ function setApiDefaults(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: createLocalStorageMock(),
+  });
   clipboardWriteSpy = vi.fn().mockResolvedValue(undefined);
   vi.stubGlobal("navigator", {
     clipboard: { writeText: clipboardWriteSpy },
@@ -192,8 +217,29 @@ beforeEach(() => {
 });
 
 describe("App quiet redesign", () => {
-  it("renders unified source list sections and no tabs", async () => {
-    const state = buildState([projectSkill]);
+  it("renders catalog tabs and shows only active list by default", async () => {
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace: "/tmp/workspace-a",
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: true,
+          },
+          targets: ["/tmp/workspace-a/.mcp.json"],
+          warnings: [],
+        },
+      ],
+    );
     setApiDefaults(state, {
       [projectSkill.skill_key]: buildDetails(projectSkill),
     });
@@ -201,19 +247,189 @@ describe("App quiet redesign", () => {
     render(<App />);
     await screen.findByRole("heading", { name: projectSkill.name });
 
-    expect(screen.getByText("Skills")).toBeInTheDocument();
-    expect(screen.getByText("Subagents")).toBeInTheDocument();
-    expect(screen.getByText("MCP")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Switch catalog to Skills" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: "Switch catalog to Subagents" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    ).toHaveAttribute("aria-pressed", "false");
 
     expect(
-      screen.queryByRole("button", { name: /^Skills$/ }),
+      screen.queryByRole("heading", { name: "Skills" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /^Subagents$/ }),
+      screen.queryByRole("heading", { name: "Subagents" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /^MCP$/ }),
+      screen.queryByRole("heading", { name: "MCP" }),
     ).not.toBeInTheDocument();
+    expect(screen.getAllByText("1/1")).toHaveLength(1);
+  });
+
+  it("switches to subagents tab and renders only subagent catalog list", async () => {
+    const subagent = {
+      id: "sub-agent-uno",
+      name: "Agent Uno",
+      description: "Specialized helper",
+      scope: "global",
+      workspace: null,
+      canonical_source_path: "/tmp/home/.claude/agents/agent-uno.md",
+      target_paths: ["/tmp/home/.claude/agents/agent-uno.md"],
+      exists: true,
+      is_symlink_canonical: false,
+      package_type: "file",
+      subagent_key: "agent-uno",
+      symlink_target: "/tmp/home/.claude/agents/agent-uno.md",
+      model: null,
+      tools: [],
+      codex_tools_ignored: false,
+    } as const;
+    const state = buildState([projectSkill]);
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+    vi.mocked(tauriApi.listSubagents).mockResolvedValue([subagent]);
+    vi.mocked(tauriApi.getSubagentDetails).mockResolvedValue({
+      subagent,
+      main_file_path: "/tmp/home/.claude/agents/agent-uno.md",
+      main_file_exists: true,
+      main_file_body_preview: "# Agent Uno",
+      main_file_body_preview_truncated: false,
+      subagent_dir_tree_preview: "agents/\n`-- agent-uno.md",
+      subagent_dir_tree_preview_truncated: false,
+      last_modified_unix_seconds: 1_700_000_000,
+      target_statuses: [],
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    expect(
+      screen.queryByRole("button", { name: /Agent Uno/i }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to Subagents" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Agent Uno" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Agent Uno/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Project Skill/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("filters only active tab and keeps results hidden in inactive tabs", async () => {
+    const subagent = {
+      id: "sub-agent-search",
+      name: "Agent Search",
+      description: "Search specialist",
+      scope: "global",
+      workspace: null,
+      canonical_source_path: "/tmp/home/.claude/agents/agent-search.md",
+      target_paths: ["/tmp/home/.claude/agents/agent-search.md"],
+      exists: true,
+      is_symlink_canonical: false,
+      package_type: "file",
+      subagent_key: "agent-search",
+      symlink_target: "/tmp/home/.claude/agents/agent-search.md",
+      model: null,
+      tools: [],
+      codex_tools_ignored: false,
+    } as const;
+    const state = buildState([projectSkill]);
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+    vi.mocked(tauriApi.listSubagents).mockResolvedValue([subagent]);
+    vi.mocked(tauriApi.getSubagentDetails).mockResolvedValue({
+      subagent,
+      main_file_path: "/tmp/home/.claude/agents/agent-search.md",
+      main_file_exists: true,
+      main_file_body_preview: "# Agent Search",
+      main_file_body_preview_truncated: false,
+      subagent_dir_tree_preview: "agents/\n`-- agent-search.md",
+      subagent_dir_tree_preview_truncated: false,
+      last_modified_unix_seconds: 1_700_000_000,
+      target_statuses: [],
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.type(
+      screen.getByPlaceholderText("Search by name, key, scope or workspace"),
+      "agent-search",
+    );
+    expect(screen.getByText("No skills found.")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Agent Search/i }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to Subagents" }),
+    );
+    expect(screen.queryByText("No subagents found.")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Agent Search/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("persists selected tab and restores it after remount", async () => {
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace: "/tmp/workspace-a",
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: true,
+          },
+          targets: ["/tmp/workspace-a/.mcp.json"],
+          warnings: [],
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    const firstRender = render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "exa" }),
+    ).toBeInTheDocument();
+    expect(window.localStorage.getItem(CATALOG_FOCUS_STORAGE_KEY)).toBe("mcp");
+    firstRender.unmount();
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "exa" });
+    expect(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("shows overview and details together by default", async () => {
@@ -432,6 +648,9 @@ describe("App quiet redesign", () => {
     render(<App />);
     await screen.findByRole("heading", { name: projectSkill.name });
 
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    );
     await user.click(screen.getByRole("button", { name: /exa/i }));
     await user.click(screen.getByRole("switch", { name: "project toggle" }));
 
@@ -543,8 +762,10 @@ describe("App quiet redesign", () => {
 
     await user.click(screen.getByRole("button", { name: "Audit log" }));
 
-    expect(screen.getByRole("dialog", { name: "Audit log" })).toBeInTheDocument();
-    expect(screen.getByText("run_sync")).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "Audit log" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText(/run_sync/i)).toBeInTheDocument();
   });
 
   it("shows backend blocked error when write action is denied", async () => {
@@ -567,6 +788,8 @@ describe("App quiet redesign", () => {
     await user.type(screen.getByLabelText("Type DELETE to confirm"), "DELETE");
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
-    await screen.findByText(/Filesystem changes are disabled/i);
+    expect(
+      await screen.findByText(/Filesystem changes are disabled/i),
+    ).toBeInTheDocument();
   });
 });
