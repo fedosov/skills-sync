@@ -84,6 +84,35 @@ pub enum SyncEngineError {
     #[error("Migration failed for {skill_key}: {reason}")]
     MigrationFailed { skill_key: String, reason: String },
 
+    #[error("dotagents binary unavailable: {0}")]
+    DotagentsUnavailable(String),
+
+    #[error("dotagents checksum mismatch for {path}: expected {expected}, got {actual}")]
+    DotagentsChecksumMismatch {
+        path: PathBuf,
+        expected: String,
+        actual: String,
+    },
+
+    #[error("dotagents version mismatch: expected {expected}, got {actual}")]
+    DotagentsVersionMismatch { expected: String, actual: String },
+
+    #[error(
+        "dotagents command failed: {command} (exit={exit_code:?}); stderr={stderr}; stdout={stdout}"
+    )]
+    DotagentsCommandFailed {
+        command: String,
+        exit_code: Option<i32>,
+        stderr: String,
+        stdout: String,
+    },
+
+    #[error("strict contract missing: {0}")]
+    StrictContractMissing(String),
+
+    #[error("migration required before strict dotagents sync: {0}")]
+    MigrationRequired(String),
+
     #[error("Unsupported platform operation: {0}")]
     Unsupported(String),
 }

@@ -3,6 +3,7 @@ import type {
   AuditEvent,
   AuditQuery,
   DashboardSnapshot,
+  DotagentsScope,
   MutationCommand,
   McpServerRecord,
   PlatformContext,
@@ -10,6 +11,7 @@ import type {
   SubagentDetails,
   SubagentRecord,
   SkillDetails,
+  SkillRecord,
   SyncState,
 } from "./types";
 
@@ -46,6 +48,12 @@ export async function setSkillStarred(
 
 export async function runSync(): Promise<SyncState> {
   return invoke<SyncState>("run_sync", { trigger: "manual" });
+}
+
+export async function runDotagentsSync(
+  scope: DotagentsScope = "all",
+): Promise<void> {
+  return invoke<void>("run_dotagents_sync", { scope });
 }
 
 export async function getRuntimeControls(): Promise<RuntimeControls> {
@@ -90,6 +98,74 @@ export async function getSubagentDetails(
 
 export async function listSubagents(scope?: string): Promise<SubagentRecord[]> {
   return invoke<SubagentRecord[]>("list_subagents", { scope });
+}
+
+export async function listDotagentsSkills(
+  scope: DotagentsScope = "all",
+): Promise<SkillRecord[]> {
+  return invoke<SkillRecord[]>("list_dotagents_skills", { scope });
+}
+
+export async function listDotagentsMcp(
+  scope: DotagentsScope = "all",
+): Promise<McpServerRecord[]> {
+  return invoke<McpServerRecord[]>("list_dotagents_mcp", { scope });
+}
+
+export async function dotagentsSkillsInstall(
+  scope: DotagentsScope = "all",
+): Promise<void> {
+  return invoke<void>("dotagents_skills_install", { scope });
+}
+
+export async function dotagentsSkillsAdd(
+  packageName: string,
+  scope: DotagentsScope = "all",
+): Promise<void> {
+  return invoke<void>("dotagents_skills_add", {
+    package: packageName,
+    scope,
+  });
+}
+
+export async function dotagentsSkillsRemove(
+  packageName: string,
+  scope: DotagentsScope = "all",
+): Promise<void> {
+  return invoke<void>("dotagents_skills_remove", {
+    package: packageName,
+    scope,
+  });
+}
+
+export async function dotagentsSkillsUpdate(
+  packageName?: string,
+  scope: DotagentsScope = "all",
+): Promise<void> {
+  return invoke<void>("dotagents_skills_update", {
+    package: packageName,
+    scope,
+  });
+}
+
+export async function dotagentsMcpAdd(
+  args: string[],
+  scope: DotagentsScope = "all",
+): Promise<void> {
+  return invoke<void>("dotagents_mcp_add", { args, scope });
+}
+
+export async function dotagentsMcpRemove(
+  args: string[],
+  scope: DotagentsScope = "all",
+): Promise<void> {
+  return invoke<void>("dotagents_mcp_remove", { args, scope });
+}
+
+export async function migrateDotagents(
+  scope: DotagentsScope = "all",
+): Promise<void> {
+  return invoke<void>("migrate_dotagents", { scope });
 }
 
 export async function getMcpServers(): Promise<McpServerRecord[]> {

@@ -16,6 +16,10 @@ vi.mock("./tauriApi", () => ({
   listAuditEvents: vi.fn(),
   getState: vi.fn(),
   runSync: vi.fn(),
+  runDotagentsSync: vi.fn(),
+  listDotagentsSkills: vi.fn(),
+  listDotagentsMcp: vi.fn(),
+  migrateDotagents: vi.fn(),
   getSkillDetails: vi.fn(),
   getSubagentDetails: vi.fn(),
   listSubagents: vi.fn(),
@@ -189,6 +193,10 @@ function setApiDefaults(
     target_statuses: [],
   });
   vi.mocked(tauriApi.runSync).mockResolvedValue(state);
+  vi.mocked(tauriApi.runDotagentsSync).mockResolvedValue(undefined);
+  vi.mocked(tauriApi.listDotagentsSkills).mockResolvedValue(state.skills);
+  vi.mocked(tauriApi.listDotagentsMcp).mockResolvedValue(state.mcp_servers);
+  vi.mocked(tauriApi.migrateDotagents).mockResolvedValue(undefined);
   vi.mocked(tauriApi.mutateSkill).mockResolvedValue(state);
   vi.mocked(tauriApi.renameSkill).mockResolvedValue(state);
   vi.mocked(tauriApi.openSkillPath).mockResolvedValue(undefined);
@@ -704,25 +712,21 @@ describe("App quiet redesign", () => {
 
     const enableSection = screen
       .getByText("Enable by agent")
-      .closest("section") as HTMLElement;
-    const codexIcon = within(enableSection).getByRole("img", {
+      .closest("section");
+    expect(enableSection).not.toBeNull();
+    const section = enableSection ?? document.body;
+    const codexIcon = within(section).getByRole("img", {
       name: "codex agent",
     });
-    const claudeIcon = within(enableSection).getByRole("img", {
+    const claudeIcon = within(section).getByRole("img", {
       name: "claude agent",
     });
-    const projectIcon = within(enableSection).getByRole("img", {
+    const projectIcon = within(section).getByRole("img", {
       name: "project agent",
     });
-    expect(
-      codexIcon,
-    ).toBeInTheDocument();
-    expect(
-      claudeIcon,
-    ).toBeInTheDocument();
-    expect(
-      projectIcon,
-    ).toBeInTheDocument();
+    expect(codexIcon).toBeInTheDocument();
+    expect(claudeIcon).toBeInTheDocument();
+    expect(projectIcon).toBeInTheDocument();
     expect(codexIcon).toHaveClass("text-emerald-500");
     expect(claudeIcon).toHaveClass("text-emerald-500");
     expect(projectIcon).toHaveClass("text-muted-foreground/70", "opacity-60");
@@ -958,6 +962,105 @@ describe("App quiet redesign", () => {
     await waitFor(() => {
       expect(tauriApi.runSync).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("verifies dotagents via UI and shows counts", async () => {
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace: "/tmp/workspace-a",
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: true,
+          },
+          targets: ["/tmp/workspace-a/.mcp.json"],
+          warnings: [],
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(
+      screen.getByRole("switch", { name: "Allow filesystem changes" }),
+    );
+    await waitFor(() => {
+      expect(tauriApi.setAllowFilesystemChanges).toHaveBeenCalledWith(true);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Verify dotagents" }));
+
+    await waitFor(() => {
+      expect(tauriApi.runDotagentsSync).toHaveBeenCalledWith("all");
+      expect(tauriApi.listDotagentsSkills).toHaveBeenCalledWith("all");
+      expect(tauriApi.listDotagentsMcp).toHaveBeenCalledWith("all");
+    });
+    const proof = await screen.findByTestId("dotagents-proof");
+    expect(proof).toHaveAttribute("data-status", "ok");
+    expect(proof).toHaveTextContent("Dotagents");
+    expect(proof).toHaveTextContent("skills=1, mcp=1");
+  });
+
+  it("lets user initialize dotagents from UI after migration-required error", async () => {
+    const state = buildState([projectSkill], []);
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+    vi.mocked(tauriApi.runDotagentsSync)
+      .mockRejectedValueOnce(
+        new Error(
+          "migration required before strict dotagents sync: user scope is not initialized",
+        ),
+      )
+      .mockResolvedValueOnce(undefined);
+    vi.mocked(tauriApi.listDotagentsSkills).mockResolvedValue([
+      {
+        ...projectSkill,
+      },
+    ]);
+    vi.mocked(tauriApi.listDotagentsMcp).mockResolvedValue([]);
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(
+      screen.getByRole("switch", { name: "Allow filesystem changes" }),
+    );
+    await waitFor(() => {
+      expect(tauriApi.setAllowFilesystemChanges).toHaveBeenCalledWith(true);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Verify dotagents" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Initialize dotagents" }),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Initialize dotagents" }),
+    );
+
+    await waitFor(() => {
+      expect(tauriApi.migrateDotagents).toHaveBeenCalledWith("all");
+    });
+    const proof = await screen.findByTestId("dotagents-proof");
+    expect(proof).toHaveAttribute("data-status", "ok");
+    expect(proof).toHaveTextContent("skills=1, mcp=0");
   });
 
   it("opens audit log panel and renders events", async () => {

@@ -1,14 +1,12 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-use skillssync_core::{
-    watch::SyncWatchStream, McpAgent, ScopeFilter, SkillLifecycleStatus, SkillLocator, SyncEngine,
-    SyncTrigger,
-};
+use skillssync_core::{DotagentsScope, SyncEngine};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(name = "skillssync")]
-#[command(about = "SkillsSync multiplaform CLI")]
+#[command(about = "SkillsSync strict dotagents CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -17,80 +15,81 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     Sync {
-        #[arg(long, default_value = "manual")]
-        trigger: String,
-        #[arg(long)]
-        json: bool,
-    },
-    List {
         #[arg(long, default_value = "all")]
         scope: String,
         #[arg(long)]
         json: bool,
     },
-    ListSubagents {
+    Watch {
         #[arg(long, default_value = "all")]
         scope: String,
-        #[arg(long)]
-        json: bool,
+        #[arg(long, default_value_t = 2)]
+        interval_seconds: u64,
     },
-    Delete {
-        #[arg(long = "skill-key")]
-        skill_key: String,
-        #[arg(long)]
-        confirm: bool,
+    Skills {
+        #[command(subcommand)]
+        command: SkillsCommands,
     },
-    Archive {
-        #[arg(long = "skill-key")]
-        skill_key: String,
-        #[arg(long)]
-        confirm: bool,
-    },
-    Restore {
-        #[arg(long = "skill-key")]
-        skill_key: String,
-        #[arg(long)]
-        confirm: bool,
-    },
-    MakeGlobal {
-        #[arg(long = "skill-key")]
-        skill_key: String,
-        #[arg(long)]
-        confirm: bool,
-    },
-    Rename {
-        #[arg(long = "skill-key")]
-        skill_key: String,
-        #[arg(long = "title")]
-        title: String,
-    },
-    Watch,
     Mcp {
         #[command(subcommand)]
         command: McpCommands,
+    },
+    MigrateDotagents {
+        #[arg(long, default_value = "all")]
+        scope: String,
     },
     Doctor,
 }
 
 #[derive(Subcommand, Debug)]
-enum McpCommands {
+enum SkillsCommands {
+    Install {
+        #[arg(long, default_value = "all")]
+        scope: String,
+    },
     List {
+        #[arg(long, default_value = "all")]
+        scope: String,
         #[arg(long)]
         json: bool,
     },
-    SetEnabled {
-        #[arg(long = "server")]
-        server: String,
-        #[arg(long = "agent")]
-        agent: String,
-        #[arg(long = "enabled")]
-        enabled: bool,
-        #[arg(long = "scope")]
-        scope: Option<String>,
-        #[arg(long = "workspace")]
-        workspace: Option<String>,
+    Add {
+        package: String,
+        #[arg(long, default_value = "all")]
+        scope: String,
     },
-    Sync,
+    Remove {
+        package: String,
+        #[arg(long, default_value = "all")]
+        scope: String,
+    },
+    Update {
+        package: Option<String>,
+        #[arg(long, default_value = "all")]
+        scope: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum McpCommands {
+    List {
+        #[arg(long, default_value = "all")]
+        scope: String,
+        #[arg(long)]
+        json: bool,
+    },
+    Add {
+        #[arg(required = true)]
+        args: Vec<String>,
+        #[arg(long, default_value = "all")]
+        scope: String,
+    },
+    Remove {
+        #[arg(required = true)]
+        args: Vec<String>,
+        #[arg(long, default_value = "all")]
+        scope: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -98,176 +97,145 @@ fn main() -> Result<()> {
     let engine = SyncEngine::current();
 
     match cli.command {
-        Commands::Sync { trigger, json } => {
-            let trigger = SyncTrigger::try_from(trigger.as_str()).map_err(anyhow::Error::msg)?;
-            let state = engine.run_sync(trigger)?;
+        Commands::Sync { scope, json } => {
+            let scope = parse_scope(&scope)?;
+            engine.run_dotagents_sync(scope)?;
+            engine.run_dotagents_install_frozen(scope)?;
+            let skills = engine.list_dotagents_skills(scope)?;
+            let mcp = engine.list_dotagents_mcp(scope)?;
+
             if json {
-                println!("{}", serde_json::to_string_pretty(&state)?);
-            } else {
-                let skill_conflicts = state.summary.conflict_count;
-                let subagent_conflicts = state.subagent_summary.conflict_count;
                 println!(
-                    "sync={} skills(global={},project={}) subagents(global={},project={}) conflicts={}",
-                    format!("{:?}", state.sync.status).to_lowercase(),
-                    state.summary.global_count,
-                    state.summary.project_count,
-                    state.subagent_summary.global_count,
-                    state.subagent_summary.project_count,
-                    skill_conflicts + subagent_conflicts
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "scope": format!("{scope:?}").to_lowercase(),
+                        "skills": skills,
+                        "mcp_servers": mcp,
+                    }))?
+                );
+            } else {
+                println!(
+                    "strict-sync ok scope={} skills={} mcp={}",
+                    format!("{scope:?}").to_lowercase(),
+                    skills.len(),
+                    mcp.len()
                 );
             }
         }
-        Commands::List { scope, json } => {
-            let scope_filter = scope
-                .parse::<ScopeFilter>()
-                .map_err(|_| anyhow!("unsupported scope: {scope} (all|global|project|archived)"))?;
-            let skills = engine.list_skills(scope_filter);
-            if json {
-                println!("{}", serde_json::to_string_pretty(&skills)?);
-            } else {
-                for skill in skills {
-                    println!(
-                        "{}\t{}\t{}\t{}",
-                        skill.skill_key,
-                        skill.scope,
-                        if skill.status == SkillLifecycleStatus::Archived {
-                            "archived"
-                        } else {
-                            "active"
-                        },
-                        skill.canonical_source_path
-                    );
-                }
-            }
-        }
-        Commands::ListSubagents { scope, json } => {
-            let scope_filter = scope
-                .parse::<ScopeFilter>()
-                .map_err(|_| anyhow!("unsupported scope: {scope} (all|global|project)"))?;
-            let subagents = engine.list_subagents(scope_filter);
-            if json {
-                println!("{}", serde_json::to_string_pretty(&subagents)?);
-            } else {
-                for subagent in subagents {
-                    println!(
-                        "{}\t{}\t{}",
-                        subagent.subagent_key, subagent.scope, subagent.canonical_source_path
-                    );
-                }
-            }
-        }
-        Commands::Delete { skill_key, confirm } => {
-            let skill = resolve_skill(&engine, &skill_key, None)?;
-            let state = engine.delete(&skill, confirm)?;
-            println!("deleted {}; sync={:?}", skill.skill_key, state.sync.status);
-        }
-        Commands::Archive { skill_key, confirm } => {
-            let skill = resolve_skill(&engine, &skill_key, Some(SkillLifecycleStatus::Active))?;
-            let state = engine.archive(&skill, confirm)?;
-            println!("archived {}; sync={:?}", skill.skill_key, state.sync.status);
-        }
-        Commands::Restore { skill_key, confirm } => {
-            let skill = resolve_skill(&engine, &skill_key, Some(SkillLifecycleStatus::Archived))?;
-            let state = engine.restore(&skill, confirm)?;
-            println!("restored {}; sync={:?}", skill.skill_key, state.sync.status);
-        }
-        Commands::MakeGlobal { skill_key, confirm } => {
-            let skill = resolve_skill(&engine, &skill_key, Some(SkillLifecycleStatus::Active))?;
-            let state = engine.make_global(&skill, confirm)?;
+        Commands::Watch {
+            scope,
+            interval_seconds,
+        } => {
+            let scope = parse_scope(&scope)?;
+            let interval = Duration::from_secs(interval_seconds.max(1));
             println!(
-                "made-global {}; sync={:?}",
-                skill.skill_key, state.sync.status
+                "watching strict dotagents sync, scope={}, interval={}s",
+                format!("{scope:?}").to_lowercase(),
+                interval.as_secs()
             );
-        }
-        Commands::Rename { skill_key, title } => {
-            let skill = resolve_skill(&engine, &skill_key, Some(SkillLifecycleStatus::Active))?;
-            let state = engine.rename(&skill, &title)?;
-            println!("renamed {}; sync={:?}", skill.skill_key, state.sync.status);
-        }
-        Commands::Watch => {
-            let roots = engine.watch_paths();
-            let _ = engine.run_sync(SyncTrigger::Manual);
-            println!("watching {} roots", roots.len());
-            let watcher =
-                SyncWatchStream::new(&roots).context("failed to initialize filesystem watcher")?;
             loop {
-                match watcher.recv_timeout(Duration::from_secs(2)) {
-                    Some(Ok(_event)) => match engine.run_sync(SyncTrigger::AutoFilesystem) {
-                        Ok(state) => {
-                            let skill_conflicts = state.summary.conflict_count;
-                            let subagent_conflicts = state.subagent_summary.conflict_count;
-                            println!(
-                                "sync ok: global={} project={} conflicts={}",
-                                state.summary.global_count,
-                                state.summary.project_count,
-                                skill_conflicts + subagent_conflicts
-                            );
-                        }
-                        Err(error) => {
-                            eprintln!("sync failed: {error}");
-                        }
-                    },
-                    Some(Err(error)) => {
-                        eprintln!("watch error: {error}");
+                match run_sync_iteration(&engine, scope) {
+                    Ok((skills, mcp)) => {
+                        println!(
+                            "strict-sync ok scope={} skills={} mcp={}",
+                            format!("{scope:?}").to_lowercase(),
+                            skills,
+                            mcp
+                        );
                     }
-                    None => {}
+                    Err(error) => {
+                        eprintln!("strict-sync failed: {error}");
+                    }
                 }
+                std::thread::sleep(interval);
             }
         }
-        Commands::Mcp { command } => match command {
-            McpCommands::List { json } => {
-                let servers = engine.list_mcp_servers();
+        Commands::Skills { command } => match command {
+            SkillsCommands::Install { scope } => {
+                let scope = parse_scope(&scope)?;
+                engine.run_dotagents_install_frozen(scope)?;
+                println!("skills install completed for scope={}", scope_label(scope));
+            }
+            SkillsCommands::List { scope, json } => {
+                let scope = parse_scope(&scope)?;
+                let skills = engine.list_dotagents_skills(scope)?;
                 if json {
-                    println!("{}", serde_json::to_string_pretty(&servers)?);
+                    println!("{}", serde_json::to_string_pretty(&skills)?);
                 } else {
-                    for server in servers {
-                        let transport = format!("{:?}", server.transport).to_lowercase();
+                    for skill in skills {
                         println!(
-                            "{}\t{}\t{}\t{}\tcodex={}\tclaude={}\tproject={}",
-                            server.server_key,
-                            server.scope,
-                            server.workspace.unwrap_or_else(|| String::from("-")),
-                            transport,
-                            server.enabled_by_agent.codex,
-                            server.enabled_by_agent.claude,
-                            server.enabled_by_agent.project
+                            "{}\t{}\t{}\t{}",
+                            skill.skill_key,
+                            skill.scope,
+                            skill
+                                .install_status
+                                .unwrap_or_else(|| String::from("unknown")),
+                            skill.canonical_source_path
                         );
                     }
                 }
             }
-            McpCommands::SetEnabled {
-                server,
-                agent,
-                enabled,
-                scope,
-                workspace,
-            } => {
-                let agent = agent.parse::<McpAgent>().map_err(anyhow::Error::msg)?;
-                let state = engine.set_mcp_server_enabled(
-                    &server,
-                    agent,
-                    enabled,
-                    scope.as_deref(),
-                    workspace.as_deref(),
-                )?;
-                println!(
-                    "mcp {} {}={}; sync={:?}",
-                    server,
-                    agent.as_str(),
-                    enabled,
-                    state.sync.status
-                );
+            SkillsCommands::Add { package, scope } => {
+                let scope = parse_scope(&scope)?;
+                engine.run_dotagents_command(scope, &["add", package.as_str()])?;
+                println!("skills add completed for scope={}", scope_label(scope));
             }
-            McpCommands::Sync => {
-                let state = engine.run_sync(SyncTrigger::Manual)?;
-                println!(
-                    "mcp-sync={} servers={} warnings={}",
-                    format!("{:?}", state.sync.status).to_lowercase(),
-                    state.summary.mcp_count,
-                    state.summary.mcp_warning_count
-                );
+            SkillsCommands::Remove { package, scope } => {
+                let scope = parse_scope(&scope)?;
+                engine.run_dotagents_command(scope, &["remove", package.as_str()])?;
+                println!("skills remove completed for scope={}", scope_label(scope));
+            }
+            SkillsCommands::Update { package, scope } => {
+                let scope = parse_scope(&scope)?;
+                let mut args = vec![String::from("update")];
+                if let Some(pkg) = package {
+                    args.push(pkg);
+                }
+                let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+                engine.run_dotagents_command(scope, &refs)?;
+                println!("skills update completed for scope={}", scope_label(scope));
             }
         },
+        Commands::Mcp { command } => match command {
+            McpCommands::List { scope, json } => {
+                let scope = parse_scope(&scope)?;
+                let servers = engine.list_dotagents_mcp(scope)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&servers)?);
+                } else {
+                    for server in servers {
+                        println!(
+                            "{}\t{}\t{}\t{}",
+                            server.server_key,
+                            server.scope,
+                            server.workspace.unwrap_or_else(|| String::from("-")),
+                            format!("{:?}", server.transport).to_lowercase()
+                        );
+                    }
+                }
+            }
+            McpCommands::Add { args, scope } => {
+                let scope = parse_scope(&scope)?;
+                let mut command = vec![String::from("mcp"), String::from("add")];
+                command.extend(args);
+                let refs = command.iter().map(String::as_str).collect::<Vec<_>>();
+                engine.run_dotagents_command(scope, &refs)?;
+                println!("mcp add completed for scope={}", scope_label(scope));
+            }
+            McpCommands::Remove { args, scope } => {
+                let scope = parse_scope(&scope)?;
+                let mut command = vec![String::from("mcp"), String::from("remove")];
+                command.extend(args);
+                let refs = command.iter().map(String::as_str).collect::<Vec<_>>();
+                engine.run_dotagents_command(scope, &refs)?;
+                println!("mcp remove completed for scope={}", scope_label(scope));
+            }
+        },
+        Commands::MigrateDotagents { scope } => {
+            let scope = parse_scope(&scope)?;
+            engine.migrate_to_dotagents(scope)?;
+            println!("migration completed for scope={}", scope_label(scope));
+        }
         Commands::Doctor => {
             let env = engine.environment();
             println!("home={}", env.home_directory.display());
@@ -275,25 +243,104 @@ fn main() -> Result<()> {
             println!("worktrees_root={}", env.worktrees_root.display());
             println!("runtime={}", env.runtime_directory.display());
 
-            let state = engine.load_state();
-            println!("state_version={}", state.version);
-            println!("skills={}", state.skills.len());
-            println!("subagents={}", state.subagents.len());
+            let user_contract = resolve_user_agents_contract_path(&env.home_directory);
+            println!(
+                "user_agents_toml={}",
+                user_contract
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| String::from("missing"))
+            );
         }
     }
 
     Ok(())
 }
 
-fn resolve_skill(
-    engine: &SyncEngine,
-    skill_key: &str,
-    status: Option<SkillLifecycleStatus>,
-) -> Result<skillssync_core::SkillRecord> {
-    engine
-        .find_skill(&SkillLocator {
-            skill_key: skill_key.to_owned(),
-            status,
-        })
-        .ok_or_else(|| anyhow!("skill not found: {skill_key}"))
+fn parse_scope(value: &str) -> Result<DotagentsScope> {
+    value
+        .parse::<DotagentsScope>()
+        .map_err(|_| anyhow!("unsupported scope: {value} (all|user|project)"))
+}
+
+fn scope_label(scope: DotagentsScope) -> &'static str {
+    match scope {
+        DotagentsScope::All => "all",
+        DotagentsScope::User => "user",
+        DotagentsScope::Project => "project",
+    }
+}
+
+fn run_sync_iteration(engine: &SyncEngine, scope: DotagentsScope) -> Result<(usize, usize)> {
+    engine.run_dotagents_sync(scope)?;
+    engine.run_dotagents_install_frozen(scope)?;
+    let skills = engine.list_dotagents_skills(scope)?;
+    let mcp = engine.list_dotagents_mcp(scope)?;
+    Ok((skills.len(), mcp.len()))
+}
+
+fn resolve_user_agents_contract_path(home_directory: &Path) -> Option<PathBuf> {
+    let primary = home_directory.join(".agents").join("agents.toml");
+    if primary.exists() {
+        return Some(primary);
+    }
+
+    let legacy = home_directory
+        .join(".config")
+        .join("ai-agents")
+        .join("agents.toml");
+    if legacy.exists() {
+        return Some(legacy);
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_user_agents_contract_path;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn make_temp_home(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "skillssync-cli-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("create temp home");
+        root
+    }
+
+    #[test]
+    fn resolve_user_agents_contract_prefers_primary_path() {
+        let home = make_temp_home("primary");
+        let primary = home.join(".agents").join("agents.toml");
+        let legacy = home.join(".config").join("ai-agents").join("agents.toml");
+        fs::create_dir_all(primary.parent().expect("parent")).expect("create primary dir");
+        fs::create_dir_all(legacy.parent().expect("parent")).expect("create legacy dir");
+        fs::write(&primary, "[skills]\n").expect("write primary");
+        fs::write(&legacy, "[skills]\n").expect("write legacy");
+
+        let resolved = resolve_user_agents_contract_path(&home).expect("resolve path");
+        assert_eq!(resolved, primary);
+
+        fs::remove_dir_all(home).expect("cleanup");
+    }
+
+    #[test]
+    fn resolve_user_agents_contract_falls_back_to_legacy_path() {
+        let home = make_temp_home("legacy");
+        let legacy = home.join(".config").join("ai-agents").join("agents.toml");
+        fs::create_dir_all(legacy.parent().expect("parent")).expect("create legacy dir");
+        fs::write(&legacy, "[skills]\n").expect("write legacy");
+
+        let resolved = resolve_user_agents_contract_path(&home).expect("resolve path");
+        assert_eq!(resolved, legacy);
+
+        fs::remove_dir_all(home).expect("cleanup");
+    }
 }

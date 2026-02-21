@@ -4,6 +4,8 @@ Keep one canonical catalog for `skills`, `subagents`, and managed `MCP servers`,
 
 If an item exists in one ecosystem but is missing in another, SkillsSync reconciles it by rebuilding managed links and updating managed registry entries.
 
+`skills` and `mcp` now run in strict `dotagents` mode (`sync` + `install --frozen` + declaration-based management). `subagents` stay on the existing SkillsSync pipeline in this phase.
+
 ## Screenshot
 
 ![SkillsSync screenshot](docs/images/skillssync-screenshot-2b33fbe00faf.png)
@@ -72,28 +74,40 @@ cd skills-sync
 
 ## Headless Linux (CLI)
 
-### One-shot sync
+### One-shot strict sync
 
 ```bash
 cd platform
-cargo run -p skillssync-cli -- sync --trigger manual --json
+cargo run -p skillssync-cli -- sync --scope all --json
 ```
 
-### List subagents
+### Migrate contracts first (required in strict mode)
 
 ```bash
 cd platform
-cargo run -p skillssync-cli -- list-subagents --scope all --json
+cargo run -p skillssync-cli -- migrate-dotagents --scope all
+```
+
+Detailed procedure: [`docs/dotagents-migration.md`](docs/dotagents-migration.md).
+
+### Skills management
+
+```bash
+cd platform
+cargo run -p skillssync-cli -- skills install --scope all
+cargo run -p skillssync-cli -- skills list --scope project --json
+cargo run -p skillssync-cli -- skills add owner/repo --scope project
+cargo run -p skillssync-cli -- skills remove owner/repo --scope project
+cargo run -p skillssync-cli -- skills update --scope all
 ```
 
 ### MCP management
 
 ```bash
 cd platform
-cargo run -p skillssync-cli -- mcp list --json
-cargo run -p skillssync-cli -- mcp set-enabled --server exa --agent codex --enabled false
-cargo run -p skillssync-cli -- mcp set-enabled --server exa --agent project --enabled false --scope project --workspace /Users/example/Dev/workspace-a
-cargo run -p skillssync-cli -- mcp sync
+cargo run -p skillssync-cli -- mcp list --scope all --json
+cargo run -p skillssync-cli -- mcp add exa --scope project
+cargo run -p skillssync-cli -- mcp remove exa --scope project
 ```
 
 ### Optional environment diagnostics
@@ -123,7 +137,7 @@ After=network.target
 [Service]
 Type=oneshot
 User=%i
-ExecStart=/usr/local/bin/skillssync sync --trigger manual --json
+ExecStart=/usr/local/bin/skillssync sync --scope all --json
 ```
 
 Create `/etc/systemd/system/skillssync-sync.timer`:
@@ -152,13 +166,14 @@ systemctl list-timers | rg skillssync
 If you need event-driven continuous mode instead of interval mode, use:
 
 ```bash
-skillssync watch
+skillssync watch --scope all --interval-seconds 15
 ```
 
 ## Prerequisites
 
 - Rust and Cargo
 - Node.js and npm
+- `dotagents` CLI (`@sentry/dotagents@0.10.0`) available on `PATH`
 - Tauri system dependencies installed for your OS
 
 ## Run Tests

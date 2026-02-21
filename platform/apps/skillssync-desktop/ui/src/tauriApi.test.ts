@@ -11,9 +11,19 @@ import {
   getPlatformContext,
   getMcpServers,
   mutateSkill,
+  migrateDotagents,
+  dotagentsMcpAdd,
+  dotagentsMcpRemove,
+  dotagentsSkillsAdd,
+  dotagentsSkillsInstall,
+  dotagentsSkillsRemove,
+  dotagentsSkillsUpdate,
+  listDotagentsMcp,
+  listDotagentsSkills,
   openSkillPath,
   openSubagentPath,
   renameSkill,
+  runDotagentsSync,
   runSync,
   setAllowFilesystemChanges,
   setSkillStarred,
@@ -82,6 +92,13 @@ describe("tauriApi command payloads", () => {
     expect(invoke).toHaveBeenCalledWith("run_sync", { trigger: "manual" });
   });
 
+  it("runs dotagents sync with explicit scope", async () => {
+    await runDotagentsSync("project");
+    expect(invoke).toHaveBeenCalledWith("run_dotagents_sync", {
+      scope: "project",
+    });
+  });
+
   it("loads runtime controls without args", async () => {
     await getRuntimeControls();
     expect(invoke).toHaveBeenCalledWith("get_runtime_controls");
@@ -121,6 +138,66 @@ describe("tauriApi command payloads", () => {
   it("loads mcp servers without args", async () => {
     await getMcpServers();
     expect(invoke).toHaveBeenCalledWith("get_mcp_servers");
+  });
+
+  it("lists dotagents skills", async () => {
+    await listDotagentsSkills("all");
+    expect(invoke).toHaveBeenCalledWith("list_dotagents_skills", {
+      scope: "all",
+    });
+  });
+
+  it("lists dotagents mcp", async () => {
+    await listDotagentsMcp("user");
+    expect(invoke).toHaveBeenCalledWith("list_dotagents_mcp", {
+      scope: "user",
+    });
+  });
+
+  it("runs dotagents skills install", async () => {
+    await dotagentsSkillsInstall("project");
+    expect(invoke).toHaveBeenCalledWith("dotagents_skills_install", {
+      scope: "project",
+    });
+  });
+
+  it("runs dotagents skills add", async () => {
+    await dotagentsSkillsAdd("owner/repo", "all");
+    expect(invoke).toHaveBeenCalledWith("dotagents_skills_add", {
+      package: "owner/repo",
+      scope: "all",
+    });
+  });
+
+  it("runs dotagents skills remove", async () => {
+    await dotagentsSkillsRemove("owner/repo", "all");
+    expect(invoke).toHaveBeenCalledWith("dotagents_skills_remove", {
+      package: "owner/repo",
+      scope: "all",
+    });
+  });
+
+  it("runs dotagents skills update with package", async () => {
+    await dotagentsSkillsUpdate("owner/repo", "all");
+    expect(invoke).toHaveBeenCalledWith("dotagents_skills_update", {
+      package: "owner/repo",
+      scope: "all",
+    });
+  });
+
+  it("runs dotagents mcp add/remove and migration", async () => {
+    await dotagentsMcpAdd(["exa"], "project");
+    await dotagentsMcpRemove(["exa"], "project");
+    await migrateDotagents("all");
+    expect(invoke).toHaveBeenCalledWith("dotagents_mcp_add", {
+      args: ["exa"],
+      scope: "project",
+    });
+    expect(invoke).toHaveBeenCalledWith("dotagents_mcp_remove", {
+      args: ["exa"],
+      scope: "project",
+    });
+    expect(invoke).toHaveBeenCalledWith("migrate_dotagents", { scope: "all" });
   });
 
   it("loads starred skill ids without args", async () => {

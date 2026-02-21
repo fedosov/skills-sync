@@ -7,6 +7,8 @@ import { Input } from "./components/ui/input";
 import { getVisibleMcpAgents } from "./lib/mcpAgents";
 import { cn } from "./lib/utils";
 import {
+  listDotagentsMcp,
+  listDotagentsSkills,
   getRuntimeControls,
   getSkillDetails,
   getState,
@@ -17,6 +19,8 @@ import {
   openSubagentPath,
   openSkillPath,
   renameSkill,
+  migrateDotagents,
+  runDotagentsSync,
   runSync,
   setAllowFilesystemChanges,
   setMcpServerEnabled,
@@ -44,7 +48,10 @@ type FocusKind = "skills" | "subagents" | "mcp";
 type DeleteDialogState = { skillKey: string; confirmText: string } | null;
 type OpenTargetMenu = "skill" | "subagent" | null;
 type AuditStatusFilter = AuditEventStatus | "all";
+type DotagentsProofStatus = "idle" | "running" | "ok" | "error";
 const CATALOG_FOCUS_STORAGE_KEY = "skillssync.catalog.focusKind.v1";
+const DOTAGENTS_MIGRATION_REQUIRED =
+  "migration required before strict dotagents sync";
 
 function toTitleCase(value: string): string {
   if (!value) {
@@ -157,6 +164,12 @@ export function App() {
   const [openTargetMenu, setOpenTargetMenu] = useState<OpenTargetMenu>(null);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>(null);
+  const [dotagentsProofStatus, setDotagentsProofStatus] =
+    useState<DotagentsProofStatus>("idle");
+  const [dotagentsProofSummary, setDotagentsProofSummary] = useState(
+    "Dotagents check not run yet.",
+  );
+  const [dotagentsNeedsMigration, setDotagentsNeedsMigration] = useState(false);
 
   const applyState = useCallback(
     (next: SyncState, preferredKey?: string | null) => {
@@ -565,6 +578,85 @@ export function App() {
     await refreshState(selectedSkillKey, true);
   }
 
+  async function verifyDotagents(withBusy: boolean) {
+    if (withBusy) {
+      setBusy(true);
+    }
+
+    setError(null);
+    setDotagentsNeedsMigration(false);
+    setDotagentsProofStatus("running");
+    setDotagentsProofSummary("Verifying dotagents commands...");
+
+    try {
+      await runDotagentsSync("all");
+      const [skills, mcp] = await Promise.all([
+        listDotagentsSkills("all"),
+        listDotagentsMcp("all"),
+      ]);
+      setDotagentsProofStatus("ok");
+      setDotagentsProofSummary(
+        `Dotagents verified: skills=${skills.length}, mcp=${mcp.length}.`,
+      );
+      await refreshState(selectedSkillKey, false, false);
+    } catch (invokeError) {
+      const message = String(invokeError);
+      const migrationRequired = message
+        .toLowerCase()
+        .includes(DOTAGENTS_MIGRATION_REQUIRED);
+      setDotagentsNeedsMigration(migrationRequired);
+      setDotagentsProofStatus("error");
+      setDotagentsProofSummary(
+        migrationRequired
+          ? "Dotagents contracts are missing. Run Initialize dotagents."
+          : `Dotagents check failed: ${message}`,
+      );
+      setError(message);
+    } finally {
+      if (withBusy) {
+        setBusy(false);
+      }
+    }
+  }
+
+  async function handleVerifyDotagents() {
+    if (!runtimeControls?.allow_filesystem_changes) {
+      setError(
+        "Filesystem changes are disabled. Enable 'Allow filesystem changes' first.",
+      );
+      return;
+    }
+
+    await verifyDotagents(true);
+  }
+
+  async function handleInitializeDotagents() {
+    if (!runtimeControls?.allow_filesystem_changes) {
+      setError(
+        "Filesystem changes are disabled. Enable 'Allow filesystem changes' first.",
+      );
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    setDotagentsProofStatus("running");
+    setDotagentsProofSummary("Initializing dotagents contracts...");
+
+    try {
+      await migrateDotagents("all");
+      setDotagentsNeedsMigration(false);
+      await verifyDotagents(false);
+    } catch (invokeError) {
+      const message = String(invokeError);
+      setDotagentsProofStatus("error");
+      setDotagentsProofSummary(`Dotagents initialization failed: ${message}`);
+      setError(message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleOpenAuditLog() {
     setAuditOpen(true);
     await loadAudit();
@@ -610,6 +702,16 @@ export function App() {
   const showSkill = focusKind === "skills" && details;
   const showSubagent = focusKind === "subagents" && subagentDetails;
   const showMcp = focusKind === "mcp" && selectedMcpServer;
+  const dotagentsIndicatorClass = cn(
+    "inline-block h-2 w-2 rounded-full",
+    dotagentsProofStatus === "ok"
+      ? "bg-emerald-400"
+      : dotagentsProofStatus === "running"
+        ? "bg-amber-400"
+        : dotagentsProofStatus === "error"
+          ? "bg-red-400"
+          : "bg-muted-foreground/40",
+  );
 
   return (
     <div className="min-h-full bg-background text-foreground lg:h-screen lg:overflow-hidden">
@@ -640,6 +742,15 @@ export function App() {
                 onClick={() => void handleSync()}
               >
                 Sync
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy || !runtimeControls?.allow_filesystem_changes}
+                aria-label="Verify dotagents"
+                onClick={() => void handleVerifyDotagents()}
+              >
+                Verify dotagents
               </Button>
               <Button
                 size="sm"
@@ -693,6 +804,31 @@ export function App() {
             <p className="mt-2 text-xs text-muted-foreground">
               Read-only mode: filesystem changes are blocked.
             </p>
+          ) : null}
+          <p
+            className="mt-1 text-xs text-muted-foreground"
+            data-testid="dotagents-proof"
+            aria-live="polite"
+            data-status={dotagentsProofStatus}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <span aria-hidden="true" className={dotagentsIndicatorClass} />
+              <span className="font-medium">Dotagents</span>
+              <span>{dotagentsProofSummary}</span>
+            </span>
+          </p>
+          {dotagentsNeedsMigration ? (
+            <div className="mt-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy || !runtimeControls?.allow_filesystem_changes}
+                aria-label="Initialize dotagents"
+                onClick={() => void handleInitializeDotagents()}
+              >
+                Initialize dotagents
+              </Button>
+            </div>
           ) : null}
           <div className="mt-2.5">
             <Input
@@ -897,7 +1033,8 @@ export function App() {
                                   <span className="shrink-0 font-medium uppercase tracking-wide">
                                     {server.transport.toUpperCase()}
                                   </span>
-                                  {server.scope === "project" && server.workspace ? (
+                                  {server.scope === "project" &&
+                                  server.workspace ? (
                                     <span
                                       className="min-w-0 truncate text-[10px]"
                                       title={server.workspace}
@@ -1114,6 +1251,18 @@ export function App() {
                       </dd>
                     </div>
                     <div>
+                      <dt className="text-muted-foreground">Install status</dt>
+                      <dd className="mt-0.5">
+                        {details.skill.install_status ?? "n/a"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Source</dt>
+                      <dd className="mt-0.5 break-all font-mono">
+                        {details.skill.source ?? "-"}
+                      </dd>
+                    </div>
+                    <div>
                       <dt className="text-muted-foreground">Main file</dt>
                       <dd className="mt-0.5 flex items-center gap-2 font-mono">
                         <span title={details.main_file_path}>
@@ -1301,7 +1450,10 @@ export function App() {
                                       : "text-muted-foreground/70 opacity-60",
                                   )}
                                 >
-                                  <AgentLogoIcon agent={agent} className="h-3.5 w-3.5" />
+                                  <AgentLogoIcon
+                                    agent={agent}
+                                    className="h-3.5 w-3.5"
+                                  />
                                 </span>
                                 <span>{agent}</span>
                               </span>

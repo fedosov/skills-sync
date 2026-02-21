@@ -1,10 +1,15 @@
 use serde_json::Value as JsonValue;
 use skillssync_core::{
-    AuditEventStatus, McpAgent, ScopeFilter, SkillLifecycleStatus, SkillLocator, SyncEngine,
-    SyncEngineEnvironment, SyncPaths, SyncPreferencesStore, SyncStateStore, SyncTrigger,
+    AuditEventStatus, DotagentsScope, McpAgent, ScopeFilter, SkillLifecycleStatus, SkillLocator,
+    SyncEngine, SyncEngineEnvironment, SyncPaths, SyncPreferencesStore, SyncStateStore,
+    SyncTrigger,
 };
+use std::ffi::OsString;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use tempfile::TempDir;
 
 fn write_skill(root: &Path, key: &str, body: &str) {
@@ -50,6 +55,32 @@ fn write_text(path: &Path, body: &str) {
         fs::create_dir_all(parent).expect("create parent");
     }
     fs::write(path, body).expect("write file");
+}
+
+fn dotagents_env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+struct EnvVarRestore {
+    key: &'static str,
+    previous: Option<OsString>,
+}
+
+impl Drop for EnvVarRestore {
+    fn drop(&mut self) {
+        if let Some(value) = self.previous.take() {
+            std::env::set_var(self.key, value);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
+}
+
+fn set_env_var_with_restore(key: &'static str, value: &Path) -> EnvVarRestore {
+    let previous = std::env::var_os(key);
+    std::env::set_var(key, value);
+    EnvVarRestore { key, previous }
 }
 
 fn find_skill(
@@ -200,7 +231,8 @@ fn run_sync_records_success_audit_when_recovering_from_failed_sync() {
         .join(".agents")
         .join("skills");
     let conflicting_agents_skill = agents_skills.join("alpha");
-    let metadata = fs::symlink_metadata(&conflicting_agents_skill).expect("managed target metadata");
+    let metadata =
+        fs::symlink_metadata(&conflicting_agents_skill).expect("managed target metadata");
     if metadata.file_type().is_symlink() {
         fs::remove_file(&conflicting_agents_skill).expect("remove managed symlink");
     } else {
@@ -1634,4 +1666,138 @@ fn watch_paths_include_claude_json() {
     assert!(watch_paths
         .iter()
         .any(|path| path == &engine.environment().home_directory.join(".claude.json")));
+}
+
+#[test]
+fn strict_dotagents_user_scope_requires_initialized_contract() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+
+    let error = engine
+        .run_dotagents_sync(DotagentsScope::User)
+        .expect_err("strict user scope should fail without agents.toml");
+
+    assert!(error.to_string().contains("user scope is not initialized"));
+}
+
+#[test]
+fn strict_dotagents_project_scope_requires_agents_toml() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+
+    write_skill(&workspace.join(".claude").join("skills"), "alpha", "# A");
+
+    let error = engine
+        .list_dotagents_skills(DotagentsScope::Project)
+        .expect_err("strict project scope should fail without agents.toml");
+    let message = error.to_string();
+
+    assert!(message.contains("project scope is not initialized"));
+    assert!(message.contains(&workspace.display().to_string()));
+}
+
+#[test]
+fn strict_dotagents_project_scope_requires_agents_toml_for_mcp_workspace() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-mcp-only");
+
+    write_text(
+        &workspace.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://mcp.exa.ai/mcp"}}}"#,
+    );
+
+    let error = engine
+        .list_dotagents_mcp(DotagentsScope::Project)
+        .expect_err("strict project scope should fail without agents.toml");
+    let message = error.to_string();
+
+    assert!(message.contains("project scope is not initialized"));
+    assert!(message.contains(&workspace.display().to_string()));
+}
+
+#[test]
+fn strict_dotagents_project_scope_allows_empty_workspace_set() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+
+    let skills = engine
+        .list_dotagents_skills(DotagentsScope::Project)
+        .expect("project scope without discovered workspaces should be empty");
+    assert!(skills.is_empty());
+
+    let mcp = engine
+        .list_dotagents_mcp(DotagentsScope::Project)
+        .expect("project mcp scope without discovered workspaces should be empty");
+    assert!(mcp.is_empty());
+}
+
+#[test]
+fn strict_dotagents_project_scope_write_commands_fail_without_workspace_context() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+
+    let error = engine
+        .run_dotagents_sync(DotagentsScope::Project)
+        .expect_err("project write command should fail when no workspace is discovered");
+    assert!(error
+        .to_string()
+        .contains("no project workspaces discovered"));
+}
+
+#[test]
+#[cfg(unix)]
+fn strict_dotagents_mcp_unknown_command_does_not_fallback_to_skills() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let user_contract = engine
+        .environment()
+        .home_directory
+        .join(".agents")
+        .join("agents.toml");
+    write_text(&user_contract, "[skills]\n");
+
+    let script_path = temp.path().join("dotagents");
+    write_text(
+        &script_path,
+        r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "dotagents 0.10.0"
+  exit 0
+fi
+if [ "$1" = "--user" ]; then
+  shift
+fi
+if [ "$1" = "mcp" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
+  echo "unknown command: mcp" >&2
+  exit 2
+fi
+if [ "$1" = "list" ] && [ "$2" = "--json" ]; then
+  echo '[{"name":"skill-entry"}]'
+  exit 0
+fi
+echo "unexpected args: $*" >&2
+exit 9
+"#,
+    );
+    let mut perms = fs::metadata(&script_path).expect("metadata").permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&script_path, perms).expect("chmod");
+
+    let _lock = dotagents_env_lock().lock().expect("lock env");
+    let _env_guard = set_env_var_with_restore("SKILLS_SYNC_DOTAGENTS_BIN", &script_path);
+
+    let error = engine
+        .list_dotagents_mcp(DotagentsScope::User)
+        .expect_err("unknown mcp command should fail instead of falling back to skills list");
+    assert!(error.to_string().contains("unknown command"));
 }

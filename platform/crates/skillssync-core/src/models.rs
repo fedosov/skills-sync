@@ -206,6 +206,14 @@ pub struct SkillRecord {
     pub skill_key: String,
     #[serde(rename = "symlink_target")]
     pub symlink_target: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub commit: Option<String>,
+    #[serde(default, rename = "install_status")]
+    pub install_status: Option<String>,
+    #[serde(default, rename = "wildcard_source")]
+    pub wildcard_source: Option<String>,
     #[serde(default = "default_skill_status")]
     pub status: SkillLifecycleStatus,
     #[serde(rename = "archived_at")]

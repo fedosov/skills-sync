@@ -3,68 +3,68 @@
   "commands": [
     {
       "name": "sync",
-      "args": ["--trigger", "--json"],
-      "example": "skillssync sync --trigger manual --json"
-    },
-    {
-      "name": "list",
       "args": ["--scope", "--json"],
-      "example": "skillssync list --scope project"
-    },
-    {
-      "name": "list-subagents",
-      "args": ["--scope", "--json"],
-      "example": "skillssync list-subagents --scope project --json"
-    },
-    {
-      "name": "delete",
-      "args": ["--skill-key", "--confirm"],
-      "example": "skillssync delete --skill-key alpha --confirm"
-    },
-    {
-      "name": "archive",
-      "args": ["--skill-key", "--confirm"],
-      "example": "skillssync archive --skill-key alpha --confirm"
-    },
-    {
-      "name": "restore",
-      "args": ["--skill-key", "--confirm"],
-      "example": "skillssync restore --skill-key alpha --confirm"
-    },
-    {
-      "name": "make-global",
-      "args": ["--skill-key", "--confirm"],
-      "example": "skillssync make-global --skill-key alpha --confirm"
-    },
-    {
-      "name": "rename",
-      "args": ["--skill-key", "--title"],
-      "example": "skillssync rename --skill-key alpha --title \"New Title\""
+      "example": "skillssync sync --scope all --json"
     },
     {
       "name": "watch",
-      "args": [],
-      "example": "skillssync watch"
+      "args": ["--scope", "--interval-seconds"],
+      "example": "skillssync watch --scope all --interval-seconds 5"
+    },
+    {
+      "name": "skills install",
+      "args": ["--scope"],
+      "example": "skillssync skills install --scope all"
+    },
+    {
+      "name": "skills list",
+      "args": ["--scope", "--json"],
+      "example": "skillssync skills list --scope project --json"
+    },
+    {
+      "name": "skills add",
+      "args": ["<package>", "--scope"],
+      "example": "skillssync skills add owner/repo --scope project"
+    },
+    {
+      "name": "skills remove",
+      "args": ["<package>", "--scope"],
+      "example": "skillssync skills remove owner/repo --scope project"
+    },
+    {
+      "name": "skills update",
+      "args": ["[package]", "--scope"],
+      "example": "skillssync skills update owner/repo --scope all"
     },
     {
       "name": "mcp list",
-      "args": ["--json"],
-      "example": "skillssync mcp list --json"
+      "args": ["--scope", "--json"],
+      "example": "skillssync mcp list --scope all --json"
     },
     {
-      "name": "mcp set-enabled",
-      "args": ["--server", "--agent", "--enabled", "--scope?", "--workspace?"],
-      "example": "skillssync mcp set-enabled --server exa --agent codex --enabled false --scope project --workspace /Users/example/Dev/workspace-a"
+      "name": "mcp add",
+      "args": ["<args...>", "--scope"],
+      "example": "skillssync mcp add exa --scope project"
     },
     {
-      "name": "mcp sync",
-      "args": [],
-      "example": "skillssync mcp sync"
+      "name": "mcp remove",
+      "args": ["<args...>", "--scope"],
+      "example": "skillssync mcp remove exa --scope project"
+    },
+    {
+      "name": "migrate-dotagents",
+      "args": ["--scope"],
+      "example": "skillssync migrate-dotagents --scope all"
     },
     {
       "name": "doctor",
       "args": [],
       "example": "skillssync doctor"
+    },
+    {
+      "name": "legacy commands",
+      "args": [],
+      "example": "delete/archive/restore/make-global/rename and mcp set-enabled are removed in strict mode"
     }
   ]
 }

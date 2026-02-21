@@ -37,3 +37,24 @@ fn before_build_command_targets_ui_package() {
         "beforeBuildCommand must support cwd fallbacks for ui package, got: {command}"
     );
 }
+
+#[test]
+fn bundle_resources_do_not_include_dotagents_placeholders() {
+    let config = read_tauri_config();
+    let resources = config["bundle"]["resources"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+
+    let includes_dotagents = resources.iter().any(|value| {
+        value
+            .as_str()
+            .map(|item| item.contains("dotagents"))
+            .unwrap_or(false)
+    });
+
+    assert!(
+        !includes_dotagents,
+        "dotagents placeholder resources must not be bundled"
+    );
+}

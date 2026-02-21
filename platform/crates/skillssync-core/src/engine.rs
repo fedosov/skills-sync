@@ -1,6 +1,8 @@
 use crate::audit_store::{SyncAuditStore, DEFAULT_AUDIT_LOG_LIMIT};
 use crate::codex_registry::CodexSkillsRegistryWriter;
 use crate::codex_subagent_registry::{CodexSubagentConfigEntry, CodexSubagentRegistryWriter};
+use crate::dotagents_adapter::DotagentsAdapter;
+use crate::dotagents_runtime::DotagentsRuntimeManager;
 use crate::error::SyncEngineError;
 use crate::mcp_registry::{McpAgent, McpRegistry, McpSyncOutcome};
 use crate::models::{
@@ -54,6 +56,36 @@ pub enum ScopeFilter {
     Global,
     Project,
     Archived,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DotagentsScope {
+    All,
+    User,
+    Project,
+}
+
+impl DotagentsScope {
+    fn includes_user(self) -> bool {
+        matches!(self, Self::All | Self::User)
+    }
+
+    fn includes_project(self) -> bool {
+        matches!(self, Self::All | Self::Project)
+    }
+}
+
+impl FromStr for DotagentsScope {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "all" => Ok(Self::All),
+            "user" => Ok(Self::User),
+            "project" => Ok(Self::Project),
+            _ => Err(()),
+        }
+    }
 }
 
 impl ScopeFilter {
@@ -111,6 +143,14 @@ struct SubagentPackage {
     canonical_path: PathBuf,
     package_type: String,
     package_hash: String,
+}
+
+#[derive(Debug, Clone)]
+struct DotagentsInvocationContext {
+    cwd: PathBuf,
+    scope_label: String,
+    workspace: Option<String>,
+    user_scope: bool,
 }
 
 #[derive(Debug)]
@@ -290,6 +330,204 @@ impl SyncEngine {
         let mut items = self.store.load_state().mcp_servers;
         items.sort_by(|lhs, rhs| lhs.server_key.cmp(&rhs.server_key));
         items
+    }
+
+    pub fn run_dotagents_sync(&self, scope: DotagentsScope) -> Result<(), SyncEngineError> {
+        self.run_dotagents_command(scope, &["sync"])
+    }
+
+    pub fn run_dotagents_install_frozen(
+        &self,
+        scope: DotagentsScope,
+    ) -> Result<(), SyncEngineError> {
+        self.run_dotagents_command(scope, &["install", "--frozen"])
+    }
+
+    pub fn run_dotagents_command(
+        &self,
+        scope: DotagentsScope,
+        args: &[&str],
+    ) -> Result<(), SyncEngineError> {
+        let adapter = self.dotagents_adapter();
+        let contexts = self.dotagents_invocation_contexts(scope)?;
+        if contexts.is_empty() && matches!(scope, DotagentsScope::Project) {
+            return Err(SyncEngineError::StrictContractMissing(String::from(
+                "no project workspaces discovered for strict dotagents command",
+            )));
+        }
+
+        for context in contexts {
+            adapter.run(args, &context.cwd, context.user_scope)?;
+        }
+        Ok(())
+    }
+
+    pub fn list_dotagents_skills(
+        &self,
+        scope: DotagentsScope,
+    ) -> Result<Vec<SkillRecord>, SyncEngineError> {
+        let adapter = self.dotagents_adapter();
+        let mut records = Vec::new();
+        let mut seen = HashSet::new();
+
+        for context in self.dotagents_invocation_contexts(scope)? {
+            let payload =
+                adapter.run_json(&["list", "--json"], &context.cwd, context.user_scope)?;
+            let Some(entries) = payload.as_array() else {
+                return Err(SyncEngineError::StrictContractMissing(format!(
+                    "dotagents list --json returned non-array payload for scope {}",
+                    context.scope_label
+                )));
+            };
+
+            for entry in entries {
+                let Some(skill_key) = json_string_field(entry, &["skill_key", "key", "id", "name"])
+                else {
+                    continue;
+                };
+                if skill_key.trim().is_empty() {
+                    continue;
+                }
+
+                let id = skill_entry_id(
+                    &context.scope_label,
+                    context.workspace.as_deref(),
+                    &skill_key,
+                );
+                if !seen.insert(id.clone()) {
+                    continue;
+                }
+
+                let canonical_source_path =
+                    json_string_field(entry, &["canonical_source_path", "source", "path"])
+                        .unwrap_or_else(|| dotagents_fallback_skill_path(&context, &skill_key));
+                let mut target_paths =
+                    json_string_array_field(entry, &["target_paths", "targets", "links"]);
+                if target_paths.is_empty() {
+                    target_paths.push(canonical_source_path.clone());
+                }
+
+                records.push(SkillRecord {
+                    id,
+                    name: json_string_field(entry, &["name", "title"])
+                        .unwrap_or_else(|| skill_key.clone()),
+                    scope: context.scope_label.clone(),
+                    workspace: context.workspace.clone(),
+                    canonical_source_path: canonical_source_path.clone(),
+                    target_paths,
+                    exists: json_bool_field(entry, &["exists"]).unwrap_or(true),
+                    is_symlink_canonical: json_bool_field(entry, &["is_symlink_canonical"])
+                        .unwrap_or(false),
+                    package_type: json_string_field(entry, &["package_type"])
+                        .unwrap_or_else(|| String::from("dir")),
+                    skill_key: skill_key.clone(),
+                    symlink_target: canonical_source_path,
+                    source: json_string_field(entry, &["source"]),
+                    commit: json_string_field(entry, &["commit"]),
+                    install_status: json_string_field(entry, &["install_status", "status"]),
+                    wildcard_source: json_string_field(entry, &["wildcard_source"]),
+                    status: SkillLifecycleStatus::Active,
+                    archived_at: None,
+                    archived_bundle_path: None,
+                    archived_original_scope: None,
+                    archived_original_workspace: None,
+                });
+            }
+        }
+
+        records.sort_by(sort_entries);
+        Ok(records)
+    }
+
+    pub fn list_dotagents_mcp(
+        &self,
+        scope: DotagentsScope,
+    ) -> Result<Vec<McpServerRecord>, SyncEngineError> {
+        let adapter = self.dotagents_adapter();
+        let mut records = Vec::new();
+        let mut seen = HashSet::new();
+
+        for context in self.dotagents_invocation_contexts(scope)? {
+            let payload =
+                adapter.run_json(&["mcp", "list", "--json"], &context.cwd, context.user_scope)?;
+            let Some(entries) = payload.as_array() else {
+                return Err(SyncEngineError::StrictContractMissing(format!(
+                    "dotagents MCP listing returned non-array payload for scope {}",
+                    context.scope_label
+                )));
+            };
+
+            for entry in entries {
+                let Some(server_key) = json_string_field(entry, &["server_key", "key", "name"])
+                else {
+                    continue;
+                };
+                if server_key.trim().is_empty() {
+                    continue;
+                }
+
+                let dedupe_key = format!(
+                    "{}::{}::{server_key}",
+                    context.scope_label,
+                    context.workspace.clone().unwrap_or_default()
+                );
+                if !seen.insert(dedupe_key) {
+                    continue;
+                }
+
+                let transport = match json_string_field(entry, &["transport"])
+                    .as_deref()
+                    .map(str::trim)
+                {
+                    Some("http") => crate::models::McpTransport::Http,
+                    _ => crate::models::McpTransport::Stdio,
+                };
+
+                records.push(McpServerRecord {
+                    server_key,
+                    scope: context.scope_label.clone(),
+                    workspace: context.workspace.clone(),
+                    transport,
+                    command: json_string_field(entry, &["command"]),
+                    args: json_string_array_field(entry, &["args"]),
+                    url: json_string_field(entry, &["url"]),
+                    env: json_object_string_map_field(entry, &["env"]),
+                    enabled_by_agent: crate::models::McpEnabledByAgent::default(),
+                    targets: json_string_array_field(entry, &["targets"]),
+                    warnings: json_string_array_field(entry, &["warnings"]),
+                });
+            }
+        }
+
+        records.sort_by(|lhs, rhs| {
+            lhs.server_key
+                .cmp(&rhs.server_key)
+                .then_with(|| lhs.scope.cmp(&rhs.scope))
+                .then_with(|| lhs.workspace.cmp(&rhs.workspace))
+        });
+        Ok(records)
+    }
+
+    pub fn migrate_to_dotagents(&self, scope: DotagentsScope) -> Result<(), SyncEngineError> {
+        let adapter = self.dotagents_adapter();
+
+        if scope.includes_user() {
+            adapter.run(&["init"], &self.environment.home_directory, true)?;
+        }
+
+        if scope.includes_project() {
+            for workspace in self.workspace_candidates() {
+                if workspace.join("agents.toml").exists() {
+                    continue;
+                }
+                if !self.has_workspace_legacy_roots(&workspace) {
+                    continue;
+                }
+                adapter.run(&["init"], &workspace, false)?;
+            }
+        }
+
+        Ok(())
     }
 
     pub fn set_mcp_server_enabled(
@@ -931,6 +1169,10 @@ impl SyncEngine {
             package_type: package.package_type.clone(),
             skill_key: skill_key.to_string(),
             symlink_target: package.canonical_path.display().to_string(),
+            source: None,
+            commit: None,
+            install_status: None,
+            wildcard_source: None,
             status: SkillLifecycleStatus::Active,
             archived_at: None,
             archived_bundle_path: None,
@@ -1633,6 +1875,99 @@ impl SyncEngine {
         Ok(canonical_by_key)
     }
 
+    fn dotagents_adapter(&self) -> DotagentsAdapter {
+        DotagentsAdapter::new(DotagentsRuntimeManager::new(
+            self.environment.home_directory.clone(),
+        ))
+    }
+
+    fn dotagents_invocation_contexts(
+        &self,
+        scope: DotagentsScope,
+    ) -> Result<Vec<DotagentsInvocationContext>, SyncEngineError> {
+        let mut contexts = Vec::new();
+
+        if scope.includes_user() {
+            let user_contract = self
+                .user_agents_contract_path()
+                .ok_or_else(|| {
+                    SyncEngineError::MigrationRequired(String::from(
+                        "user scope is not initialized: missing agents.toml; run `skillssync migrate-dotagents --scope user` or `dotagents --user init`",
+                    ))
+                })?;
+            let home_cwd = user_contract
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| self.environment.home_directory.clone());
+            contexts.push(DotagentsInvocationContext {
+                cwd: home_cwd,
+                scope_label: String::from("global"),
+                workspace: None,
+                user_scope: true,
+            });
+        }
+
+        if scope.includes_project() {
+            let mut missing = Vec::new();
+            for workspace in self.workspace_candidates() {
+                let contract = workspace.join("agents.toml");
+                if contract.exists() {
+                    contexts.push(DotagentsInvocationContext {
+                        cwd: workspace.clone(),
+                        scope_label: String::from("project"),
+                        workspace: Some(workspace.display().to_string()),
+                        user_scope: false,
+                    });
+                } else if self.has_workspace_legacy_roots(&workspace) {
+                    missing.push(workspace.display().to_string());
+                }
+            }
+
+            if !missing.is_empty() {
+                missing.sort();
+                return Err(SyncEngineError::MigrationRequired(format!(
+                    "project scope is not initialized for {} workspace(s): {}; run `skillssync migrate-dotagents --scope project`",
+                    missing.len(),
+                    missing.join(", ")
+                )));
+            }
+        }
+
+        if contexts.is_empty() {
+            if matches!(scope, DotagentsScope::Project) {
+                return Ok(contexts);
+            }
+            return Err(SyncEngineError::StrictContractMissing(String::from(
+                "no initialized dotagents scopes found",
+            )));
+        }
+
+        Ok(contexts)
+    }
+
+    fn user_agents_contract_path(&self) -> Option<PathBuf> {
+        let primary = self
+            .environment
+            .home_directory
+            .join(".agents")
+            .join("agents.toml");
+        if primary.exists() {
+            return Some(primary);
+        }
+
+        let legacy = self
+            .environment
+            .home_directory
+            .join(".config")
+            .join("ai-agents")
+            .join("agents.toml");
+        if legacy.exists() {
+            return Some(legacy);
+        }
+
+        None
+    }
+
     fn workspace_candidates(&self) -> Vec<PathBuf> {
         let mut candidates: Vec<PathBuf> = Vec::new();
 
@@ -1673,6 +2008,10 @@ impl SyncEngine {
     }
 
     fn has_workspace_sync_roots(&self, repo: &Path) -> bool {
+        repo.join("agents.toml").exists() || self.has_workspace_legacy_roots(repo)
+    }
+
+    fn has_workspace_legacy_roots(&self, repo: &Path) -> bool {
         repo.join(".claude").join("skills").exists()
             || repo.join(".agents").join("skills").exists()
             || repo.join(".codex").join("skills").exists()
@@ -2083,6 +2422,10 @@ impl SyncEngine {
                 package_type: String::from("dir"),
                 skill_key: manifest.skill_key.clone(),
                 symlink_target: source.display().to_string(),
+                source: None,
+                commit: None,
+                install_status: None,
+                wildcard_source: None,
                 status: SkillLifecycleStatus::Archived,
                 archived_at: Some(manifest.archived_at.clone()),
                 archived_bundle_path: Some(bundle.display().to_string()),
@@ -2613,9 +2956,106 @@ fn hex_encode(bytes: &[u8]) -> String {
     out
 }
 
+fn json_string_field(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    let object = value.as_object()?;
+    for key in keys {
+        let Some(raw) = object.get(*key) else {
+            continue;
+        };
+        if let Some(text) = raw.as_str() {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+            continue;
+        }
+        if let Some(number) = raw.as_i64() {
+            return Some(number.to_string());
+        }
+    }
+    None
+}
+
+fn json_bool_field(value: &serde_json::Value, keys: &[&str]) -> Option<bool> {
+    let object = value.as_object()?;
+    for key in keys {
+        if let Some(next) = object.get(*key).and_then(|entry| entry.as_bool()) {
+            return Some(next);
+        }
+    }
+    None
+}
+
+fn json_string_array_field(value: &serde_json::Value, keys: &[&str]) -> Vec<String> {
+    let Some(object) = value.as_object() else {
+        return Vec::new();
+    };
+
+    for key in keys {
+        let Some(raw) = object.get(*key) else {
+            continue;
+        };
+        let Some(items) = raw.as_array() else {
+            continue;
+        };
+        let parsed = items
+            .iter()
+            .filter_map(|item| item.as_str().map(str::trim).map(str::to_string))
+            .filter(|item| !item.is_empty())
+            .collect::<Vec<_>>();
+        return parsed;
+    }
+
+    Vec::new()
+}
+
+fn json_object_string_map_field(
+    value: &serde_json::Value,
+    keys: &[&str],
+) -> BTreeMap<String, String> {
+    let Some(object) = value.as_object() else {
+        return BTreeMap::new();
+    };
+
+    for key in keys {
+        let Some(raw) = object.get(*key) else {
+            continue;
+        };
+        let Some(map) = raw.as_object() else {
+            continue;
+        };
+
+        return map
+            .iter()
+            .filter_map(|(env_key, env_value)| {
+                env_value
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| (env_key.clone(), value.to_string()))
+            })
+            .collect();
+    }
+
+    BTreeMap::new()
+}
+
+fn dotagents_fallback_skill_path(context: &DotagentsInvocationContext, skill_key: &str) -> String {
+    let root = if context.user_scope {
+        context.cwd.clone()
+    } else {
+        context.cwd.join(".agents")
+    };
+    root.join("skills").join(skill_key).display().to_string()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{normalized_skill_key, updated_skill_contents};
+    use super::{
+        dotagents_fallback_skill_path, normalized_skill_key, updated_skill_contents,
+        DotagentsInvocationContext,
+    };
+    use std::path::PathBuf;
 
     #[test]
     fn normalized_skill_key_removes_noise() {
@@ -2631,5 +3071,31 @@ mod tests {
         let raw = "---\ntitle: Old\n---\n\nBody";
         let updated = updated_skill_contents(raw, "New");
         assert!(updated.contains("title: New"));
+    }
+
+    #[test]
+    fn dotagents_fallback_path_uses_scope_root_for_user_scope() {
+        let context = DotagentsInvocationContext {
+            cwd: PathBuf::from("/tmp/home/.agents"),
+            scope_label: String::from("global"),
+            workspace: None,
+            user_scope: true,
+        };
+
+        let path = dotagents_fallback_skill_path(&context, "alpha");
+        assert_eq!(path, "/tmp/home/.agents/skills/alpha");
+    }
+
+    #[test]
+    fn dotagents_fallback_path_uses_project_agents_dir_for_project_scope() {
+        let context = DotagentsInvocationContext {
+            cwd: PathBuf::from("/tmp/home/Dev/workspace-a"),
+            scope_label: String::from("project"),
+            workspace: Some(String::from("/tmp/home/Dev/workspace-a")),
+            user_scope: false,
+        };
+
+        let path = dotagents_fallback_skill_path(&context, "alpha");
+        assert_eq!(path, "/tmp/home/Dev/workspace-a/.agents/skills/alpha");
     }
 }

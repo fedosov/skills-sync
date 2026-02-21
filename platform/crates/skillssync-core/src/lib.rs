@@ -1,6 +1,8 @@
 pub mod audit_store;
 pub mod codex_registry;
 pub mod codex_subagent_registry;
+pub mod dotagents_adapter;
+pub mod dotagents_runtime;
 pub mod engine;
 pub mod error;
 pub mod mcp_registry;
@@ -11,7 +13,7 @@ pub mod state_store;
 pub mod watch;
 
 pub use audit_store::{SyncAuditStore, DEFAULT_AUDIT_LOG_LIMIT};
-pub use engine::{ScopeFilter, SkillLocator, SyncEngine, SyncEngineEnvironment};
+pub use engine::{DotagentsScope, ScopeFilter, SkillLocator, SyncEngine, SyncEngineEnvironment};
 pub use error::SyncEngineError;
 pub use mcp_registry::McpAgent;
 pub use models::{

@@ -17,7 +17,13 @@ export type SkillRecord = {
   status: SkillLifecycleStatus;
   package_type: string;
   skill_key: string;
+  source?: string | null;
+  commit?: string | null;
+  install_status?: "ok" | "modified" | "missing" | "unlocked" | null;
+  wildcard_source?: string | null;
 };
+
+export type DotagentsScope = "all" | "user" | "project";
 
 export type SubagentRecord = {
   id: string;

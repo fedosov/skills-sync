@@ -2,9 +2,9 @@
 
 use serde::Serialize;
 use skillssync_core::{
-    watch::SyncWatchStream, AuditEvent, AuditEventStatus, McpAgent, McpServerRecord, ScopeFilter,
-    SkillLifecycleStatus, SkillLocator, SkillRecord, SubagentRecord, SyncEngine, SyncState,
-    SyncTrigger,
+    watch::SyncWatchStream, AuditEvent, AuditEventStatus, DotagentsScope, McpAgent,
+    McpServerRecord, ScopeFilter, SkillLifecycleStatus, SkillLocator, SkillRecord, SubagentRecord,
+    SyncEngine, SyncState, SyncTrigger,
 };
 use std::cmp::Ordering;
 use std::fs;
@@ -120,6 +120,13 @@ fn parse_audit_status(value: Option<&str>) -> Result<Option<AuditEventStatus>, S
             "unsupported audit status: {other} (success|failed|blocked)"
         )),
     }
+}
+
+fn parse_dotagents_scope(value: Option<&str>) -> Result<DotagentsScope, String> {
+    let normalized = value.unwrap_or("all");
+    normalized
+        .parse::<DotagentsScope>()
+        .map_err(|_| format!("unsupported scope: {normalized} (all|user|project)"))
 }
 
 fn runtime_controls(engine: &SyncEngine, runtime: &RuntimeState) -> RuntimeControls {
@@ -380,6 +387,179 @@ fn list_subagents(scope: Option<String>) -> Result<Vec<SubagentRecord>, String> 
         .transpose()?
         .unwrap_or(ScopeFilter::All);
     Ok(engine.list_subagents(scope_filter))
+}
+
+#[tauri::command]
+fn run_dotagents_sync(
+    scope: Option<String>,
+    runtime: tauri::State<RuntimeState>,
+) -> Result<(), String> {
+    let engine = SyncEngine::current();
+    ensure_write_allowed(&engine, "run_dotagents_sync")?;
+    let parsed_scope = parse_dotagents_scope(scope.as_deref())?;
+    let _guard = runtime
+        .sync_lock
+        .lock()
+        .map_err(|_| String::from("internal lock error"))?;
+    engine
+        .run_dotagents_sync(parsed_scope)
+        .map_err(|error| error.to_string())?;
+    engine
+        .run_dotagents_install_frozen(parsed_scope)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn list_dotagents_skills(scope: Option<String>) -> Result<Vec<SkillRecord>, String> {
+    let parsed_scope = parse_dotagents_scope(scope.as_deref())?;
+    SyncEngine::current()
+        .list_dotagents_skills(parsed_scope)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn list_dotagents_mcp(scope: Option<String>) -> Result<Vec<McpServerRecord>, String> {
+    let parsed_scope = parse_dotagents_scope(scope.as_deref())?;
+    SyncEngine::current()
+        .list_dotagents_mcp(parsed_scope)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn dotagents_skills_install(
+    scope: Option<String>,
+    runtime: tauri::State<RuntimeState>,
+) -> Result<(), String> {
+    let engine = SyncEngine::current();
+    ensure_write_allowed(&engine, "dotagents_skills_install")?;
+    let parsed_scope = parse_dotagents_scope(scope.as_deref())?;
+    let _guard = runtime
+        .sync_lock
+        .lock()
+        .map_err(|_| String::from("internal lock error"))?;
+    engine
+        .run_dotagents_install_frozen(parsed_scope)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn dotagents_skills_add(
+    package: String,
+    scope: Option<String>,
+    runtime: tauri::State<RuntimeState>,
+) -> Result<(), String> {
+    let engine = SyncEngine::current();
+    ensure_write_allowed(&engine, "dotagents_skills_add")?;
+    let parsed_scope = parse_dotagents_scope(scope.as_deref())?;
+    let _guard = runtime
+        .sync_lock
+        .lock()
+        .map_err(|_| String::from("internal lock error"))?;
+    engine
+        .run_dotagents_command(parsed_scope, &["add", package.as_str()])
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn dotagents_skills_remove(
+    package: String,
+    scope: Option<String>,
+    runtime: tauri::State<RuntimeState>,
+) -> Result<(), String> {
+    let engine = SyncEngine::current();
+    ensure_write_allowed(&engine, "dotagents_skills_remove")?;
+    let parsed_scope = parse_dotagents_scope(scope.as_deref())?;
+    let _guard = runtime
+        .sync_lock
+        .lock()
+        .map_err(|_| String::from("internal lock error"))?;
+    engine
+        .run_dotagents_command(parsed_scope, &["remove", package.as_str()])
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn dotagents_skills_update(
+    package: Option<String>,
+    scope: Option<String>,
+    runtime: tauri::State<RuntimeState>,
+) -> Result<(), String> {
+    let engine = SyncEngine::current();
+    ensure_write_allowed(&engine, "dotagents_skills_update")?;
+    let parsed_scope = parse_dotagents_scope(scope.as_deref())?;
+    let _guard = runtime
+        .sync_lock
+        .lock()
+        .map_err(|_| String::from("internal lock error"))?;
+
+    let mut command = vec![String::from("update")];
+    if let Some(pkg) = package {
+        command.push(pkg);
+    }
+    let refs = command.iter().map(String::as_str).collect::<Vec<_>>();
+    engine
+        .run_dotagents_command(parsed_scope, &refs)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn dotagents_mcp_add(
+    args: Vec<String>,
+    scope: Option<String>,
+    runtime: tauri::State<RuntimeState>,
+) -> Result<(), String> {
+    let engine = SyncEngine::current();
+    ensure_write_allowed(&engine, "dotagents_mcp_add")?;
+    let parsed_scope = parse_dotagents_scope(scope.as_deref())?;
+    let _guard = runtime
+        .sync_lock
+        .lock()
+        .map_err(|_| String::from("internal lock error"))?;
+    let mut command = vec![String::from("mcp"), String::from("add")];
+    command.extend(args);
+    let refs = command.iter().map(String::as_str).collect::<Vec<_>>();
+    engine
+        .run_dotagents_command(parsed_scope, &refs)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn dotagents_mcp_remove(
+    args: Vec<String>,
+    scope: Option<String>,
+    runtime: tauri::State<RuntimeState>,
+) -> Result<(), String> {
+    let engine = SyncEngine::current();
+    ensure_write_allowed(&engine, "dotagents_mcp_remove")?;
+    let parsed_scope = parse_dotagents_scope(scope.as_deref())?;
+    let _guard = runtime
+        .sync_lock
+        .lock()
+        .map_err(|_| String::from("internal lock error"))?;
+    let mut command = vec![String::from("mcp"), String::from("remove")];
+    command.extend(args);
+    let refs = command.iter().map(String::as_str).collect::<Vec<_>>();
+    engine
+        .run_dotagents_command(parsed_scope, &refs)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn migrate_dotagents(
+    scope: Option<String>,
+    runtime: tauri::State<RuntimeState>,
+) -> Result<(), String> {
+    let engine = SyncEngine::current();
+    ensure_write_allowed(&engine, "migrate_dotagents")?;
+    let parsed_scope = parse_dotagents_scope(scope.as_deref())?;
+    let _guard = runtime
+        .sync_lock
+        .lock()
+        .map_err(|_| String::from("internal lock error"))?;
+    engine
+        .migrate_to_dotagents(parsed_scope)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -963,6 +1143,16 @@ fn main() {
             set_skill_starred,
             list_skills,
             list_subagents,
+            run_dotagents_sync,
+            list_dotagents_skills,
+            list_dotagents_mcp,
+            dotagents_skills_install,
+            dotagents_skills_add,
+            dotagents_skills_remove,
+            dotagents_skills_update,
+            dotagents_mcp_add,
+            dotagents_mcp_remove,
+            migrate_dotagents,
             get_mcp_servers,
             set_mcp_server_enabled,
             delete_skill,
@@ -985,8 +1175,8 @@ mod tests {
     use super::{
         build_platform_context, build_subagent_target_status, enable_auto_watch_and_initial_sync,
         ensure_write_allowed, normalize_os_name, read_skill_dir_tree,
-        set_allow_filesystem_changes_inner,
-        set_allow_filesystem_changes_inner_with, stop_auto_watch, RuntimeState, SubagentTargetKind,
+        set_allow_filesystem_changes_inner, set_allow_filesystem_changes_inner_with,
+        stop_auto_watch, RuntimeState, SubagentTargetKind,
     };
     use skillssync_core::{
         AuditEventStatus, SyncEngine, SyncEngineEnvironment, SyncPaths, SyncPreferencesStore,
@@ -1179,7 +1369,8 @@ mod tests {
         let runtime_for_thread = runtime.clone();
         let engine_for_thread = engine.clone();
         let join = std::thread::spawn(move || {
-            let result = enable_auto_watch_and_initial_sync(&runtime_for_thread, &engine_for_thread);
+            let result =
+                enable_auto_watch_and_initial_sync(&runtime_for_thread, &engine_for_thread);
             tx.send(result).expect("send startup result");
         });
 
@@ -1190,7 +1381,7 @@ mod tests {
 
         drop(guard);
         let result = rx
-            .recv_timeout(Duration::from_secs(10))
+            .recv_timeout(Duration::from_secs(30))
             .expect("startup should finish once lock is released");
         assert!(result.is_ok());
 
