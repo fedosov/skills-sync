@@ -150,6 +150,130 @@ fn run_sync_records_success_audit_event() {
 }
 
 #[test]
+fn run_sync_skips_success_audit_when_no_managed_changes() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+
+    write_skill(
+        &engine
+            .environment()
+            .home_directory
+            .join(".claude")
+            .join("skills"),
+        "alpha",
+        "# A",
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("first sync");
+    let first_count = engine
+        .list_audit_events(Some(100), Some(AuditEventStatus::Success), Some("run_sync"))
+        .len();
+    assert!(first_count >= 1);
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("second sync");
+    let second_count = engine
+        .list_audit_events(Some(100), Some(AuditEventStatus::Success), Some("run_sync"))
+        .len();
+    assert_eq!(second_count, first_count);
+}
+
+#[test]
+fn run_sync_records_success_audit_when_recovering_from_failed_sync() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+
+    let claude_skills = engine
+        .environment()
+        .home_directory
+        .join(".claude")
+        .join("skills");
+    write_skill(&claude_skills, "alpha", "# A");
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("initial sync");
+    let first_success_count = engine
+        .list_audit_events(Some(100), Some(AuditEventStatus::Success), Some("run_sync"))
+        .len();
+
+    let agents_skills = engine
+        .environment()
+        .home_directory
+        .join(".agents")
+        .join("skills");
+    let conflicting_agents_skill = agents_skills.join("alpha");
+    let metadata = fs::symlink_metadata(&conflicting_agents_skill).expect("managed target metadata");
+    if metadata.file_type().is_symlink() {
+        fs::remove_file(&conflicting_agents_skill).expect("remove managed symlink");
+    } else {
+        fs::remove_dir_all(&conflicting_agents_skill).expect("remove managed directory");
+    }
+    write_skill(&agents_skills, "alpha", "# B");
+    let conflict = engine
+        .run_sync(SyncTrigger::Manual)
+        .expect_err("sync should fail with conflict");
+    assert!(conflict.to_string().contains("Detected 1 conflict"));
+
+    let failed_count = engine
+        .list_audit_events(Some(100), Some(AuditEventStatus::Failed), Some("run_sync"))
+        .len();
+    assert!(failed_count >= 1);
+
+    fs::remove_dir_all(&conflicting_agents_skill).expect("remove conflicting skill");
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("recovery sync");
+    let recovered_success_count = engine
+        .list_audit_events(Some(100), Some(AuditEventStatus::Success), Some("run_sync"))
+        .len();
+    assert_eq!(recovered_success_count, first_success_count + 1);
+}
+
+#[test]
+fn run_sync_records_success_audit_when_mcp_definition_changes_with_same_targets() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let claude_user = engine.environment().home_directory.join(".claude.json");
+    let central_catalog = engine
+        .environment()
+        .home_directory
+        .join(".config")
+        .join("ai-agents")
+        .join("config.toml");
+
+    write_text(
+        &claude_user,
+        r#"{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://a.exa.ai/mcp"
+    }
+  }
+}
+"#,
+    );
+
+    let first_state = engine.run_sync(SyncTrigger::Manual).expect("first sync");
+    let first_count = engine
+        .list_audit_events(Some(100), Some(AuditEventStatus::Success), Some("run_sync"))
+        .len();
+
+    let catalog_raw = fs::read_to_string(&central_catalog).expect("read central catalog");
+    let next_catalog_raw = catalog_raw.replace("https://a.exa.ai/mcp", "https://b.exa.ai/mcp");
+    assert_ne!(next_catalog_raw, catalog_raw);
+    write_text(&central_catalog, &next_catalog_raw);
+
+    let second_state = engine.run_sync(SyncTrigger::Manual).expect("second sync");
+    let second_count = engine
+        .list_audit_events(Some(100), Some(AuditEventStatus::Success), Some("run_sync"))
+        .len();
+
+    let first_exa = find_mcp(&first_state, "exa", "global", None);
+    let second_exa = find_mcp(&second_state, "exa", "global", None);
+    assert_eq!(first_exa.targets, second_exa.targets);
+    assert_ne!(first_exa.url, second_exa.url);
+    assert_eq!(second_count, first_count + 1);
+}
+
+#[test]
 fn run_sync_reports_conflict_when_hashes_differ() {
     let temp = TempDir::new().expect("tempdir");
     let engine = engine_in_temp(&temp);

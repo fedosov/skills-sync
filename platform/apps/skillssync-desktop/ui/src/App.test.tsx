@@ -665,7 +665,70 @@ describe("App quiet redesign", () => {
     });
   });
 
-  it("shows ON/OFF logo groups in MCP catalog rows", async () => {
+  it("shows agent icons next to toggles in MCP details", async () => {
+    const workspace = "/tmp/workspace-a";
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace,
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: false,
+          },
+          targets: [`${workspace}/.mcp.json`],
+          warnings: [],
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    );
+    await user.click(screen.getByRole("button", { name: /exa/i }));
+
+    const enableSection = screen
+      .getByText("Enable by agent")
+      .closest("section") as HTMLElement;
+    const codexIcon = within(enableSection).getByRole("img", {
+      name: "codex agent",
+    });
+    const claudeIcon = within(enableSection).getByRole("img", {
+      name: "claude agent",
+    });
+    const projectIcon = within(enableSection).getByRole("img", {
+      name: "project agent",
+    });
+    expect(
+      codexIcon,
+    ).toBeInTheDocument();
+    expect(
+      claudeIcon,
+    ).toBeInTheDocument();
+    expect(
+      projectIcon,
+    ).toBeInTheDocument();
+    expect(codexIcon).toHaveClass("text-emerald-500");
+    expect(claudeIcon).toHaveClass("text-emerald-500");
+    expect(projectIcon).toHaveClass("text-muted-foreground/70", "opacity-60");
+  });
+
+  it("renders MCP catalog row as two lines with transport and connected agents", async () => {
     const state = buildState(
       [projectSkill],
       [
@@ -701,17 +764,76 @@ describe("App quiet redesign", () => {
     );
 
     const row = screen.getByRole("button", { name: /exa/i });
-    expect(within(row).getAllByText("ON")).toHaveLength(2);
-    expect(within(row).getAllByText("OFF")).toHaveLength(1);
+    expect(within(row).getByText("Project")).toBeInTheDocument();
+    expect(within(row).getByText("HTTP")).toBeInTheDocument();
+    expect(within(row).getByText("/tmp/workspace-a")).toBeInTheDocument();
+    expect(within(row).queryByText("ON")).not.toBeInTheDocument();
+    expect(within(row).queryByText("OFF")).not.toBeInTheDocument();
     expect(
-      within(row).getByRole("img", { name: "codex enabled" }),
+      within(row).getByRole("img", { name: "codex connected" }),
     ).toBeInTheDocument();
     expect(
-      within(row).getByRole("img", { name: "project enabled" }),
+      within(row).getByRole("img", { name: "project connected" }),
     ).toBeInTheDocument();
     expect(
       within(row).getByRole("img", { name: "claude disabled" }),
     ).toBeInTheDocument();
+  });
+
+  it("shows workspace labels for duplicate project MCP server keys", async () => {
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace: "/tmp/workspace-a",
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: false,
+            project: true,
+          },
+          targets: ["/tmp/workspace-a/.mcp.json"],
+          warnings: [],
+        },
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace: "/tmp/workspace-b",
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: false,
+            claude: true,
+            project: true,
+          },
+          targets: ["/tmp/workspace-b/.mcp.json"],
+          warnings: [],
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    );
+
+    expect(screen.getByText("/tmp/workspace-a")).toBeInTheDocument();
+    expect(screen.getByText("/tmp/workspace-b")).toBeInTheDocument();
   });
 
   it("hides project agent logo in MCP rows for global scope", async () => {
@@ -750,14 +872,18 @@ describe("App quiet redesign", () => {
     );
 
     const row = screen.getByRole("button", { name: /ahrefs/i });
+    expect(within(row).getByText("Global")).toBeInTheDocument();
+    expect(within(row).getByText("STDIO")).toBeInTheDocument();
+    expect(within(row).queryByText("ON")).not.toBeInTheDocument();
+    expect(within(row).queryByText("OFF")).not.toBeInTheDocument();
     expect(
-      within(row).queryByRole("img", { name: /project (enabled|disabled)/i }),
+      within(row).queryByRole("img", { name: /project connected/i }),
     ).not.toBeInTheDocument();
     expect(
-      within(row).getByRole("img", { name: "codex disabled" }),
+      within(row).getByRole("img", { name: "claude connected" }),
     ).toBeInTheDocument();
     expect(
-      within(row).getByRole("img", { name: "claude enabled" }),
+      within(row).getByRole("img", { name: "codex disabled" }),
     ).toBeInTheDocument();
   });
 

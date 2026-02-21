@@ -105,9 +105,7 @@ fn ensure_write_allowed(engine: &SyncEngine, action: &str) -> Result<(), String>
     if engine.allow_filesystem_changes() {
         return Ok(());
     }
-    let summary = blocked_write_message(action);
-    let _ = engine.record_audit_blocked(action, &summary, None);
-    Err(summary)
+    Err(blocked_write_message(action))
 }
 
 fn parse_audit_status(value: Option<&str>) -> Result<Option<AuditEventStatus>, String> {
@@ -146,6 +144,29 @@ fn run_sync_with_lock(
         .lock()
         .map_err(|_| String::from("internal lock error"))?;
     engine.run_sync(trigger).map_err(|error| error.to_string())
+}
+
+fn enable_auto_watch_and_initial_sync(
+    runtime: &RuntimeState,
+    engine: &SyncEngine,
+) -> Result<(), String> {
+    if !engine.allow_filesystem_changes() {
+        return Ok(());
+    }
+
+    run_sync_with_lock(engine, runtime, SyncTrigger::Manual).map(|_| ())?;
+
+    if !engine.allow_filesystem_changes() {
+        return Ok(());
+    }
+
+    start_auto_watch(runtime, engine)?;
+
+    if !engine.allow_filesystem_changes() {
+        stop_auto_watch(runtime);
+    }
+
+    Ok(())
 }
 
 fn stop_auto_watch(runtime: &RuntimeState) {
@@ -223,6 +244,49 @@ fn start_auto_watch(runtime: &RuntimeState, engine: &SyncEngine) -> Result<(), S
     Err(String::from("failed to update watcher runtime state"))
 }
 
+fn set_allow_filesystem_changes_inner_with<F>(
+    allow: bool,
+    runtime: &RuntimeState,
+    engine: &SyncEngine,
+    enable_when_allowed: F,
+) -> Result<RuntimeControls, String>
+where
+    F: Fn(&RuntimeState, &SyncEngine) -> Result<(), String>,
+{
+    engine
+        .set_allow_filesystem_changes(allow)
+        .map_err(|error| error.to_string())?;
+
+    if allow {
+        if let Err(error) = enable_when_allowed(runtime, engine) {
+            stop_auto_watch(runtime);
+            if let Err(rollback_error) = engine.set_allow_filesystem_changes(false) {
+                return Err(format!(
+                    "{error}; failed to revert filesystem write mode: {rollback_error}"
+                ));
+            }
+            return Err(error);
+        }
+    } else {
+        stop_auto_watch(runtime);
+    }
+
+    Ok(runtime_controls(engine, runtime))
+}
+
+fn set_allow_filesystem_changes_inner(
+    allow: bool,
+    runtime: &RuntimeState,
+    engine: &SyncEngine,
+) -> Result<RuntimeControls, String> {
+    set_allow_filesystem_changes_inner_with(
+        allow,
+        runtime,
+        engine,
+        enable_auto_watch_and_initial_sync,
+    )
+}
+
 #[tauri::command]
 fn run_sync(
     trigger: Option<String>,
@@ -251,22 +315,7 @@ fn set_allow_filesystem_changes(
     runtime: tauri::State<RuntimeState>,
 ) -> Result<RuntimeControls, String> {
     let engine = SyncEngine::current();
-    engine
-        .set_allow_filesystem_changes(allow)
-        .map_err(|error| error.to_string())?;
-
-    if allow {
-        let _ = run_sync_with_lock(&engine, &runtime, SyncTrigger::Manual);
-        if let Err(error) = start_auto_watch(&runtime, &engine) {
-            let _ = engine.set_allow_filesystem_changes(false);
-            stop_auto_watch(&runtime);
-            return Err(error);
-        }
-    } else {
-        stop_auto_watch(&runtime);
-    }
-
-    Ok(runtime_controls(&engine, &runtime))
+    set_allow_filesystem_changes_inner(allow, &runtime, &engine)
 }
 
 #[tauri::command]
@@ -896,10 +945,10 @@ fn main() {
             let runtime = app.state::<RuntimeState>();
             let engine = SyncEngine::current();
             if engine.allow_filesystem_changes() {
-                let _ = run_sync_with_lock(&engine, &runtime, SyncTrigger::Manual);
-                if let Err(error) = start_auto_watch(&runtime, &engine) {
+                if let Err(error) = enable_auto_watch_and_initial_sync(&runtime, &engine) {
                     eprintln!("failed to start auto watch on startup: {error}");
                     let _ = engine.set_allow_filesystem_changes(false);
+                    stop_auto_watch(&runtime);
                 }
             }
             Ok(())
@@ -934,12 +983,41 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_platform_context, build_subagent_target_status, normalize_os_name,
-        read_skill_dir_tree, SubagentTargetKind,
+        build_platform_context, build_subagent_target_status, enable_auto_watch_and_initial_sync,
+        ensure_write_allowed, normalize_os_name, read_skill_dir_tree,
+        set_allow_filesystem_changes_inner,
+        set_allow_filesystem_changes_inner_with, stop_auto_watch, RuntimeState, SubagentTargetKind,
+    };
+    use skillssync_core::{
+        AuditEventStatus, SyncEngine, SyncEngineEnvironment, SyncPaths, SyncPreferencesStore,
+        SyncStateStore,
     };
     use std::fs;
     use std::path::Path;
-    use tempfile::tempdir;
+    use std::sync::mpsc;
+    use std::time::Duration;
+    use tempfile::{tempdir, TempDir};
+
+    fn engine_in_temp(temp: &TempDir) -> SyncEngine {
+        let home = temp.path().join("home");
+        let runtime = temp.path().join("runtime");
+        let app_runtime = temp.path().join("app-runtime");
+        fs::create_dir_all(&home).expect("home");
+        fs::create_dir_all(&runtime).expect("runtime");
+        fs::create_dir_all(&app_runtime).expect("app runtime");
+
+        let env = SyncEngineEnvironment {
+            home_directory: home.clone(),
+            dev_root: home.join("Dev"),
+            worktrees_root: home.join(".codex").join("worktrees"),
+            runtime_directory: runtime,
+        };
+
+        let paths = SyncPaths::from_runtime(app_runtime);
+        let store = SyncStateStore::new(paths.clone());
+        let prefs = SyncPreferencesStore::new(paths);
+        SyncEngine::new(env, store, prefs)
+    }
 
     #[test]
     fn read_skill_dir_tree_returns_stable_ascii_structure() {
@@ -1062,5 +1140,98 @@ mod tests {
         assert!(status.is_symlink);
         assert_eq!(status.symlink_target, Some(String::from("missing.md")));
         assert!(!status.points_to_canonical);
+    }
+
+    #[test]
+    fn ensure_write_allowed_does_not_append_blocked_audit() {
+        let temp = tempdir().expect("create tempdir");
+        let engine = engine_in_temp(&temp);
+        engine
+            .set_allow_filesystem_changes(false)
+            .expect("disable filesystem changes");
+
+        let before =
+            engine.list_audit_events(Some(10), Some(AuditEventStatus::Blocked), Some("run_sync"));
+        assert!(before.is_empty());
+
+        let result = ensure_write_allowed(&engine, "run_sync");
+        assert!(result.is_err());
+
+        let after =
+            engine.list_audit_events(Some(10), Some(AuditEventStatus::Blocked), Some("run_sync"));
+        assert!(after.is_empty());
+    }
+
+    #[test]
+    fn enable_auto_watch_waits_for_initial_sync_before_returning() {
+        let temp = tempdir().expect("create tempdir");
+        let engine = engine_in_temp(&temp);
+        engine
+            .set_allow_filesystem_changes(true)
+            .expect("enable filesystem changes");
+        let runtime = RuntimeState::default();
+
+        let guard = runtime
+            .sync_lock
+            .lock()
+            .expect("lock sync mutex to block initial sync");
+        let (tx, rx) = mpsc::channel();
+        let runtime_for_thread = runtime.clone();
+        let engine_for_thread = engine.clone();
+        let join = std::thread::spawn(move || {
+            let result = enable_auto_watch_and_initial_sync(&runtime_for_thread, &engine_for_thread);
+            tx.send(result).expect("send startup result");
+        });
+
+        assert!(
+            rx.recv_timeout(Duration::from_secs(1)).is_err(),
+            "startup should wait for initial sync lock"
+        );
+
+        drop(guard);
+        let result = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("startup should finish once lock is released");
+        assert!(result.is_ok());
+
+        stop_auto_watch(&runtime);
+        join.join().expect("join startup thread");
+    }
+
+    #[test]
+    fn set_allow_filesystem_changes_reports_startup_errors_and_reverts_writes() {
+        let temp = tempdir().expect("create tempdir");
+        let engine = engine_in_temp(&temp);
+        let runtime = RuntimeState::default();
+
+        let result = set_allow_filesystem_changes_inner_with(true, &runtime, &engine, |_r, _e| {
+            Err(String::from("watch startup failed"))
+        });
+
+        assert!(matches!(result, Err(error) if error == "watch startup failed"));
+        assert!(!engine.allow_filesystem_changes());
+        assert!(ensure_write_allowed(&engine, "delete_skill").is_err());
+    }
+
+    #[test]
+    fn set_allow_filesystem_changes_reverts_write_mode_when_initial_sync_fails() {
+        let temp = tempdir().expect("create tempdir");
+        let engine = engine_in_temp(&temp);
+        let runtime = RuntimeState::default();
+        let home = engine.environment().home_directory.clone();
+
+        let claude_skill = home.join(".claude").join("skills").join("duplicate");
+        fs::create_dir_all(&claude_skill).expect("create claude skill dir");
+        fs::write(claude_skill.join("SKILL.md"), "# A").expect("write claude skill");
+
+        let agents_skill = home.join(".agents").join("skills").join("duplicate");
+        fs::create_dir_all(&agents_skill).expect("create agents skill dir");
+        fs::write(agents_skill.join("SKILL.md"), "# B").expect("write agents skill");
+
+        let result = set_allow_filesystem_changes_inner(true, &runtime, &engine);
+
+        assert!(matches!(result, Err(error) if error.contains("Detected 1 conflict")));
+        assert!(!engine.allow_filesystem_changes());
+        assert!(ensure_write_allowed(&engine, "delete_skill").is_err());
     }
 }

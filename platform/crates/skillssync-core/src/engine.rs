@@ -384,15 +384,19 @@ impl SyncEngine {
                     None,
                 );
                 self.store.save_state(&state)?;
+                let should_record_success = self.has_managed_state_changes(&previous_state, &state)
+                    || previous_state.sync.status != SyncHealthStatus::Ok;
                 let (summary, paths, details) = self.build_audit_sync_diff(&previous_state, &state);
-                let _ = self.record_audit_event(
-                    "run_sync",
-                    AuditEventStatus::Success,
-                    Some(trigger.as_str().to_string()),
-                    summary,
-                    paths,
-                    details,
-                );
+                if should_record_success {
+                    let _ = self.record_audit_event(
+                        "run_sync",
+                        AuditEventStatus::Success,
+                        Some(trigger.as_str().to_string()),
+                        summary,
+                        paths,
+                        details,
+                    );
+                }
                 Ok(state)
             }
             Err(error) => {
@@ -1183,6 +1187,12 @@ impl SyncEngine {
         };
 
         (summary, paths, details)
+    }
+
+    fn has_managed_state_changes(&self, previous: &SyncState, current: &SyncState) -> bool {
+        previous.skills != current.skills
+            || previous.subagents != current.subagents
+            || previous.mcp_servers != current.mcp_servers
     }
 
     fn discover_global_packages(&self) -> Vec<SkillPackage> {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { McpAgentStatusStrip } from "./components/catalog/McpAgentStatusStrip";
+import { AgentLogoIcon } from "./components/catalog/AgentLogoIcon";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
@@ -124,17 +124,7 @@ function readStoredFocusKind(): FocusKind {
 function ScopeMarker({ scope }: { scope: string }) {
   const scopeLabel = scope === "global" ? "Global" : "Project";
   return (
-    <span className="inline-flex items-center gap-1">
-      <span
-        aria-hidden="true"
-        title={scopeLabel}
-        className={cn(
-          "inline-block h-2 w-2 rounded-full",
-          scope === "global" ? "bg-emerald-500/80" : "bg-sky-500/80",
-        )}
-      />
-      <span className="text-[10px] text-muted-foreground">{scopeLabel}</span>
-    </span>
+    <span className="text-[10px] text-muted-foreground">{scopeLabel}</span>
   );
 }
 
@@ -874,6 +864,12 @@ export function App() {
                       {filteredMcpServers.map((server) => {
                         const key = mcpSelectionKey(server);
                         const selected = key === selectedMcpKey;
+                        const rowAgents = getVisibleMcpAgents(server.scope).map(
+                          (agent) => ({
+                            agent,
+                            enabled: server.enabled_by_agent[agent],
+                          }),
+                        );
                         return (
                           <li key={key}>
                             <button
@@ -894,21 +890,44 @@ export function App() {
                                 <span className="truncate text-sm font-medium">
                                   {server.server_key}
                                 </span>
-                                <div className="flex shrink-0 flex-col items-end gap-0.5">
-                                  <ScopeMarker scope={server.scope} />
-                                  <McpAgentStatusStrip
-                                    scope={server.scope}
-                                    enabledByAgent={server.enabled_by_agent}
-                                  />
-                                </div>
+                                <ScopeMarker scope={server.scope} />
                               </div>
-                              <p
-                                aria-hidden="true"
-                                className="mt-0.5 truncate text-[11px] text-muted-foreground"
-                              >
-                                {server.workspace ??
-                                  server.transport.toUpperCase()}
-                              </p>
+                              <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                  <span className="shrink-0 font-medium uppercase tracking-wide">
+                                    {server.transport.toUpperCase()}
+                                  </span>
+                                  {server.scope === "project" && server.workspace ? (
+                                    <span
+                                      className="min-w-0 truncate text-[10px]"
+                                      title={server.workspace}
+                                    >
+                                      {server.workspace}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <ul className="flex shrink-0 items-center gap-1.5">
+                                  {rowAgents.map(({ agent, enabled }) => (
+                                    <li key={agent}>
+                                      <span
+                                        role="img"
+                                        aria-label={`${agent} ${enabled ? "connected" : "disabled"}`}
+                                        className={cn(
+                                          "inline-flex items-center",
+                                          enabled
+                                            ? "text-emerald-500"
+                                            : "text-muted-foreground/50 opacity-30",
+                                        )}
+                                      >
+                                        <AgentLogoIcon
+                                          agent={agent}
+                                          className="h-3.5 w-3.5"
+                                        />
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
                             </button>
                           </li>
                         );
@@ -1271,8 +1290,20 @@ export function App() {
                               key={agent}
                               className="inline-flex items-center gap-2 px-1 py-1"
                             >
-                              <span className="text-xs font-medium">
-                                {agent}
+                              <span className="inline-flex items-center gap-1.5 text-xs font-medium">
+                                <span
+                                  role="img"
+                                  aria-label={`${agent} agent`}
+                                  className={cn(
+                                    "inline-flex items-center transition-colors",
+                                    enabled
+                                      ? "text-emerald-500"
+                                      : "text-muted-foreground/70 opacity-60",
+                                  )}
+                                >
+                                  <AgentLogoIcon agent={agent} className="h-3.5 w-3.5" />
+                                </span>
+                                <span>{agent}</span>
                               </span>
                               <button
                                 type="button"
