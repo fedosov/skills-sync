@@ -43,7 +43,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.4.0",
-    "jsdom": "^25.0.1",
+    "jsdom": "^28.1.0",
     "oxlint": "^1.49.0",
     "oxlint-tsgolint": "^0.14.2",
     "postcss": "^8.4.49",
