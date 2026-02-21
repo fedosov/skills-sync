@@ -1,6 +1,6 @@
 # SkillsSync
 
-Keep one canonical catalog for `skills` and `subagents`, then sync it across agent runtimes (`Claude Code`, `Cursor`, `Codex`, and others).
+Keep one canonical catalog for `skills`, `subagents`, and managed `MCP servers`, then sync it across agent runtimes (`Claude Code`, `Cursor`, `Codex`, and others).
 
 If an item exists in one ecosystem but is missing in another, SkillsSync reconciles it by rebuilding managed links and updating managed registry entries.
 
@@ -16,13 +16,14 @@ If an item exists in one ecosystem but is missing in another, SkillsSync reconci
 - Prevents "it exists in Claude/Cursor but does not appear in Codex" situations.
 - Gives a safe lifecycle for `skills`: archive, restore, promote project skills to global, rename, delete.
 - Provides transparent `subagent` sync diagnostics in desktop UI (canonical source, targets, link status).
+- Centralizes managed MCP servers and propagates them to Codex, Claude local settings, and project `.mcp.json`.
 - Keeps sync behavior deterministic with explicit conflict handling.
 
 ## Why This Exists
 
 Without synchronization, teams accumulate duplicate and stale skills/subagents across multiple agent directories. That creates inconsistent behavior between tools and broken expectations for users.
 
-SkillsSync provides one sync engine that discovers skills and subagents, validates consistency, and applies a managed cross-agent layout.
+SkillsSync provides one sync engine that discovers skills/subagents/MCP servers, validates consistency, and applies a managed cross-agent layout.
 
 ## How Sync + Validation Works
 
@@ -36,6 +37,12 @@ Validation is part of the normal sync cycle (not a separate tool):
 6. Update managed blocks in `~/.codex/config.toml`:
    - skills: `# skills-sync:begin` ... `# skills-sync:end`
    - subagents: `# skills-sync:subagents:begin` ... `# skills-sync:subagents:end`
+7. Reconcile managed MCP catalog:
+   - central source: `~/.config/ai-agents/config.toml` (`# skills-sync:mcp:begin` ... `# skills-sync:mcp:end`)
+   - codex target: `~/.codex/config.toml` (`# skills-sync:mcp:codex:begin` ... `# skills-sync:mcp:codex:end`)
+   - claude global target: prefer `~/.claude.json` (`mcpServers`), fallback `~/.claude/settings.local.json`
+   - claude project targets: workspace `.mcp.json` (when canonical) or `~/.claude.json` (`projects.<workspace>.mcpServers`)
+   - project codex target: existing workspace `.codex/config.toml`
 
 Result: once sync succeeds, cross-agent visibility is reconciled automatically.
 
@@ -77,6 +84,16 @@ cargo run -p skillssync-cli -- sync --trigger manual --json
 ```bash
 cd platform
 cargo run -p skillssync-cli -- list-subagents --scope all --json
+```
+
+### MCP management
+
+```bash
+cd platform
+cargo run -p skillssync-cli -- mcp list --json
+cargo run -p skillssync-cli -- mcp set-enabled --server exa --agent codex --enabled false
+cargo run -p skillssync-cli -- mcp set-enabled --server exa --agent project --enabled false --scope project --workspace /Users/example/Dev/workspace-a
+cargo run -p skillssync-cli -- mcp sync
 ```
 
 ### Optional environment diagnostics

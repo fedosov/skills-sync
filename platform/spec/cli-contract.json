@@ -47,6 +47,21 @@
       "example": "skillssync watch"
     },
     {
+      "name": "mcp list",
+      "args": ["--json"],
+      "example": "skillssync mcp list --json"
+    },
+    {
+      "name": "mcp set-enabled",
+      "args": ["--server", "--agent", "--enabled", "--scope?", "--workspace?"],
+      "example": "skillssync mcp set-enabled --server exa --agent codex --enabled false --scope project --workspace /Users/example/Dev/workspace-a"
+    },
+    {
+      "name": "mcp sync",
+      "args": [],
+      "example": "skillssync mcp sync"
+    },
+    {
       "name": "doctor",
       "args": [],
       "example": "skillssync doctor"

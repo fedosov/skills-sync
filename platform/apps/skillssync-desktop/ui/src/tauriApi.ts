@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   MutationCommand,
+  McpServerRecord,
   PlatformContext,
   SubagentDetails,
   SubagentRecord,
@@ -42,6 +43,40 @@ export async function getSubagentDetails(
 
 export async function listSubagents(scope?: string): Promise<SubagentRecord[]> {
   return invoke<SubagentRecord[]>("list_subagents", { scope });
+}
+
+export async function getMcpServers(): Promise<McpServerRecord[]> {
+  return invoke<McpServerRecord[]>("get_mcp_servers");
+}
+
+export async function setMcpServerEnabled(
+  serverKey: string,
+  agent: "codex" | "claude" | "project",
+  enabled: boolean,
+  scope?: "global" | "project",
+  workspace?: string | null,
+): Promise<SyncState> {
+  const payload: {
+    serverKey: string;
+    agent: "codex" | "claude" | "project";
+    enabled: boolean;
+    scope?: "global" | "project";
+    workspace?: string;
+  } = {
+    serverKey,
+    agent,
+    enabled,
+  };
+  if (scope) {
+    payload.scope = scope;
+  }
+  if (workspace) {
+    payload.workspace = workspace;
+  }
+
+  return invoke<SyncState>("set_mcp_server_enabled", {
+    ...payload,
+  });
 }
 
 export async function mutateSkill(

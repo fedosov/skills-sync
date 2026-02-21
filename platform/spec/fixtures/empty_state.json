@@ -6,20 +6,26 @@
     "last_started_at": null,
     "last_finished_at": null,
     "duration_ms": null,
-    "error": null
+    "error": null,
+    "warnings": []
   },
   "summary": {
     "global_count": 0,
     "project_count": 0,
-    "conflict_count": 0
+    "conflict_count": 0,
+    "mcp_count": 0,
+    "mcp_warning_count": 0
   },
   "subagent_summary": {
     "global_count": 0,
     "project_count": 0,
-    "conflict_count": 0
+    "conflict_count": 0,
+    "mcp_count": 0,
+    "mcp_warning_count": 0
   },
   "skills": [],
   "subagents": [],
+  "mcp_servers": [],
   "top_skills": [],
   "top_subagents": []
 }

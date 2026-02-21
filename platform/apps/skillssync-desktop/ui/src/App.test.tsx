@@ -9,7 +9,12 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import * as tauriApi from "./tauriApi";
-import type { SkillDetails, SkillRecord, SyncState } from "./types";
+import type {
+  McpServerRecord,
+  SkillDetails,
+  SkillRecord,
+  SyncState,
+} from "./types";
 
 vi.mock("./tauriApi", () => ({
   getState: vi.fn(),
@@ -23,6 +28,7 @@ vi.mock("./tauriApi", () => ({
   openSubagentPath: vi.fn(),
   getStarredSkillIds: vi.fn(),
   setSkillStarred: vi.fn(),
+  setMcpServerEnabled: vi.fn(),
 }));
 
 const projectSkill: SkillRecord = {
@@ -61,7 +67,10 @@ const archivedSkill: SkillRecord = {
   skill_key: "archived-skill",
 };
 
-function buildState(skills: SkillRecord[]): SyncState {
+function buildState(
+  skills: SkillRecord[],
+  mcpServers: McpServerRecord[] = [],
+): SyncState {
   return {
     version: 2,
     generated_at: "2026-02-20T17:00:00Z",
@@ -74,14 +83,22 @@ function buildState(skills: SkillRecord[]): SyncState {
         (skill) => skill.scope === "project" && skill.status === "active",
       ).length,
       conflict_count: 0,
+      mcp_count: mcpServers.length,
+      mcp_warning_count: mcpServers.reduce(
+        (total, item) => total + item.warnings.length,
+        0,
+      ),
     },
     subagent_summary: {
       global_count: 0,
       project_count: 0,
       conflict_count: 0,
+      mcp_count: 0,
+      mcp_warning_count: 0,
     },
     skills,
     subagents: [],
+    mcp_servers: mcpServers,
   };
 }
 
@@ -154,6 +171,7 @@ function setApiDefaults(
   vi.mocked(tauriApi.renameSkill).mockResolvedValue(state);
   vi.mocked(tauriApi.openSkillPath).mockResolvedValue(undefined);
   vi.mocked(tauriApi.openSubagentPath).mockResolvedValue(undefined);
+  vi.mocked(tauriApi.setMcpServerEnabled).mockResolvedValue(state);
   vi.mocked(tauriApi.getSkillDetails).mockImplementation((skillKey) => {
     const details = detailsBySkillKey[skillKey];
     if (!details) {
@@ -587,6 +605,160 @@ describe("App critical actions", () => {
     expect(tauriApi.renameSkill).not.toHaveBeenCalled();
   });
 
+  it("renders filtered/total counters in all catalog tabs with stable a11y names", async () => {
+    const mcpServers: McpServerRecord[] = [
+      {
+        server_key: "exa",
+        scope: "global",
+        workspace: null,
+        transport: "http",
+        command: null,
+        args: [],
+        url: "https://mcp.exa.ai/mcp",
+        env: {},
+        enabled_by_agent: {
+          codex: true,
+          claude: true,
+          project: false,
+        },
+        targets: ["/tmp/home/.codex/config.toml"],
+        warnings: [],
+      },
+      {
+        server_key: "docs",
+        scope: "project",
+        workspace: "/tmp/workspace-a",
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@docs/mcp"],
+        url: null,
+        env: {},
+        enabled_by_agent: {
+          codex: true,
+          claude: false,
+          project: true,
+        },
+        targets: ["/tmp/workspace-a/.mcp.json"],
+        warnings: [],
+      },
+    ];
+    const state = buildState([projectSkill, globalSkill], mcpServers);
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+      [globalSkill.skill_key]: buildDetails(globalSkill),
+    });
+    vi.mocked(tauriApi.listSubagents).mockResolvedValue([
+      {
+        id: "sub-1",
+        name: "Helper",
+        description: "General helper",
+        scope: "global",
+        workspace: null,
+        canonical_source_path: "/tmp/home/.agents/subagents/helper.md",
+        target_paths: ["/tmp/home/.claude/agents/helper.md"],
+        exists: true,
+        is_symlink_canonical: false,
+        package_type: "file",
+        subagent_key: "helper",
+        symlink_target: "/tmp/home/.agents/subagents/helper.md",
+        model: null,
+        tools: [],
+        codex_tools_ignored: false,
+      },
+    ]);
+
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    const skillsTab = screen.getByRole("button", { name: "Skills" });
+    const subagentsTab = screen.getByRole("button", { name: "Subagents" });
+    const mcpTab = screen.getByRole("button", { name: "MCP" });
+
+    expect(within(skillsTab).getByText("2/2")).toBeInTheDocument();
+    expect(within(subagentsTab).getByText("1/1")).toBeInTheDocument();
+    expect(within(mcpTab).getByText("2/2")).toBeInTheDocument();
+  });
+
+  it("updates tab filtered counters from search while keeping total unchanged", async () => {
+    const mcpServers: McpServerRecord[] = [
+      {
+        server_key: "exa",
+        scope: "global",
+        workspace: null,
+        transport: "http",
+        command: null,
+        args: [],
+        url: "https://mcp.exa.ai/mcp",
+        env: {},
+        enabled_by_agent: {
+          codex: true,
+          claude: true,
+          project: false,
+        },
+        targets: ["/tmp/home/.codex/config.toml"],
+        warnings: [],
+      },
+      {
+        server_key: "docs",
+        scope: "project",
+        workspace: "/tmp/workspace-a",
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@docs/mcp"],
+        url: null,
+        env: {},
+        enabled_by_agent: {
+          codex: true,
+          claude: false,
+          project: true,
+        },
+        targets: ["/tmp/workspace-a/.mcp.json"],
+        warnings: [],
+      },
+    ];
+    const state = buildState([projectSkill, globalSkill], mcpServers);
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+      [globalSkill.skill_key]: buildDetails(globalSkill),
+    });
+    vi.mocked(tauriApi.listSubagents).mockResolvedValue([
+      {
+        id: "sub-1",
+        name: "Helper",
+        description: "General helper",
+        scope: "global",
+        workspace: null,
+        canonical_source_path: "/tmp/home/.agents/subagents/helper.md",
+        target_paths: ["/tmp/home/.claude/agents/helper.md"],
+        exists: true,
+        is_symlink_canonical: false,
+        package_type: "file",
+        subagent_key: "helper",
+        symlink_target: "/tmp/home/.agents/subagents/helper.md",
+        model: null,
+        tools: [],
+        codex_tools_ignored: false,
+      },
+    ]);
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.type(
+      screen.getByPlaceholderText("Search by name, key, scope or workspace"),
+      "project",
+    );
+
+    const skillsTab = screen.getByRole("button", { name: "Skills" });
+    const subagentsTab = screen.getByRole("button", { name: "Subagents" });
+    const mcpTab = screen.getByRole("button", { name: "MCP" });
+
+    expect(within(skillsTab).getByText("1/2")).toBeInTheDocument();
+    expect(within(subagentsTab).getByText("0/1")).toBeInTheDocument();
+    expect(within(mcpTab).getByText("1/2")).toBeInTheDocument();
+  });
+
   it("renders subagent source and link transparency sections", async () => {
     const state = buildState([projectSkill]);
     setApiDefaults(state, {
@@ -683,6 +855,165 @@ describe("App critical actions", () => {
     await waitFor(() => {
       expect(tauriApi.getSubagentDetails).toHaveBeenLastCalledWith(
         "sub-project",
+      );
+    });
+  });
+
+  it("renders only codex and claude toggles for global mcp server", async () => {
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa",
+          scope: "global",
+          workspace: null,
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: false,
+          },
+          targets: ["/tmp/home/.codex/config.toml"],
+          warnings: [],
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(screen.getByRole("button", { name: "MCP" }));
+    await screen.findByRole("heading", { name: "exa" });
+
+    expect(
+      screen.getByRole("switch", { name: "codex toggle" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      screen.getByRole("switch", { name: "claude toggle" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      screen.queryByRole("switch", { name: /project toggle/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("sends scope and workspace when toggling project mcp server", async () => {
+    const workspace = "/tmp/workspace-a";
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace,
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: true,
+          },
+          targets: [`${workspace}/.mcp.json`],
+          warnings: [],
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(screen.getByRole("button", { name: "MCP" }));
+    await screen.findByRole("heading", { name: "exa" });
+    await user.click(screen.getByRole("switch", { name: "project toggle" }));
+
+    await waitFor(() => {
+      expect(tauriApi.setMcpServerEnabled).toHaveBeenCalledWith(
+        "exa",
+        "project",
+        false,
+        "project",
+        workspace,
+      );
+    });
+  });
+
+  it("targets the correct workspace when same project mcp key appears twice", async () => {
+    const workspaceA = "/tmp/workspace-a";
+    const workspaceB = "/tmp/workspace-b";
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace: workspaceA,
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://a.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: true,
+          },
+          targets: [`${workspaceA}/.mcp.json`],
+          warnings: [],
+        },
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace: workspaceB,
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://b.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: true,
+          },
+          targets: [`${workspaceB}/.mcp.json`],
+          warnings: [],
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(screen.getByRole("button", { name: "MCP" }));
+    await screen.findAllByText(workspaceA);
+    await user.click(screen.getAllByText(workspaceB)[0].closest("button")!);
+    await screen.findByRole("heading", { name: "exa" });
+    await user.click(screen.getByRole("switch", { name: "project toggle" }));
+
+    await waitFor(() => {
+      expect(tauriApi.setMcpServerEnabled).toHaveBeenCalledWith(
+        "exa",
+        "project",
+        false,
+        "project",
+        workspaceB,
       );
     });
   });

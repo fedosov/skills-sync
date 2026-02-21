@@ -15,6 +15,7 @@ import {
   openSkillPath,
   renameSkill,
   runSync,
+  setMcpServerEnabled,
   setSkillStarred,
 } from "./tauriApi";
 import {
@@ -25,6 +26,7 @@ import {
 } from "./skillUtils";
 import type {
   MutationCommand,
+  McpServerRecord,
   SubagentDetails,
   SubagentRecord,
   SkillDetails,
@@ -38,6 +40,10 @@ function toTitleCase(value: string): string {
     return value;
   }
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+}
+
+function mcpSelectionKey(server: McpServerRecord): string {
+  return `${server.scope}::${server.workspace ?? "global"}::${server.server_key}`;
 }
 
 function syncStatusVariant(status: SyncHealthStatus | undefined) {
@@ -82,7 +88,7 @@ function StarIcon({ active, className }: StarIconProps) {
 }
 
 type PendingMutation = { command: MutationCommand; skillKey: string };
-type CatalogTab = "skills" | "subagents";
+type CatalogTab = "skills" | "subagents" | "mcp";
 
 export function App() {
   const [state, setState] = useState<SyncState | null>(null);
@@ -95,6 +101,7 @@ export function App() {
   const [selectedSubagentId, setSelectedSubagentId] = useState<string | null>(
     null,
   );
+  const [selectedMcpKey, setSelectedMcpKey] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [renameDraft, setRenameDraft] = useState("");
   const [starredSkillIds, setStarredSkillIds] = useState<string[]>([]);
@@ -232,6 +239,19 @@ export function App() {
     };
   }, [selectedSubagentId]);
 
+  useEffect(() => {
+    const servers = state?.mcp_servers ?? [];
+    setSelectedMcpKey((current) => {
+      if (
+        current &&
+        servers.some((item) => mcpSelectionKey(item) === current)
+      ) {
+        return current;
+      }
+      return servers[0] ? mcpSelectionKey(servers[0]) : null;
+    });
+  }, [state]);
+
   const filteredSkills = useMemo(() => {
     if (!state) return [];
     return sortAndFilterSkills(state.skills, query, starredSkillIds);
@@ -259,6 +279,30 @@ export function App() {
       );
     });
   }, [query, subagents]);
+
+  const filteredMcpServers = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const servers = (state?.mcp_servers ?? []).slice().sort((lhs, rhs) => {
+      return (
+        lhs.server_key.localeCompare(rhs.server_key) ||
+        lhs.scope.localeCompare(rhs.scope) ||
+        (lhs.workspace ?? "").localeCompare(rhs.workspace ?? "")
+      );
+    });
+    if (!normalizedQuery) {
+      return servers;
+    }
+    return servers.filter((item) => {
+      return (
+        item.server_key.toLowerCase().includes(normalizedQuery) ||
+        item.scope.toLowerCase().includes(normalizedQuery) ||
+        (item.workspace ?? "").toLowerCase().includes(normalizedQuery) ||
+        item.transport.toLowerCase().includes(normalizedQuery) ||
+        (item.command ?? "").toLowerCase().includes(normalizedQuery) ||
+        (item.url ?? "").toLowerCase().includes(normalizedQuery)
+      );
+    });
+  }, [query, state]);
 
   async function handleSetSkillStarred(skillId: string, starred: boolean) {
     setBusy(true);
@@ -349,6 +393,29 @@ export function App() {
     }
   }
 
+  async function handleSetMcpEnabled(
+    server: McpServerRecord,
+    agent: "codex" | "claude" | "project",
+    enabled: boolean,
+  ) {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await setMcpServerEnabled(
+        server.server_key,
+        agent,
+        enabled,
+        server.scope,
+        server.workspace,
+      );
+      applyState(next, selectedSkillKey);
+    } catch (invokeError) {
+      setError(String(invokeError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const activeSkillCount =
     state?.skills.filter((skill) => skill.status === "active").length ?? 0;
   const archivedSkillCount =
@@ -356,6 +423,17 @@ export function App() {
   const isDetailsSkillStarred =
     details != null && starredSkillIds.includes(details.skill.id);
   const activeSubagentCount = subagents.length;
+  const selectedMcpServer =
+    state?.mcp_servers?.find(
+      (item) => mcpSelectionKey(item) === selectedMcpKey,
+    ) ?? null;
+  const mcpCount = state?.summary.mcp_count ?? state?.mcp_servers?.length ?? 0;
+  const skillsFiltered = filteredSkills.length;
+  const skillsTotal = state?.skills.length ?? 0;
+  const subagentsFiltered = filteredSubagents.length;
+  const subagentsTotal = subagents.length;
+  const mcpFiltered = filteredMcpServers.length;
+  const mcpTotal = mcpCount;
 
   return (
     <div className="min-h-full bg-background text-foreground lg:h-screen lg:overflow-hidden">
@@ -374,7 +452,7 @@ export function App() {
               <p className="text-xs text-muted-foreground">
                 Active {activeSkillCount} · Archived {archivedSkillCount} ·
                 Skills {state?.skills.length ?? 0} · Subagents{" "}
-                {activeSubagentCount}
+                {activeSubagentCount} · MCP {mcpCount}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -394,22 +472,88 @@ export function App() {
               placeholder="Search by name, key, scope or workspace"
               onChange={(event) => setQuery(event.currentTarget.value)}
             />
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <Button
-                size="sm"
+                aria-label="Skills"
+                size="default"
                 variant={activeTab === "skills" ? "default" : "outline"}
+                className={cn(
+                  "h-[calc(var(--control-height)+4px)] rounded-lg px-4 text-[13px]",
+                  activeTab === "skills"
+                    ? "border-transparent"
+                    : "border-border/85",
+                )}
                 disabled={busy}
                 onClick={() => setActiveTab("skills")}
               >
-                Skills
+                <span className="text-dense font-semibold tracking-tight">
+                  Skills
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "ml-2 inline-flex min-w-12 items-center justify-center rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums leading-none",
+                    activeTab === "skills"
+                      ? "bg-primary-foreground/16 text-primary-foreground"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {skillsFiltered}/{skillsTotal}
+                </span>
               </Button>
               <Button
-                size="sm"
+                aria-label="Subagents"
+                size="default"
                 variant={activeTab === "subagents" ? "default" : "outline"}
+                className={cn(
+                  "h-[calc(var(--control-height)+4px)] rounded-lg px-4 text-[13px]",
+                  activeTab === "subagents"
+                    ? "border-transparent"
+                    : "border-border/85",
+                )}
                 disabled={busy}
                 onClick={() => setActiveTab("subagents")}
               >
-                Subagents
+                <span className="text-dense font-semibold tracking-tight">
+                  Subagents
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "ml-2 inline-flex min-w-12 items-center justify-center rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums leading-none",
+                    activeTab === "subagents"
+                      ? "bg-primary-foreground/16 text-primary-foreground"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {subagentsFiltered}/{subagentsTotal}
+                </span>
+              </Button>
+              <Button
+                aria-label="MCP"
+                size="default"
+                variant={activeTab === "mcp" ? "default" : "outline"}
+                className={cn(
+                  "h-[calc(var(--control-height)+4px)] rounded-lg px-4 text-[13px]",
+                  activeTab === "mcp" ? "border-transparent" : "border-border/85",
+                )}
+                disabled={busy}
+                onClick={() => setActiveTab("mcp")}
+              >
+                <span className="text-dense font-semibold tracking-tight">
+                  MCP
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "ml-2 inline-flex min-w-12 items-center justify-center rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums leading-none",
+                    activeTab === "mcp"
+                      ? "bg-primary-foreground/16 text-primary-foreground"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {mcpFiltered}/{mcpTotal}
+                </span>
               </Button>
             </div>
           </div>
@@ -464,12 +608,18 @@ export function App() {
             <CardHeader className="border-b border-border/80 pb-2">
               <div className="flex items-center justify-between gap-2">
                 <CardTitle>
-                  {activeTab === "skills" ? "Skills" : "Subagents"}
+                  {activeTab === "skills"
+                    ? "Skills"
+                    : activeTab === "subagents"
+                      ? "Subagents"
+                      : "MCP Servers"}
                 </CardTitle>
                 <Badge variant="outline">
                   {activeTab === "skills"
                     ? filteredSkills.length
-                    : filteredSubagents.length}
+                    : activeTab === "subagents"
+                      ? filteredSubagents.length
+                      : filteredMcpServers.length}
                 </Badge>
               </div>
             </CardHeader>
@@ -511,62 +661,105 @@ export function App() {
                         </li>
                       );
                     })
-                  : filteredSkills.map((skill) => {
-                      const selected = skill.skill_key === selectedSkillKey;
-                      const isSkillStarred = starredSkillIds.includes(skill.id);
-                      const hasDistinctSkillKey =
-                        skill.name.trim().toLowerCase() !==
-                        skill.skill_key.trim().toLowerCase();
-                      return (
-                        <li key={skill.id}>
-                          <button
-                            type="button"
-                            className={cn(
-                              "w-full rounded-md border px-2.5 py-2 text-left transition-colors duration-150",
-                              "hover:border-border hover:bg-accent/70",
-                              selected
-                                ? "border-primary/45 bg-accent/80 text-foreground"
-                                : "border-border/70 bg-transparent text-foreground",
-                            )}
-                            onClick={() => setSelectedSkillKey(skill.skill_key)}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="truncate text-sm font-medium leading-tight">
-                                {isSkillStarred ? (
-                                  <StarIcon
-                                    active
-                                    className="mr-1 inline-block h-3.5 w-3.5 align-[-2px] text-amber-500"
-                                  />
-                                ) : null}
-                                {skill.name}
-                              </p>
-                              <div className="flex items-center gap-1.5">
-                                {skill.status !== "active" ? (
-                                  <Badge
-                                    variant={lifecycleVariant(skill.status)}
-                                  >
-                                    {toTitleCase(skill.status)}
-                                  </Badge>
-                                ) : null}
+                  : activeTab === "mcp"
+                    ? filteredMcpServers.map((server) => {
+                        const selectionKey = mcpSelectionKey(server);
+                        const selected = selectionKey === selectedMcpKey;
+                        return (
+                          <li key={selectionKey}>
+                            <button
+                              type="button"
+                              className={cn(
+                                "w-full rounded-md border px-2.5 py-2 text-left transition-colors duration-150",
+                                "hover:border-border hover:bg-accent/70",
+                                selected
+                                  ? "border-primary/45 bg-accent/80 text-foreground"
+                                  : "border-border/70 bg-transparent text-foreground",
+                              )}
+                              onClick={() => setSelectedMcpKey(selectionKey)}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="truncate text-sm font-medium leading-tight">
+                                  {server.server_key}
+                                </p>
                                 <Badge variant="outline">
-                                  {toTitleCase(skill.scope)}
+                                  {`${server.transport.toUpperCase()} · ${toTitleCase(server.scope)}`}
                                 </Badge>
                               </div>
-                            </div>
-                            {hasDistinctSkillKey ? (
-                              <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-                                {skill.skill_key}
-                              </p>
-                            ) : null}
-                            {skill.workspace ? (
                               <p className="mt-1 truncate text-[11px] text-muted-foreground">
-                                {skill.workspace}
+                                {server.command ??
+                                  server.url ??
+                                  "No command/url"}
                               </p>
-                            ) : null}
-                          </button>
-                        </li>
-                      );
-                    })}
+                              {server.workspace ? (
+                                <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                                  {server.workspace}
+                                </p>
+                              ) : null}
+                            </button>
+                          </li>
+                        );
+                      })
+                    : filteredSkills.map((skill) => {
+                        const selected = skill.skill_key === selectedSkillKey;
+                        const isSkillStarred = starredSkillIds.includes(
+                          skill.id,
+                        );
+                        const hasDistinctSkillKey =
+                          skill.name.trim().toLowerCase() !==
+                          skill.skill_key.trim().toLowerCase();
+                        return (
+                          <li key={skill.id}>
+                            <button
+                              type="button"
+                              className={cn(
+                                "w-full rounded-md border px-2.5 py-2 text-left transition-colors duration-150",
+                                "hover:border-border hover:bg-accent/70",
+                                selected
+                                  ? "border-primary/45 bg-accent/80 text-foreground"
+                                  : "border-border/70 bg-transparent text-foreground",
+                              )}
+                              onClick={() =>
+                                setSelectedSkillKey(skill.skill_key)
+                              }
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="truncate text-sm font-medium leading-tight">
+                                  {isSkillStarred ? (
+                                    <StarIcon
+                                      active
+                                      className="mr-1 inline-block h-3.5 w-3.5 align-[-2px] text-amber-500"
+                                    />
+                                  ) : null}
+                                  {skill.name}
+                                </p>
+                                <div className="flex items-center gap-1.5">
+                                  {skill.status !== "active" ? (
+                                    <Badge
+                                      variant={lifecycleVariant(skill.status)}
+                                    >
+                                      {toTitleCase(skill.status)}
+                                    </Badge>
+                                  ) : null}
+                                  <Badge variant="outline">
+                                    {toTitleCase(skill.scope)}
+                                  </Badge>
+                                </div>
+                              </div>
+                              {hasDistinctSkillKey ? (
+                                <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+                                  {skill.skill_key}
+                                </p>
+                              ) : null}
+                              {skill.workspace ? (
+                                <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                                  {skill.workspace}
+                                </p>
+                              ) : null}
+                            </button>
+                          </li>
+                        );
+                      })}
               </ul>
             </CardContent>
           </Card>
@@ -579,6 +772,10 @@ export function App() {
             ) : activeTab === "subagents" && !subagentDetails ? (
               <CardContent className="flex h-full items-center justify-center text-sm text-muted-foreground lg:min-h-0 lg:flex-1">
                 Select a subagent to view details.
+              </CardContent>
+            ) : activeTab === "mcp" && !selectedMcpServer ? (
+              <CardContent className="flex h-full items-center justify-center text-sm text-muted-foreground lg:min-h-0 lg:flex-1">
+                Select an MCP server to view details.
               </CardContent>
             ) : activeTab === "skills" && details ? (
               <>
@@ -863,6 +1060,169 @@ export function App() {
                             {path}
                           </li>
                         ))}
+                      </ul>
+                    )}
+                  </section>
+                </CardContent>
+              </>
+            ) : activeTab === "mcp" && selectedMcpServer ? (
+              <>
+                <CardHeader className="border-b border-border/80 pb-2">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-base">
+                        {selectedMcpServer.server_key}
+                      </CardTitle>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {`${selectedMcpServer.transport.toUpperCase()} · ${toTitleCase(selectedMcpServer.scope)}`}
+                      </p>
+                    </div>
+                    <Badge variant="outline">
+                      {selectedMcpServer.warnings.length > 0
+                        ? `${selectedMcpServer.warnings.length} warning(s)`
+                        : "Clean"}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+                  <dl className="grid gap-x-3 gap-y-2 text-xs sm:grid-cols-2">
+                    <div>
+                      <dt className="mb-1 text-muted-foreground">Command</dt>
+                      <dd className="break-all font-mono">
+                        {selectedMcpServer.command ?? "-"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="mb-1 text-muted-foreground">URL</dt>
+                      <dd className="break-all font-mono">
+                        {selectedMcpServer.url ?? "-"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="mb-1 text-muted-foreground">Scope</dt>
+                      <dd>{toTitleCase(selectedMcpServer.scope)}</dd>
+                    </div>
+                    <div>
+                      <dt className="mb-1 text-muted-foreground">Workspace</dt>
+                      <dd className="break-all font-mono">
+                        {selectedMcpServer.workspace ?? "-"}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <section className="space-y-2 border-t border-border/80 pt-3">
+                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
+                      Enable by agent
+                    </h3>
+                    <div className="flex flex-wrap gap-3">
+                      {(selectedMcpServer.scope === "global"
+                        ? (["codex", "claude"] as const)
+                        : (["codex", "claude", "project"] as const)
+                      ).map((agent) => {
+                        const enabled =
+                          selectedMcpServer.enabled_by_agent[agent];
+                        return (
+                          <div
+                            key={agent}
+                            className="inline-flex items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-2 py-1"
+                          >
+                            <span className="text-xs font-medium">{agent}</span>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-label={`${agent} toggle`}
+                              aria-checked={enabled}
+                              disabled={busy}
+                              onClick={() =>
+                                void handleSetMcpEnabled(
+                                  selectedMcpServer,
+                                  agent,
+                                  !enabled,
+                                )
+                              }
+                              className={cn(
+                                "relative inline-flex h-6 w-11 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
+                                enabled
+                                  ? "border-primary/70 bg-primary/80"
+                                  : "border-border bg-muted-foreground/25",
+                              )}
+                            >
+                              <span
+                                aria-hidden="true"
+                                className={cn(
+                                  "inline-block h-4 w-4 transform rounded-full bg-background shadow-sm transition-transform",
+                                  enabled ? "translate-x-5" : "translate-x-1",
+                                )}
+                              />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  <section className="space-y-2 border-t border-border/80 pt-3">
+                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
+                      Args
+                    </h3>
+                    {selectedMcpServer.args.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No args.</p>
+                    ) : (
+                      <ul className="space-y-1 text-xs">
+                        {selectedMcpServer.args.map((arg) => (
+                          <li
+                            key={arg}
+                            className="break-all rounded-md border border-border/60 bg-muted/20 p-2 font-mono"
+                          >
+                            {arg}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+
+                  <section className="space-y-2 border-t border-border/80 pt-3">
+                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
+                      Targets
+                    </h3>
+                    {selectedMcpServer.targets.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        No managed targets.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1 text-xs">
+                        {selectedMcpServer.targets.map((path) => (
+                          <li
+                            key={path}
+                            className="break-all rounded-md border border-border/60 bg-muted/20 p-2 font-mono"
+                          >
+                            {path}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+
+                  <section className="space-y-2 border-t border-border/80 pt-3">
+                    <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground">
+                      Env
+                    </h3>
+                    {Object.keys(selectedMcpServer.env).length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        No env values.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1 text-xs">
+                        {Object.entries(selectedMcpServer.env).map(
+                          ([key, value]) => (
+                            <li
+                              key={key}
+                              className="break-all rounded-md border border-border/60 bg-muted/20 p-2 font-mono"
+                            >
+                              {key}={value}
+                            </li>
+                          ),
+                        )}
                       </ul>
                     )}
                   </section>

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -21,6 +22,8 @@ pub struct SyncState {
     pub skills: Vec<SkillRecord>,
     #[serde(default)]
     pub subagents: Vec<SubagentRecord>,
+    #[serde(default, rename = "mcp_servers")]
+    pub mcp_servers: Vec<McpServerRecord>,
     #[serde(rename = "top_skills")]
     pub top_skills: Vec<String>,
     #[serde(default, rename = "top_subagents")]
@@ -37,6 +40,7 @@ impl SyncState {
             subagent_summary: SyncSummary::empty(),
             skills: Vec::new(),
             subagents: Vec::new(),
+            mcp_servers: Vec::new(),
             top_skills: Vec::new(),
             top_subagents: Vec::new(),
         }
@@ -53,6 +57,8 @@ pub struct SyncMetadata {
     #[serde(rename = "duration_ms")]
     pub duration_ms: Option<u64>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 impl SyncMetadata {
@@ -63,6 +69,7 @@ impl SyncMetadata {
             last_finished_at: None,
             duration_ms: None,
             error: None,
+            warnings: Vec::new(),
         }
     }
 }
@@ -75,6 +82,10 @@ pub struct SyncSummary {
     pub project_count: usize,
     #[serde(rename = "conflict_count")]
     pub conflict_count: usize,
+    #[serde(default, rename = "mcp_count")]
+    pub mcp_count: usize,
+    #[serde(default, rename = "mcp_warning_count")]
+    pub mcp_warning_count: usize,
 }
 
 impl SyncSummary {
@@ -83,8 +94,68 @@ impl SyncSummary {
             global_count: 0,
             project_count: 0,
             conflict_count: 0,
+            mcp_count: 0,
+            mcp_warning_count: 0,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpEnabledByAgent {
+    #[serde(default = "default_true")]
+    pub codex: bool,
+    #[serde(default = "default_true")]
+    pub claude: bool,
+    #[serde(default = "default_true")]
+    pub project: bool,
+}
+
+impl Default for McpEnabledByAgent {
+    fn default() -> Self {
+        Self {
+            codex: true,
+            claude: true,
+            project: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum McpTransport {
+    Stdio,
+    Http,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpServerRecord {
+    #[serde(rename = "server_key")]
+    pub server_key: String,
+    #[serde(default = "default_mcp_scope")]
+    pub scope: String,
+    #[serde(default)]
+    pub workspace: Option<String>,
+    pub transport: McpTransport,
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    pub url: Option<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(rename = "enabled_by_agent")]
+    pub enabled_by_agent: McpEnabledByAgent,
+    #[serde(default)]
+    pub targets: Vec<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_mcp_scope() -> String {
+    String::from("global")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

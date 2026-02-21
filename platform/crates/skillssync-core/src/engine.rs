@@ -1,13 +1,15 @@
 use crate::codex_registry::CodexSkillsRegistryWriter;
 use crate::codex_subagent_registry::{CodexSubagentConfigEntry, CodexSubagentRegistryWriter};
 use crate::error::SyncEngineError;
+use crate::mcp_registry::{McpAgent, McpRegistry, McpSyncOutcome};
 use crate::models::{
-    SkillLifecycleStatus, SkillRecord, SubagentRecord, SyncConflict, SyncConflictKind,
-    SyncHealthStatus, SyncMetadata, SyncState, SyncSummary, SyncTrigger,
+    McpServerRecord, SkillLifecycleStatus, SkillRecord, SubagentRecord, SyncConflict,
+    SyncConflictKind, SyncHealthStatus, SyncMetadata, SyncState, SyncSummary, SyncTrigger,
 };
 use crate::paths::{home_dir, SyncPaths};
 use crate::settings::{AppUiState, SyncPreferencesStore};
 use crate::state_store::SyncStateStore;
+use crate::watch::default_watch_paths;
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use sha1::{Digest as Sha1Digest, Sha1};
@@ -241,6 +243,50 @@ impl SyncEngine {
         items
     }
 
+    pub fn list_mcp_servers(&self) -> Vec<McpServerRecord> {
+        let mut items = self.store.load_state().mcp_servers;
+        items.sort_by(|lhs, rhs| lhs.server_key.cmp(&rhs.server_key));
+        items
+    }
+
+    pub fn set_mcp_server_enabled(
+        &self,
+        server_key: &str,
+        agent: McpAgent,
+        enabled: bool,
+        scope: Option<&str>,
+        workspace: Option<&str>,
+    ) -> Result<SyncState, SyncEngineError> {
+        let workspaces = self.workspace_candidates();
+        let registry = McpRegistry::new(
+            self.environment.home_directory.clone(),
+            self.environment.runtime_directory.clone(),
+        );
+        registry.set_enabled(&workspaces, server_key, agent, enabled, scope, workspace)?;
+        self.run_sync(SyncTrigger::Manual)
+    }
+
+    pub fn watch_paths(&self) -> Vec<PathBuf> {
+        let mut paths = default_watch_paths(&self.environment.home_directory);
+        let workspaces = self.workspace_candidates();
+        let registry = McpRegistry::new(
+            self.environment.home_directory.clone(),
+            self.environment.runtime_directory.clone(),
+        );
+        paths.extend(registry.managed_watch_paths(&workspaces));
+
+        let mut unique = HashSet::new();
+        let mut deduped = Vec::new();
+        for path in paths {
+            let key = standardized_path(&path);
+            if unique.insert(key) {
+                deduped.push(path);
+            }
+        }
+        deduped.sort();
+        deduped
+    }
+
     pub fn find_skill(&self, locator: &SkillLocator) -> Option<SkillRecord> {
         self.store.load_state().skills.into_iter().find(|skill| {
             skill.skill_key == locator.skill_key
@@ -275,12 +321,19 @@ impl SyncEngine {
                 subagent_registry_writer
                     .write_managed_registries(&result.codex_subagent_entries)
                     .map_err(|e| SyncEngineError::CodexRegistryWriteFailed(e.to_string()))?;
+                let workspaces = self.workspace_candidates();
+                let mcp_registry = McpRegistry::new(
+                    self.environment.home_directory.clone(),
+                    self.environment.runtime_directory.clone(),
+                );
+                let mcp_outcome = mcp_registry.sync(&workspaces)?;
 
                 let finished = Utc::now();
                 let state = self.make_state(
                     SyncHealthStatus::Ok,
                     result.entries,
                     result.subagent_entries,
+                    mcp_outcome,
                     result.skill_conflict_count,
                     result.subagent_conflict_count,
                     started,
@@ -856,6 +909,7 @@ impl SyncEngine {
         status: SyncHealthStatus,
         mut entries: Vec<SkillRecord>,
         mut subagent_entries: Vec<SubagentRecord>,
+        mcp_outcome: McpSyncOutcome,
         skill_conflict_count: usize,
         subagent_conflict_count: usize,
         started: chrono::DateTime<Utc>,
@@ -870,6 +924,7 @@ impl SyncEngine {
             .take(6)
             .map(|item| item.id.clone())
             .collect();
+        let mcp_warning_count = mcp_outcome.warnings.len();
 
         SyncState {
             version: 2,
@@ -882,6 +937,7 @@ impl SyncEngine {
                     (finished.timestamp_millis() - started.timestamp_millis()) as u64,
                 ),
                 error,
+                warnings: mcp_outcome.warnings,
             },
             summary: SyncSummary {
                 global_count: entries
@@ -897,6 +953,8 @@ impl SyncEngine {
                     })
                     .count(),
                 conflict_count: skill_conflict_count,
+                mcp_count: mcp_outcome.records.len(),
+                mcp_warning_count,
             },
             subagent_summary: SyncSummary {
                 global_count: subagent_entries
@@ -908,9 +966,12 @@ impl SyncEngine {
                     .filter(|entry| entry.scope == "project")
                     .count(),
                 conflict_count: subagent_conflict_count,
+                mcp_count: 0,
+                mcp_warning_count: 0,
             },
             skills: entries,
             subagents: subagent_entries,
+            mcp_servers: mcp_outcome.records,
             top_skills: top_skill_ids,
             top_subagents: top_subagent_ids,
         }
@@ -936,19 +997,25 @@ impl SyncEngine {
                     (finished.timestamp_millis() - started.timestamp_millis()) as u64,
                 ),
                 error: Some(error),
+                warnings: previous.sync.warnings,
             },
             summary: SyncSummary {
                 global_count: previous.summary.global_count,
                 project_count: previous.summary.project_count,
                 conflict_count: skill_conflict_count,
+                mcp_count: previous.summary.mcp_count,
+                mcp_warning_count: previous.summary.mcp_warning_count,
             },
             subagent_summary: SyncSummary {
                 global_count: previous.subagent_summary.global_count,
                 project_count: previous.subagent_summary.project_count,
                 conflict_count: subagent_conflict_count,
+                mcp_count: previous.subagent_summary.mcp_count,
+                mcp_warning_count: previous.subagent_summary.mcp_warning_count,
             },
             skills: previous.skills,
             subagents: previous.subagents,
+            mcp_servers: previous.mcp_servers,
             top_skills: previous.top_skills,
             top_subagents: previous.top_subagents,
         }
@@ -1438,6 +1505,8 @@ impl SyncEngine {
             || repo.join(".claude").join("agents").exists()
             || repo.join(".cursor").join("agents").exists()
             || repo.join(".agents").join("subagents").exists()
+            || repo.join(".mcp.json").exists()
+            || repo.join(".codex").join("config.toml").exists()
     }
 
     fn custom_workspace_discovery_roots(&self) -> Vec<PathBuf> {

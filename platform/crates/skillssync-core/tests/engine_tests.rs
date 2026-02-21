@@ -1,6 +1,7 @@
+use serde_json::Value as JsonValue;
 use skillssync_core::{
-    ScopeFilter, SkillLifecycleStatus, SkillLocator, SyncEngine, SyncEngineEnvironment, SyncPaths,
-    SyncPreferencesStore, SyncStateStore, SyncTrigger,
+    McpAgent, ScopeFilter, SkillLifecycleStatus, SkillLocator, SyncEngine, SyncEngineEnvironment,
+    SyncPaths, SyncPreferencesStore, SyncStateStore, SyncTrigger,
 };
 use std::fs;
 use std::path::Path;
@@ -44,6 +45,13 @@ fn app_settings_path(temp: &TempDir) -> std::path::PathBuf {
     temp.path().join("app-runtime").join("app-settings.json")
 }
 
+fn write_text(path: &Path, body: &str) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("create parent");
+    }
+    fs::write(path, body).expect("write file");
+}
+
 fn find_skill(
     engine: &SyncEngine,
     skill_key: &str,
@@ -55,6 +63,23 @@ fn find_skill(
             status,
         })
         .expect("skill exists")
+}
+
+fn find_mcp<'a>(
+    state: &'a skillssync_core::SyncState,
+    server_key: &str,
+    scope: &str,
+    workspace: Option<&str>,
+) -> &'a skillssync_core::McpServerRecord {
+    state
+        .mcp_servers
+        .iter()
+        .find(|item| {
+            item.server_key == server_key
+                && item.scope == scope
+                && item.workspace.as_deref() == workspace
+        })
+        .expect("mcp record exists")
 }
 
 #[test]
@@ -633,4 +658,826 @@ fn run_sync_clears_codex_subagent_managed_blocks_when_subagents_removed() {
     let after = fs::read_to_string(global_cfg).expect("global codex config after");
     assert!(after.contains("# skills-sync:subagents:begin"));
     assert!(!after.contains("[agents.reviewer]"));
+}
+
+#[test]
+fn run_sync_bootstraps_mcp_catalog_from_existing_configs() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+
+    write_text(
+        &engine
+            .environment()
+            .home_directory
+            .join(".codex")
+            .join("config.toml"),
+        r#"
+[mcp_servers.exa]
+command = "npx"
+args = ["-y", "mcp-remote@latest", "https://mcp.exa.ai/mcp"]
+"#,
+    );
+    write_text(
+        &engine
+            .environment()
+            .home_directory
+            .join(".claude")
+            .join("settings.local.json"),
+        r#"{
+  "mcpServers": {
+    "sentry": {
+      "type": "http",
+      "url": "https://mcp.sentry.dev/mcp"
+    }
+  }
+}
+"#,
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    assert_eq!(state.summary.mcp_count, 2);
+    assert_eq!(state.mcp_servers.len(), 2);
+    assert!(state
+        .mcp_servers
+        .iter()
+        .any(|item| item.server_key == "exa"));
+    assert!(state
+        .mcp_servers
+        .iter()
+        .any(|item| item.server_key == "sentry"));
+
+    let central = fs::read_to_string(
+        engine
+            .environment()
+            .home_directory
+            .join(".config")
+            .join("ai-agents")
+            .join("config.toml"),
+    )
+    .expect("read central mcp catalog");
+    assert!(central.contains("# skills-sync:mcp:begin"));
+    assert!(central.contains("[mcp_catalog.\"global::exa\"]"));
+}
+
+#[test]
+fn set_mcp_server_enabled_updates_enabled_flags() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+
+    write_text(
+        &engine
+            .environment()
+            .home_directory
+            .join(".codex")
+            .join("config.toml"),
+        r#"
+[mcp_servers.exa]
+command = "npx"
+args = ["-y", "mcp-remote@latest", "https://mcp.exa.ai/mcp"]
+"#,
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let state = engine
+        .set_mcp_server_enabled("exa", McpAgent::Codex, false, None, None)
+        .expect("set mcp enabled");
+    let exa = find_mcp(&state, "exa", "global", None);
+    assert!(!exa.enabled_by_agent.codex);
+}
+
+#[test]
+fn run_sync_discovers_workspace_with_only_mcp_file() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    write_text(
+        &workspace.join(".mcp.json"),
+        r#"{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://mcp.exa.ai/mcp"
+    }
+  }
+}
+"#,
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let exa = find_mcp(
+        &state,
+        "exa",
+        "project",
+        Some(&workspace.display().to_string()),
+    );
+    assert_eq!(exa.server_key, "exa");
+}
+
+#[test]
+fn run_sync_creates_separate_project_records_for_same_server_key_different_workspaces() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace_a = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_b = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-b");
+    write_text(
+        &workspace_a.join(".mcp.json"),
+        r#"{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://a.exa.ai/mcp"
+    }
+  }
+}
+"#,
+    );
+    write_text(
+        &workspace_b.join(".mcp.json"),
+        r#"{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://b.exa.ai/mcp"
+    }
+  }
+}
+"#,
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let project_exa = state
+        .mcp_servers
+        .iter()
+        .filter(|item| item.server_key == "exa" && item.scope == "project")
+        .collect::<Vec<_>>();
+    assert_eq!(project_exa.len(), 2);
+    assert!(project_exa
+        .iter()
+        .any(|item| item.workspace.as_deref() == Some(&workspace_a.display().to_string())));
+    assert!(project_exa
+        .iter()
+        .any(|item| item.workspace.as_deref() == Some(&workspace_b.display().to_string())));
+}
+
+#[test]
+fn set_enabled_without_scope_errors_on_ambiguous_server_key() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace_a = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_b = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-b");
+    write_text(
+        &workspace_a.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://a.exa.ai/mcp"}}}"#,
+    );
+    write_text(
+        &workspace_b.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://b.exa.ai/mcp"}}}"#,
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let error = engine
+        .set_mcp_server_enabled("exa", McpAgent::Claude, false, None, None)
+        .expect_err("must fail");
+    assert!(error.to_string().contains("ambiguous"));
+}
+
+#[test]
+fn set_enabled_with_scope_workspace_updates_exact_project_record_only() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace_a = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_b = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-b");
+    write_text(
+        &workspace_a.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://mcp.exa.ai/mcp"}}}"#,
+    );
+    write_text(
+        &workspace_b.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://mcp.exa.ai/mcp"}}}"#,
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let state = engine
+        .set_mcp_server_enabled(
+            "exa",
+            McpAgent::Claude,
+            false,
+            Some("project"),
+            Some(&workspace_a.display().to_string()),
+        )
+        .expect("set enabled");
+    let exa_a = find_mcp(
+        &state,
+        "exa",
+        "project",
+        Some(&workspace_a.display().to_string()),
+    );
+    let exa_b = find_mcp(
+        &state,
+        "exa",
+        "project",
+        Some(&workspace_b.display().to_string()),
+    );
+    assert!(!exa_a.enabled_by_agent.claude);
+    assert!(exa_b.enabled_by_agent.claude);
+}
+
+#[test]
+fn global_record_does_not_expose_or_apply_project_toggle() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    write_text(
+        &engine
+            .environment()
+            .home_directory
+            .join(".codex")
+            .join("config.toml"),
+        r#"
+[mcp_servers.exa]
+command = "npx"
+args = ["-y", "mcp-remote@latest", "https://mcp.exa.ai/mcp"]
+"#,
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let exa = find_mcp(&state, "exa", "global", None);
+    assert!(!exa.enabled_by_agent.project);
+
+    let error = engine
+        .set_mcp_server_enabled("exa", McpAgent::Project, false, Some("global"), None)
+        .expect_err("must fail");
+    assert!(error.to_string().contains("global"));
+}
+
+#[test]
+fn project_effective_flags_use_shared_project_gate() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    write_text(
+        &workspace.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://mcp.exa.ai/mcp"}}}"#,
+    );
+    write_text(
+        &workspace.join(".codex").join("config.toml"),
+        "\n# custom codex config\n",
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let state = engine
+        .set_mcp_server_enabled(
+            "exa",
+            McpAgent::Project,
+            false,
+            Some("project"),
+            Some(&workspace.display().to_string()),
+        )
+        .expect("toggle project gate");
+    let exa = find_mcp(
+        &state,
+        "exa",
+        "project",
+        Some(&workspace.display().to_string()),
+    );
+    assert!(!exa.enabled_by_agent.project);
+    assert!(!exa
+        .targets
+        .iter()
+        .any(|path| path == &workspace.join(".mcp.json").display().to_string()));
+    assert!(!exa.targets.iter().any(|path| path
+        == &workspace
+            .join(".codex")
+            .join("config.toml")
+            .display()
+            .to_string()));
+}
+
+#[test]
+fn missing_project_target_emits_warning_and_skips_write() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    write_text(
+        &workspace.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://mcp.exa.ai/mcp"}}}"#,
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let state = engine
+        .set_mcp_server_enabled(
+            "exa",
+            McpAgent::Codex,
+            true,
+            Some("project"),
+            Some(&workspace.display().to_string()),
+        )
+        .expect("enable project codex");
+
+    assert!(state
+        .sync
+        .warnings
+        .iter()
+        .any(|item| item.contains("does not exist") && item.contains("config.toml")));
+    assert!(state.summary.mcp_warning_count > 0);
+    assert_eq!(state.summary.mcp_warning_count, state.sync.warnings.len());
+    assert!(!workspace.join(".codex").join("config.toml").exists());
+}
+
+#[test]
+fn run_sync_bootstraps_from_claude_user_root_json() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+
+    write_text(
+        &engine.environment().home_directory.join(".claude.json"),
+        r#"{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://mcp.exa.ai/mcp"
+    }
+  }
+}
+"#,
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let exa = find_mcp(&state, "exa", "global", None);
+    assert!(exa.enabled_by_agent.claude);
+    assert!(exa.targets.iter().any(|path| path
+        == &engine
+            .environment()
+            .home_directory
+            .join(".claude.json")
+            .display()
+            .to_string()));
+}
+
+#[test]
+fn run_sync_bootstraps_from_claude_user_projects_json() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_key = workspace.display().to_string();
+
+    write_text(
+        &engine.environment().home_directory.join(".claude.json"),
+        &format!(
+            r#"{{
+  "projects": {{
+    "{workspace_key}": {{
+      "mcpServers": {{
+        "psnprices-prod-db": {{
+          "type": "stdio",
+          "command": "/tmp/mcp-prod-db"
+        }}
+      }}
+    }}
+  }}
+}}
+"#
+        ),
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let server = find_mcp(&state, "psnprices-prod-db", "project", Some(&workspace_key));
+    assert!(server.enabled_by_agent.claude);
+    assert!(server.enabled_by_agent.project);
+    assert!(server.targets.iter().any(|path| path
+        == &engine
+            .environment()
+            .home_directory
+            .join(".claude.json")
+            .display()
+            .to_string()));
+}
+
+#[test]
+fn workspace_mcp_json_takes_precedence_over_claude_projects_for_same_locator() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_key = workspace.display().to_string();
+
+    write_text(
+        &workspace.join(".mcp.json"),
+        r#"{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://workspace.example/mcp"
+    }
+  }
+}
+"#,
+    );
+    write_text(
+        &engine.environment().home_directory.join(".claude.json"),
+        &format!(
+            r#"{{
+  "projects": {{
+    "{workspace_key}": {{
+      "mcpServers": {{
+        "exa": {{
+          "type": "http",
+          "url": "https://claude.example/mcp"
+        }}
+      }}
+    }}
+  }}
+}}
+"#
+        ),
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let exa = find_mcp(&state, "exa", "project", Some(&workspace_key));
+    assert_eq!(exa.url.as_deref(), Some("https://workspace.example/mcp"));
+    assert!(exa
+        .targets
+        .iter()
+        .any(|path| path == &workspace.join(".mcp.json").display().to_string()));
+}
+
+#[test]
+fn set_enabled_updates_project_entry_in_claude_json_projects() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_key = workspace.display().to_string();
+    let claude_user = engine.environment().home_directory.join(".claude.json");
+
+    write_text(
+        &claude_user,
+        &format!(
+            r#"{{
+  "projects": {{
+    "{workspace_key}": {{
+      "mcpServers": {{
+        "psnprices-prod-db": {{
+          "type": "stdio",
+          "command": "/tmp/mcp-prod-db"
+        }}
+      }}
+    }}
+  }}
+}}
+"#
+        ),
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let state = engine
+        .set_mcp_server_enabled(
+            "psnprices-prod-db",
+            McpAgent::Claude,
+            false,
+            Some("project"),
+            Some(&workspace_key),
+        )
+        .expect("disable project claude");
+    let server = find_mcp(&state, "psnprices-prod-db", "project", Some(&workspace_key));
+    assert!(!server.enabled_by_agent.claude);
+
+    let disabled_raw = fs::read_to_string(&claude_user).expect("read claude user json");
+    let disabled_json: JsonValue = serde_json::from_str(&disabled_raw).expect("parse json");
+    assert!(disabled_json["projects"][&workspace_key]["mcpServers"]["psnprices-prod-db"].is_null());
+
+    let state = engine
+        .set_mcp_server_enabled(
+            "psnprices-prod-db",
+            McpAgent::Claude,
+            true,
+            Some("project"),
+            Some(&workspace_key),
+        )
+        .expect("enable project claude");
+    let server = find_mcp(&state, "psnprices-prod-db", "project", Some(&workspace_key));
+    assert!(server.enabled_by_agent.claude);
+
+    let enabled_raw = fs::read_to_string(&claude_user).expect("read claude user json");
+    let enabled_json: JsonValue = serde_json::from_str(&enabled_raw).expect("parse json");
+    assert_eq!(
+        enabled_json["projects"][&workspace_key]["mcpServers"]["psnprices-prod-db"]["command"]
+            .as_str(),
+        Some("/tmp/mcp-prod-db")
+    );
+}
+
+#[test]
+fn global_claude_target_prefers_claude_json_over_settings_local() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+
+    write_text(
+        &engine.environment().home_directory.join(".claude.json"),
+        r#"{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://mcp.exa.ai/mcp"
+    }
+  }
+}
+"#,
+    );
+    write_text(
+        &engine
+            .environment()
+            .home_directory
+            .join(".claude")
+            .join("settings.local.json"),
+        r#"{
+  "mcpServers": {}
+}
+"#,
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let exa = find_mcp(&state, "exa", "global", None);
+    assert!(exa.targets.iter().any(|path| path
+        == &engine
+            .environment()
+            .home_directory
+            .join(".claude.json")
+            .display()
+            .to_string()));
+    assert!(!exa.targets.iter().any(|path| {
+        path == &engine
+            .environment()
+            .home_directory
+            .join(".claude")
+            .join("settings.local.json")
+            .display()
+            .to_string()
+    }));
+}
+
+#[test]
+fn fallback_to_settings_local_when_claude_json_missing() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+
+    write_text(
+        &engine
+            .environment()
+            .home_directory
+            .join(".claude")
+            .join("settings.local.json"),
+        r#"{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://mcp.exa.ai/mcp"
+    }
+  }
+}
+"#,
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let exa = find_mcp(&state, "exa", "global", None);
+    assert!(exa.targets.iter().any(|path| {
+        path == &engine
+            .environment()
+            .home_directory
+            .join(".claude")
+            .join("settings.local.json")
+            .display()
+            .to_string()
+    }));
+}
+
+#[test]
+fn run_sync_auto_aligns_claude_enabled_when_observed_in_claude_user_config() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+
+    write_text(
+        &engine
+            .environment()
+            .home_directory
+            .join(".config")
+            .join("ai-agents")
+            .join("config.toml"),
+        r#"
+# skills-sync:mcp:begin
+[mcp_catalog."global::exa"]
+server_key = "exa"
+scope = "global"
+transport = "http"
+url = "https://mcp.exa.ai/mcp"
+[mcp_catalog."global::exa".enabled_by_agent]
+codex = false
+claude = false
+project = false
+# skills-sync:mcp:end
+"#,
+    );
+    write_text(
+        &engine.environment().home_directory.join(".claude.json"),
+        r#"{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://mcp.exa.ai/mcp"
+    }
+  }
+}
+"#,
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let exa = find_mcp(&state, "exa", "global", None);
+    assert!(exa.enabled_by_agent.claude);
+
+    let central = fs::read_to_string(
+        engine
+            .environment()
+            .home_directory
+            .join(".config")
+            .join("ai-agents")
+            .join("config.toml"),
+    )
+    .expect("read central");
+    assert!(central.contains("[mcp_catalog.\"global::exa\".enabled_by_agent]"));
+    assert!(central.contains("claude = true"));
+}
+
+#[test]
+fn manifest_v2_is_readable_and_upgraded_to_v3_locators() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_key = workspace.display().to_string();
+
+    write_text(
+        &workspace.join(".mcp.json"),
+        r#"{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://mcp.exa.ai/mcp"
+    }
+  }
+}
+"#,
+    );
+    write_text(
+        &engine
+            .environment()
+            .runtime_directory
+            .join(".mcp-sync-manifest.json"),
+        &format!(
+            r#"{{
+  "version": 2,
+  "generated_at": "2026-02-20T10:00:00.000Z",
+  "targets": {{
+    "{}": ["exa"]
+  }}
+}}
+"#,
+            workspace.join(".mcp.json").display()
+        ),
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let manifest_raw = fs::read_to_string(
+        engine
+            .environment()
+            .runtime_directory
+            .join(".mcp-sync-manifest.json"),
+    )
+    .expect("read manifest");
+    let manifest_json: JsonValue = serde_json::from_str(&manifest_raw).expect("parse manifest");
+    assert_eq!(manifest_json["version"].as_u64(), Some(3));
+    let locators = manifest_json["targets"][workspace.join(".mcp.json").display().to_string()]
+        .as_array()
+        .expect("locator list");
+    assert!(locators
+        .iter()
+        .any(|value| value.as_str() == Some(&format!("project::{workspace_key}::exa"))));
+}
+
+#[test]
+fn cleanup_removes_only_previous_managed_locators_on_target_switch() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let home = &engine.environment().home_directory;
+    let settings_local = home.join(".claude").join("settings.local.json");
+    let claude_user = home.join(".claude.json");
+
+    write_text(
+        &home.join(".config").join("ai-agents").join("config.toml"),
+        r#"
+# skills-sync:mcp:begin
+[mcp_catalog."global::exa"]
+server_key = "exa"
+scope = "global"
+transport = "http"
+url = "https://mcp.exa.ai/mcp"
+[mcp_catalog."global::exa".enabled_by_agent]
+codex = false
+claude = true
+project = false
+# skills-sync:mcp:end
+"#,
+    );
+    write_text(
+        &settings_local,
+        r#"{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://mcp.exa.ai/mcp"
+    },
+    "custom-unmanaged": {
+      "type": "http",
+      "url": "https://custom.example/mcp"
+    }
+  }
+}
+"#,
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("first sync");
+    write_text(&claude_user, "{\n  \"mcpServers\": {}\n}\n");
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("second sync");
+    let local_raw = fs::read_to_string(&settings_local).expect("read legacy local json");
+    let local_json: JsonValue = serde_json::from_str(&local_raw).expect("parse local json");
+    assert!(local_json["mcpServers"]["exa"].is_null());
+    assert_eq!(
+        local_json["mcpServers"]["custom-unmanaged"]["url"].as_str(),
+        Some("https://custom.example/mcp")
+    );
+
+    let user_raw = fs::read_to_string(&claude_user).expect("read claude user json");
+    let user_json: JsonValue = serde_json::from_str(&user_raw).expect("parse user json");
+    assert_eq!(
+        user_json["mcpServers"]["exa"]["url"].as_str(),
+        Some("https://mcp.exa.ai/mcp")
+    );
+}
+
+#[test]
+fn watch_paths_include_claude_json() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let watch_paths = engine.watch_paths();
+    assert!(watch_paths
+        .iter()
+        .any(|path| path == &engine.environment().home_directory.join(".claude.json")));
 }

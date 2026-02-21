@@ -2,8 +2,8 @@
 
 use serde::Serialize;
 use skillssync_core::{
-    ScopeFilter, SkillLifecycleStatus, SkillLocator, SkillRecord, SubagentRecord, SyncEngine,
-    SyncState, SyncTrigger,
+    McpAgent, McpServerRecord, ScopeFilter, SkillLifecycleStatus, SkillLocator, SkillRecord,
+    SubagentRecord, SyncEngine, SyncState, SyncTrigger,
 };
 use std::cmp::Ordering;
 use std::fs;
@@ -128,6 +128,33 @@ fn list_subagents(scope: Option<String>) -> Result<Vec<SubagentRecord>, String> 
         .transpose()?
         .unwrap_or(ScopeFilter::All);
     Ok(engine.list_subagents(scope_filter))
+}
+
+#[tauri::command]
+fn get_mcp_servers() -> Vec<McpServerRecord> {
+    SyncEngine::current().list_mcp_servers()
+}
+
+#[tauri::command]
+fn set_mcp_server_enabled(
+    server_key: String,
+    agent: String,
+    enabled: bool,
+    scope: Option<String>,
+    workspace: Option<String>,
+) -> Result<SyncState, String> {
+    let parsed = agent
+        .parse::<McpAgent>()
+        .map_err(|error| error.to_string())?;
+    SyncEngine::current()
+        .set_mcp_server_enabled(
+            &server_key,
+            parsed,
+            enabled,
+            scope.as_deref(),
+            workspace.as_deref(),
+        )
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -615,6 +642,8 @@ fn main() {
             set_skill_starred,
             list_skills,
             list_subagents,
+            get_mcp_servers,
+            set_mcp_server_enabled,
             delete_skill,
             archive_skill,
             restore_skill,

@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use skillssync_core::{
-    watch::{default_watch_roots, SyncWatchStream},
-    ScopeFilter, SkillLifecycleStatus, SkillLocator, SyncEngine, SyncTrigger,
+    watch::SyncWatchStream, McpAgent, ScopeFilter, SkillLifecycleStatus, SkillLocator, SyncEngine,
+    SyncTrigger,
 };
 use std::time::Duration;
 
@@ -65,7 +65,32 @@ enum Commands {
         title: String,
     },
     Watch,
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommands,
+    },
     Doctor,
+}
+
+#[derive(Subcommand, Debug)]
+enum McpCommands {
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    SetEnabled {
+        #[arg(long = "server")]
+        server: String,
+        #[arg(long = "agent")]
+        agent: String,
+        #[arg(long = "enabled")]
+        enabled: bool,
+        #[arg(long = "scope")]
+        scope: Option<String>,
+        #[arg(long = "workspace")]
+        workspace: Option<String>,
+    },
+    Sync,
 }
 
 fn main() -> Result<()> {
@@ -160,7 +185,7 @@ fn main() -> Result<()> {
             println!("renamed {}; sync={:?}", skill.skill_key, state.sync.status);
         }
         Commands::Watch => {
-            let roots = default_watch_roots(&engine.environment().home_directory);
+            let roots = engine.watch_paths();
             let _ = engine.run_sync(SyncTrigger::Manual);
             println!("watching {} roots", roots.len());
             let watcher =
@@ -189,6 +214,60 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Commands::Mcp { command } => match command {
+            McpCommands::List { json } => {
+                let servers = engine.list_mcp_servers();
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&servers)?);
+                } else {
+                    for server in servers {
+                        let transport = format!("{:?}", server.transport).to_lowercase();
+                        println!(
+                            "{}\t{}\t{}\t{}\tcodex={}\tclaude={}\tproject={}",
+                            server.server_key,
+                            server.scope,
+                            server.workspace.unwrap_or_else(|| String::from("-")),
+                            transport,
+                            server.enabled_by_agent.codex,
+                            server.enabled_by_agent.claude,
+                            server.enabled_by_agent.project
+                        );
+                    }
+                }
+            }
+            McpCommands::SetEnabled {
+                server,
+                agent,
+                enabled,
+                scope,
+                workspace,
+            } => {
+                let agent = agent.parse::<McpAgent>().map_err(anyhow::Error::msg)?;
+                let state = engine.set_mcp_server_enabled(
+                    &server,
+                    agent,
+                    enabled,
+                    scope.as_deref(),
+                    workspace.as_deref(),
+                )?;
+                println!(
+                    "mcp {} {}={}; sync={:?}",
+                    server,
+                    agent.as_str(),
+                    enabled,
+                    state.sync.status
+                );
+            }
+            McpCommands::Sync => {
+                let state = engine.run_sync(SyncTrigger::Manual)?;
+                println!(
+                    "mcp-sync={} servers={} warnings={}",
+                    format!("{:?}", state.sync.status).to_lowercase(),
+                    state.summary.mcp_count,
+                    state.summary.mcp_warning_count
+                );
+            }
+        },
         Commands::Doctor => {
             let env = engine.environment();
             println!("home={}", env.home_directory.display());

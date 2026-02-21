@@ -7,12 +7,14 @@ import {
   getSubagentDetails,
   listSubagents,
   getPlatformContext,
+  getMcpServers,
   mutateSkill,
   openSkillPath,
   openSubagentPath,
   renameSkill,
   runSync,
   setSkillStarred,
+  setMcpServerEnabled,
 } from "./tauriApi";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -91,6 +93,11 @@ describe("tauriApi command payloads", () => {
     expect(invoke).toHaveBeenCalledWith("get_platform_context");
   });
 
+  it("loads mcp servers without args", async () => {
+    await getMcpServers();
+    expect(invoke).toHaveBeenCalledWith("get_mcp_servers");
+  });
+
   it("loads starred skill ids without args", async () => {
     await getStarredSkillIds();
     expect(invoke).toHaveBeenCalledWith("get_starred_skill_ids");
@@ -101,6 +108,32 @@ describe("tauriApi command payloads", () => {
     expect(invoke).toHaveBeenCalledWith("set_skill_starred", {
       skillId: "skill-1",
       starred: true,
+    });
+  });
+
+  it("sends payload for set_mcp_server_enabled", async () => {
+    await setMcpServerEnabled("exa", "claude", false);
+    expect(invoke).toHaveBeenCalledWith("set_mcp_server_enabled", {
+      serverKey: "exa",
+      agent: "claude",
+      enabled: false,
+    });
+  });
+
+  it("sends scope and workspace for set_mcp_server_enabled when provided", async () => {
+    await setMcpServerEnabled(
+      "exa",
+      "codex",
+      true,
+      "project",
+      "/tmp/workspace-a",
+    );
+    expect(invoke).toHaveBeenCalledWith("set_mcp_server_enabled", {
+      serverKey: "exa",
+      agent: "codex",
+      enabled: true,
+      scope: "project",
+      workspace: "/tmp/workspace-a",
     });
   });
 });

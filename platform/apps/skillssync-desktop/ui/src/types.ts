@@ -41,11 +41,36 @@ export type SyncSummary = {
   global_count: number;
   project_count: number;
   conflict_count: number;
+  mcp_count: number;
+  mcp_warning_count: number;
 };
 
 export type SyncMetadata = {
   status: SyncHealthStatus;
   error: string | null;
+  warnings?: string[];
+};
+
+export type McpEnabledByAgent = {
+  codex: boolean;
+  claude: boolean;
+  project: boolean;
+};
+
+export type McpTransport = "stdio" | "http";
+
+export type McpServerRecord = {
+  server_key: string;
+  scope: "global" | "project";
+  workspace: string | null;
+  transport: McpTransport;
+  command: string | null;
+  args: string[];
+  url: string | null;
+  env: Record<string, string>;
+  enabled_by_agent: McpEnabledByAgent;
+  targets: string[];
+  warnings: string[];
 };
 
 export type SyncState = {
@@ -56,6 +81,7 @@ export type SyncState = {
   subagent_summary: SyncSummary;
   skills: SkillRecord[];
   subagents: SubagentRecord[];
+  mcp_servers?: McpServerRecord[];
   top_skills?: string[];
   top_subagents?: string[];
 };

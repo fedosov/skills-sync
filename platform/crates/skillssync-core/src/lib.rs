@@ -2,6 +2,7 @@ pub mod codex_registry;
 pub mod codex_subagent_registry;
 pub mod engine;
 pub mod error;
+pub mod mcp_registry;
 pub mod models;
 pub mod paths;
 pub mod settings;
@@ -10,9 +11,11 @@ pub mod watch;
 
 pub use engine::{ScopeFilter, SkillLocator, SyncEngine, SyncEngineEnvironment};
 pub use error::SyncEngineError;
+pub use mcp_registry::McpAgent;
 pub use models::{
-    SkillLifecycleStatus, SkillRecord, SubagentRecord, SyncConflict, SyncHealthStatus,
-    SyncMetadata, SyncState, SyncSummary, SyncTrigger,
+    McpEnabledByAgent, McpServerRecord, McpTransport, SkillLifecycleStatus, SkillRecord,
+    SubagentRecord, SyncConflict, SyncHealthStatus, SyncMetadata, SyncState, SyncSummary,
+    SyncTrigger,
 };
 pub use paths::SyncPaths;
 pub use settings::{SyncAppSettings, SyncPreferencesStore};
