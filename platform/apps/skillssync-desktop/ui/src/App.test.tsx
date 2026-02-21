@@ -665,6 +665,102 @@ describe("App quiet redesign", () => {
     });
   });
 
+  it("shows ON/OFF logo groups in MCP catalog rows", async () => {
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace: "/tmp/workspace-a",
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: false,
+            project: true,
+          },
+          targets: ["/tmp/workspace-a/.mcp.json"],
+          warnings: [],
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    );
+
+    const row = screen.getByRole("button", { name: /exa/i });
+    expect(within(row).getAllByText("ON")).toHaveLength(2);
+    expect(within(row).getAllByText("OFF")).toHaveLength(1);
+    expect(
+      within(row).getByRole("img", { name: "codex enabled" }),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByRole("img", { name: "project enabled" }),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByRole("img", { name: "claude disabled" }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides project agent logo in MCP rows for global scope", async () => {
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "ahrefs",
+          scope: "global",
+          workspace: null,
+          transport: "stdio",
+          command: "npx",
+          args: ["-y", "@ahrefs/mcp-server"],
+          url: null,
+          env: {},
+          enabled_by_agent: {
+            codex: false,
+            claude: true,
+            project: true,
+          },
+          targets: [],
+          warnings: [],
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    );
+
+    const row = screen.getByRole("button", { name: /ahrefs/i });
+    expect(
+      within(row).queryByRole("img", { name: /project (enabled|disabled)/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(row).getByRole("img", { name: "codex disabled" }),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByRole("img", { name: "claude enabled" }),
+    ).toBeInTheDocument();
+  });
+
   it("closes menu and dialog on Escape", async () => {
     const state = buildState([projectSkill, archivedSkill]);
     setApiDefaults(state, {

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { McpAgentStatusStrip } from "./components/catalog/McpAgentStatusStrip";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
+import { getVisibleMcpAgents } from "./lib/mcpAgents";
 import { cn } from "./lib/utils";
 import {
   getRuntimeControls,
@@ -888,11 +890,17 @@ export function App() {
                                 setOpenTargetMenu(null);
                               }}
                             >
-                              <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-start justify-between gap-2">
                                 <span className="truncate text-sm font-medium">
                                   {server.server_key}
                                 </span>
-                                <ScopeMarker scope={server.scope} />
+                                <div className="flex shrink-0 flex-col items-end gap-0.5">
+                                  <ScopeMarker scope={server.scope} />
+                                  <McpAgentStatusStrip
+                                    scope={server.scope}
+                                    enabledByAgent={server.enabled_by_agent}
+                                  />
+                                </div>
                               </div>
                               <p
                                 aria-hidden="true"
@@ -1254,49 +1262,50 @@ export function App() {
                       Enable by agent
                     </h3>
                     <div className="flex flex-wrap gap-3">
-                      {(selectedMcpServer.scope === "global"
-                        ? (["codex", "claude"] as const)
-                        : (["codex", "claude", "project"] as const)
-                      ).map((agent) => {
-                        const enabled =
-                          selectedMcpServer.enabled_by_agent[agent];
-                        return (
-                          <div
-                            key={agent}
-                            className="inline-flex items-center gap-2 px-1 py-1"
-                          >
-                            <span className="text-xs font-medium">{agent}</span>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-label={`${agent} toggle`}
-                              aria-checked={enabled}
-                              disabled={busy}
-                              onClick={() =>
-                                void handleSetMcpEnabled(
-                                  selectedMcpServer,
-                                  agent,
-                                  !enabled,
-                                )
-                              }
-                              className={cn(
-                                "relative inline-flex h-6 w-11 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
-                                enabled
-                                  ? "border-primary/70 bg-primary/80"
-                                  : "border-border bg-muted-foreground/25",
-                              )}
+                      {getVisibleMcpAgents(selectedMcpServer.scope).map(
+                        (agent) => {
+                          const enabled =
+                            selectedMcpServer.enabled_by_agent[agent];
+                          return (
+                            <div
+                              key={agent}
+                              className="inline-flex items-center gap-2 px-1 py-1"
                             >
-                              <span
-                                aria-hidden="true"
+                              <span className="text-xs font-medium">
+                                {agent}
+                              </span>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-label={`${agent} toggle`}
+                                aria-checked={enabled}
+                                disabled={busy}
+                                onClick={() =>
+                                  void handleSetMcpEnabled(
+                                    selectedMcpServer,
+                                    agent,
+                                    !enabled,
+                                  )
+                                }
                                 className={cn(
-                                  "inline-block h-4 w-4 transform rounded-full bg-background shadow-sm transition-transform",
-                                  enabled ? "translate-x-5" : "translate-x-1",
+                                  "relative inline-flex h-6 w-11 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
+                                  enabled
+                                    ? "border-primary/70 bg-primary/80"
+                                    : "border-border bg-muted-foreground/25",
                                 )}
-                              />
-                            </button>
-                          </div>
-                        );
-                      })}
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className={cn(
+                                    "inline-block h-4 w-4 transform rounded-full bg-background shadow-sm transition-transform",
+                                    enabled ? "translate-x-5" : "translate-x-1",
+                                  )}
+                                />
+                              </button>
+                            </div>
+                          );
+                        },
+                      )}
                     </div>
                   </section>
 
