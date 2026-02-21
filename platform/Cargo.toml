@@ -26,4 +26,4 @@ thiserror = "1.0"
 uuid = { version = "1.8", features = ["v4", "fast-rng"] }
 walkdir = "2.5"
 tempfile = "3.14"
-toml = "0.8"
+toml = "0.9"
