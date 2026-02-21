@@ -286,7 +286,7 @@ describe("App quiet redesign", () => {
       model: null,
       tools: [],
       codex_tools_ignored: false,
-    } as const;
+    };
     const state = buildState([projectSkill]);
     setApiDefaults(state, {
       [projectSkill.skill_key]: buildDetails(projectSkill),
@@ -344,7 +344,7 @@ describe("App quiet redesign", () => {
       model: null,
       tools: [],
       codex_tools_ignored: false,
-    } as const;
+    };
     const state = buildState([projectSkill]);
     setApiDefaults(state, {
       [projectSkill.skill_key]: buildDetails(projectSkill),
