@@ -179,6 +179,12 @@ npm run test:coverage
 - `platform/crates/skillssync-cli`: command-line interface
 - `platform/apps/skillssync-desktop`: desktop app (Tauri + React)
 
+## macOS Signing
+
+Apple code signing and notarization are **not yet configured**. Unsigned builds
+will be blocked by Gatekeeper. See [`docs/macos-signing.md`](docs/macos-signing.md)
+for the setup guide.
+
 ## Contributing
 
 See `CONTRIBUTING.md`.
