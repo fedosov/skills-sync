@@ -41,6 +41,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -82,6 +87,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -89,6 +99,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: platform
+
+      - name: Prepare bundled dotagents runtime
+        working-directory: platform/apps/skillssync-desktop/ui
+        run: npm run dotagents:prepare
 
       - name: Create UI dist stub
         run: mkdir -p platform/apps/skillssync-desktop/ui/dist

@@ -5,6 +5,14 @@
 1. Clone the repository.
 2. Install Rust stable toolchain.
 3. Install Node.js 22+ and npm.
+4. Install workflow lint tools:
+   - `actionlint` (https://github.com/rhysd/actionlint)
+   - `yamllint` (`pip install yamllint`)
+5. Install repository git hooks:
+
+```bash
+make hooks-install
+```
 
 ## Local Commands
 
@@ -13,6 +21,11 @@ Run from repository root:
 ```bash
 make lint
 ```
+
+`make lint` runs the same three lint groups enforced by pre-commit:
+- `make lint-workflows`
+- `make lint-rust`
+- `make lint-ui`
 
 Autofix formatting/lint issues when possible:
 

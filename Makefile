@@ -6,7 +6,7 @@ APP_DIR := $(PLATFORM_DIR)/apps/skillssync-desktop
 UI_DIR := $(PLATFORM_DIR)/apps/skillssync-desktop/ui
 TAURI_DIR := $(PLATFORM_DIR)/apps/skillssync-desktop/src-tauri
 
-.PHONY: all build run app lint lint-fix lint-rust lint-fix-rust lint-ui lint-fix-ui lint-workflows test test-rust release
+.PHONY: all build run app lint lint-fix prepare-dotagents-runtime lint-rust lint-fix-rust lint-ui lint-fix-ui lint-workflows test test-rust hooks-install release
 
 all: app
 
@@ -30,7 +30,14 @@ lint: lint-rust lint-ui
 
 lint-fix: lint-fix-rust lint-fix-ui lint
 
-lint-rust:
+prepare-dotagents-runtime:
+	@if ! command -v node >/dev/null 2>&1; then \
+		echo "Node.js is required to prepare bundled dotagents runtime. Install Node.js 22+." >&2; \
+		exit 1; \
+	fi
+	cd "$(UI_DIR)" && npm run dotagents:prepare
+
+lint-rust: prepare-dotagents-runtime
 	cd "$(PLATFORM_DIR)" && cargo fmt --all --check
 	mkdir -p "$(UI_DIR)/dist"
 	cd "$(PLATFORM_DIR)" && cargo clippy --workspace --all-targets -- -D warnings
@@ -58,9 +65,12 @@ lint-workflows:
 
 test: test-rust
 
-test-rust:
+test-rust: prepare-dotagents-runtime
 	mkdir -p "$(UI_DIR)/dist"
 	cd "$(PLATFORM_DIR)" && cargo test --workspace
+
+hooks-install:
+	"$(ROOT_DIR)/scripts/install-git-hooks.sh"
 
 release:
 ifndef VERSION
