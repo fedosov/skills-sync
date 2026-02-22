@@ -101,7 +101,7 @@ jobs:
           - ubuntu-22.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.preflight.outputs.tag_exists == 'true' && format('refs/tags/{0}', needs.preflight.outputs.normalized_tag) || github.sha }}
 
