@@ -106,7 +106,7 @@ jobs:
           ref: ${{ needs.preflight.outputs.tag_exists == 'true' && format('refs/tags/{0}', needs.preflight.outputs.normalized_tag) || github.sha }}
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
