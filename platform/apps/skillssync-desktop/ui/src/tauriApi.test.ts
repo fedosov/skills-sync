@@ -29,6 +29,7 @@ import {
   setSkillStarred,
   setMcpServerEnabled,
   listAuditEvents,
+  clearAuditEvents,
 } from "./tauriApi";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -118,6 +119,11 @@ describe("tauriApi command payloads", () => {
       status: "blocked",
       action: "run_sync",
     });
+  });
+
+  it("clears audit events without args", async () => {
+    await clearAuditEvents();
+    expect(invoke).toHaveBeenCalledWith("clear_audit_events");
   });
 
   it("loads state without args", async () => {

@@ -337,6 +337,18 @@ fn list_audit_events(
 }
 
 #[tauri::command]
+fn clear_audit_events(runtime: tauri::State<RuntimeState>) -> Result<(), String> {
+    let engine = SyncEngine::current();
+    let _guard = runtime
+        .sync_lock
+        .lock()
+        .map_err(|_| String::from("internal lock error"))?;
+    engine
+        .clear_audit_events()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn get_state() -> SyncState {
     SyncEngine::current().load_state()
 }
@@ -1138,6 +1150,7 @@ fn main() {
             get_runtime_controls,
             set_allow_filesystem_changes,
             list_audit_events,
+            clear_audit_events,
             get_state,
             get_starred_skill_ids,
             set_skill_starred,

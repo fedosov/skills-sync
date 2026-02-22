@@ -251,6 +251,10 @@ impl SyncEngine {
             .list_events(limit, status_filter, action_filter)
     }
 
+    pub fn clear_audit_events(&self) -> Result<(), SyncEngineError> {
+        self.audit_store.clear_events()
+    }
+
     pub fn record_audit_blocked(
         &self,
         action: &str,
@@ -622,17 +626,16 @@ impl SyncEngine {
                     None,
                 );
                 self.store.save_state(&state)?;
-                let should_record_success = self.has_managed_state_changes(&previous_state, &state)
-                    || previous_state.sync.status != SyncHealthStatus::Ok;
-                let (summary, paths, details) = self.build_audit_sync_diff(&previous_state, &state);
+                let diff = build_audit_sync_diff(&previous_state, &state);
+                let should_record_success = should_record_audit_success(&previous_state, &diff);
                 if should_record_success {
                     let _ = self.record_audit_event(
                         "run_sync",
                         AuditEventStatus::Success,
                         Some(trigger.as_str().to_string()),
-                        summary,
-                        paths,
-                        details,
+                        diff.summary,
+                        diff.paths,
+                        diff.details,
                     );
                 }
                 Ok(state)
@@ -1349,92 +1352,6 @@ impl SyncEngine {
             },
             DEFAULT_AUDIT_LOG_LIMIT,
         )
-    }
-
-    fn build_audit_sync_diff(
-        &self,
-        previous: &SyncState,
-        current: &SyncState,
-    ) -> (String, Vec<String>, Option<String>) {
-        let previous_targets = collect_all_managed_paths(previous);
-        let current_targets = collect_all_managed_paths(current);
-
-        let added_targets = current_targets
-            .difference(&previous_targets)
-            .cloned()
-            .collect::<Vec<_>>();
-        let removed_targets = previous_targets
-            .difference(&current_targets)
-            .cloned()
-            .collect::<Vec<_>>();
-
-        let previous_canonical = collect_canonical_paths(previous);
-        let current_canonical = collect_canonical_paths(current);
-        let mut canonical_shift_lines = Vec::new();
-        let mut shifted_paths = Vec::new();
-
-        for (key, next_path) in &current_canonical {
-            let Some(previous_path) = previous_canonical.get(key) else {
-                continue;
-            };
-            if previous_path == next_path {
-                continue;
-            }
-
-            canonical_shift_lines.push(format!("{key}: {previous_path} -> {next_path}"));
-            shifted_paths.push(previous_path.clone());
-            shifted_paths.push(next_path.clone());
-        }
-
-        let mut paths = added_targets.clone();
-        paths.extend(removed_targets.clone());
-        paths.extend(shifted_paths);
-        paths.sort();
-        paths.dedup();
-
-        let summary = format!(
-            "target paths +{} -{}, canonical shifts {}",
-            added_targets.len(),
-            removed_targets.len(),
-            canonical_shift_lines.len()
-        );
-
-        let mut details = Vec::new();
-        if !added_targets.is_empty() {
-            details.push(format!(
-                "Added targets ({}): {}",
-                added_targets.len(),
-                compact_audit_list(&added_targets, 15)
-            ));
-        }
-        if !removed_targets.is_empty() {
-            details.push(format!(
-                "Removed targets ({}): {}",
-                removed_targets.len(),
-                compact_audit_list(&removed_targets, 15)
-            ));
-        }
-        if !canonical_shift_lines.is_empty() {
-            details.push(format!(
-                "Canonical shifts ({}): {}",
-                canonical_shift_lines.len(),
-                compact_audit_list(&canonical_shift_lines, 10)
-            ));
-        }
-
-        let details = if details.is_empty() {
-            None
-        } else {
-            Some(details.join("\n"))
-        };
-
-        (summary, paths, details)
-    }
-
-    fn has_managed_state_changes(&self, previous: &SyncState, current: &SyncState) -> bool {
-        previous.skills != current.skills
-            || previous.subagents != current.subagents
-            || previous.mcp_servers != current.mcp_servers
     }
 
     fn discover_global_packages(&self) -> Vec<SkillPackage> {
@@ -2604,6 +2521,215 @@ fn collect_all_managed_paths(state: &SyncState) -> std::collections::BTreeSet<St
     paths
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AuditSyncDiff {
+    summary: String,
+    paths: Vec<String>,
+    details: Option<String>,
+    added_targets: Vec<String>,
+    removed_targets: Vec<String>,
+    canonical_shift_lines: Vec<String>,
+    mcp_added: Vec<String>,
+    mcp_removed: Vec<String>,
+    mcp_updated: Vec<String>,
+}
+
+impl AuditSyncDiff {
+    fn has_changes(&self) -> bool {
+        !self.added_targets.is_empty()
+            || !self.removed_targets.is_empty()
+            || !self.canonical_shift_lines.is_empty()
+            || !self.mcp_added.is_empty()
+            || !self.mcp_removed.is_empty()
+            || !self.mcp_updated.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct McpComparableConfig {
+    transport: crate::models::McpTransport,
+    command: Option<String>,
+    args: Vec<String>,
+    url: Option<String>,
+    env: BTreeMap<String, String>,
+    enabled_by_agent: crate::models::McpEnabledByAgent,
+    targets: Vec<String>,
+}
+
+fn should_record_audit_success(previous: &SyncState, diff: &AuditSyncDiff) -> bool {
+    diff.has_changes() || previous.sync.status != SyncHealthStatus::Ok
+}
+
+fn build_audit_sync_diff(previous: &SyncState, current: &SyncState) -> AuditSyncDiff {
+    let previous_targets = collect_all_managed_paths(previous);
+    let current_targets = collect_all_managed_paths(current);
+
+    let mut added_targets = current_targets
+        .difference(&previous_targets)
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut removed_targets = previous_targets
+        .difference(&current_targets)
+        .cloned()
+        .collect::<Vec<_>>();
+    added_targets.sort();
+    removed_targets.sort();
+
+    let previous_canonical = collect_canonical_paths(previous);
+    let current_canonical = collect_canonical_paths(current);
+    let mut canonical_shift_lines = Vec::new();
+    let mut shifted_paths = Vec::new();
+
+    for (key, next_path) in &current_canonical {
+        let Some(previous_path) = previous_canonical.get(key) else {
+            continue;
+        };
+        if previous_path == next_path {
+            continue;
+        }
+
+        canonical_shift_lines.push(format!("{key}: {previous_path} -> {next_path}"));
+        shifted_paths.push(previous_path.clone());
+        shifted_paths.push(next_path.clone());
+    }
+    canonical_shift_lines.sort();
+
+    let previous_mcp = collect_mcp_configs(previous);
+    let current_mcp = collect_mcp_configs(current);
+
+    let mut mcp_added = current_mcp
+        .keys()
+        .filter(|key| !previous_mcp.contains_key(*key))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut mcp_removed = previous_mcp
+        .keys()
+        .filter(|key| !current_mcp.contains_key(*key))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut mcp_updated = current_mcp
+        .iter()
+        .filter_map(|(key, current_config)| {
+            previous_mcp
+                .get(key)
+                .filter(|previous_config| *previous_config != current_config)
+                .map(|_| key.clone())
+        })
+        .collect::<Vec<_>>();
+
+    mcp_added.sort();
+    mcp_removed.sort();
+    mcp_updated.sort();
+
+    let mut paths = added_targets.clone();
+    paths.extend(removed_targets.clone());
+    paths.extend(shifted_paths);
+    paths.sort();
+    paths.dedup();
+
+    let mcp_changes_total = mcp_added.len() + mcp_removed.len() + mcp_updated.len();
+    let summary = format!(
+        "target paths +{} -{}, canonical shifts {}, mcp changes {}",
+        added_targets.len(),
+        removed_targets.len(),
+        canonical_shift_lines.len(),
+        mcp_changes_total
+    );
+
+    let mut details = Vec::new();
+    if !added_targets.is_empty() {
+        details.push(format!(
+            "Added targets ({}): {}",
+            added_targets.len(),
+            compact_audit_list(&added_targets, 15)
+        ));
+    }
+    if !removed_targets.is_empty() {
+        details.push(format!(
+            "Removed targets ({}): {}",
+            removed_targets.len(),
+            compact_audit_list(&removed_targets, 15)
+        ));
+    }
+    if !canonical_shift_lines.is_empty() {
+        details.push(format!(
+            "Canonical shifts ({}): {}",
+            canonical_shift_lines.len(),
+            compact_audit_list(&canonical_shift_lines, 10)
+        ));
+    }
+    if !mcp_added.is_empty() {
+        details.push(format!(
+            "MCP added ({}): {}",
+            mcp_added.len(),
+            compact_audit_list(&mcp_added, 10)
+        ));
+    }
+    if !mcp_removed.is_empty() {
+        details.push(format!(
+            "MCP removed ({}): {}",
+            mcp_removed.len(),
+            compact_audit_list(&mcp_removed, 10)
+        ));
+    }
+    if !mcp_updated.is_empty() {
+        details.push(format!(
+            "MCP updated ({}): {}",
+            mcp_updated.len(),
+            compact_audit_list(&mcp_updated, 10)
+        ));
+    }
+
+    let details = if details.is_empty() {
+        None
+    } else {
+        Some(details.join("\n"))
+    };
+
+    AuditSyncDiff {
+        summary,
+        paths,
+        details,
+        added_targets,
+        removed_targets,
+        canonical_shift_lines,
+        mcp_added,
+        mcp_removed,
+        mcp_updated,
+    }
+}
+
+fn collect_mcp_configs(state: &SyncState) -> BTreeMap<String, McpComparableConfig> {
+    let mut configs = BTreeMap::new();
+
+    for server in &state.mcp_servers {
+        let mut targets = server.targets.clone();
+        targets.sort();
+        targets.dedup();
+
+        let key = format!(
+            "{}::{}::{}",
+            server.scope,
+            server.workspace.as_deref().unwrap_or("-"),
+            server.server_key
+        );
+        configs.insert(
+            key,
+            McpComparableConfig {
+                transport: server.transport,
+                command: server.command.clone(),
+                args: server.args.clone(),
+                url: server.url.clone(),
+                env: server.env.clone(),
+                enabled_by_agent: server.enabled_by_agent.clone(),
+                targets,
+            },
+        );
+    }
+
+    configs
+}
+
 fn collect_canonical_paths(state: &SyncState) -> std::collections::BTreeMap<String, String> {
     let mut canonical = std::collections::BTreeMap::new();
 
@@ -3052,10 +3178,60 @@ fn dotagents_fallback_skill_path(context: &DotagentsInvocationContext, skill_key
 #[cfg(test)]
 mod tests {
     use super::{
-        dotagents_fallback_skill_path, normalized_skill_key, updated_skill_contents,
-        DotagentsInvocationContext,
+        build_audit_sync_diff, dotagents_fallback_skill_path, normalized_skill_key,
+        should_record_audit_success, updated_skill_contents, DotagentsInvocationContext,
+    };
+    use crate::models::{
+        McpEnabledByAgent, McpServerRecord, McpTransport, SyncHealthStatus, SyncMetadata,
+        SyncState, SyncSummary,
     };
     use std::path::PathBuf;
+
+    fn base_state(status: SyncHealthStatus) -> SyncState {
+        SyncState {
+            version: 2,
+            generated_at: String::from("2026-02-22T10:00:00Z"),
+            sync: SyncMetadata {
+                status,
+                last_started_at: Some(String::from("2026-02-22T10:00:00Z")),
+                last_finished_at: Some(String::from("2026-02-22T10:00:01Z")),
+                duration_ms: Some(1000),
+                error: None,
+                warnings: Vec::new(),
+            },
+            summary: SyncSummary::empty(),
+            subagent_summary: SyncSummary::empty(),
+            skills: Vec::new(),
+            subagents: Vec::new(),
+            mcp_servers: Vec::new(),
+            top_skills: Vec::new(),
+            top_subagents: Vec::new(),
+        }
+    }
+
+    fn mcp_record(
+        server_key: &str,
+        command: Option<&str>,
+        targets: &[&str],
+        warnings: &[&str],
+    ) -> McpServerRecord {
+        McpServerRecord {
+            server_key: server_key.to_string(),
+            scope: String::from("global"),
+            workspace: None,
+            transport: McpTransport::Stdio,
+            command: command.map(str::to_string),
+            args: vec![String::from("--stdio")],
+            url: None,
+            env: std::collections::BTreeMap::new(),
+            enabled_by_agent: McpEnabledByAgent::default(),
+            targets: targets.iter().map(|path| (*path).to_string()).collect(),
+            warnings: warnings
+                .iter()
+                .map(|warning| (*warning).to_string())
+                .collect(),
+        }
+    }
 
     #[test]
     fn normalized_skill_key_removes_noise() {
@@ -3071,6 +3247,65 @@ mod tests {
         let raw = "---\ntitle: Old\n---\n\nBody";
         let updated = updated_skill_contents(raw, "New");
         assert!(updated.contains("title: New"));
+    }
+
+    #[test]
+    fn audit_sync_diff_is_empty_for_noop_states() {
+        let previous = base_state(SyncHealthStatus::Ok);
+        let current = previous.clone();
+
+        let diff = build_audit_sync_diff(&previous, &current);
+
+        assert!(!diff.has_changes());
+        assert_eq!(
+            diff.summary,
+            "target paths +0 -0, canonical shifts 0, mcp changes 0"
+        );
+        assert_eq!(diff.details, None);
+        assert!(diff.paths.is_empty());
+        assert!(!should_record_audit_success(&previous, &diff));
+    }
+
+    #[test]
+    fn audit_sync_diff_detects_mcp_config_updates_ignoring_warnings() {
+        let mut previous = base_state(SyncHealthStatus::Ok);
+        previous.mcp_servers = vec![mcp_record(
+            "exa",
+            Some("node"),
+            &["/tmp/workspace/.mcp.json", "/tmp/home/.mcp.json"],
+            &["initial warning"],
+        )];
+
+        let mut current = previous.clone();
+        current.mcp_servers = vec![mcp_record(
+            "exa",
+            Some("uvx"),
+            &["/tmp/home/.mcp.json", "/tmp/workspace/.mcp.json"],
+            &["different warning"],
+        )];
+
+        let diff = build_audit_sync_diff(&previous, &current);
+        let details = diff.details.clone().expect("details");
+
+        assert!(diff.has_changes());
+        assert!(diff.summary.ends_with("mcp changes 1"));
+        assert_eq!(diff.mcp_added.len(), 0);
+        assert_eq!(diff.mcp_removed.len(), 0);
+        assert_eq!(diff.mcp_updated.len(), 1);
+        assert_eq!(diff.mcp_updated[0], "global::-::exa");
+        assert!(details.contains("MCP updated (1): global::-::exa"));
+    }
+
+    #[test]
+    fn should_record_audit_success_for_recovery_even_without_diff() {
+        let previous = base_state(SyncHealthStatus::Failed);
+        let mut current = base_state(SyncHealthStatus::Ok);
+        current.generated_at = String::from("2026-02-22T10:01:00Z");
+
+        let diff = build_audit_sync_diff(&previous, &current);
+
+        assert!(!diff.has_changes());
+        assert!(should_record_audit_success(&previous, &diff));
     }
 
     #[test]

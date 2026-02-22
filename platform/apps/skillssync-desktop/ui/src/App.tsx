@@ -7,6 +7,7 @@ import { Input } from "./components/ui/input";
 import { getVisibleMcpAgents } from "./lib/mcpAgents";
 import { cn } from "./lib/utils";
 import {
+  clearAuditEvents,
   listDotagentsMcp,
   listDotagentsSkills,
   getRuntimeControls,
@@ -149,6 +150,8 @@ export function App() {
     useState<AuditStatusFilter>("all");
   const [auditActionFilter, setAuditActionFilter] = useState("");
   const [auditBusy, setAuditBusy] = useState(false);
+  const [clearAuditDialogOpen, setClearAuditDialogOpen] = useState(false);
+  const [clearAuditBusy, setClearAuditBusy] = useState(false);
   const [focusKind, setFocusKind] = useState<FocusKind>(() =>
     readStoredFocusKind(),
   );
@@ -373,6 +376,7 @@ export function App() {
       setOpenTargetMenu(null);
       setActionsMenuOpen(false);
       setDeleteDialog(null);
+      setClearAuditDialogOpen(false);
       setAuditOpen(false);
     };
 
@@ -659,7 +663,27 @@ export function App() {
 
   async function handleOpenAuditLog() {
     setAuditOpen(true);
+    setClearAuditDialogOpen(false);
     await loadAudit();
+  }
+
+  function handleCloseAuditLog() {
+    setAuditOpen(false);
+    setClearAuditDialogOpen(false);
+  }
+
+  async function handleConfirmClearAuditLogs() {
+    setClearAuditBusy(true);
+    setError(null);
+    try {
+      await clearAuditEvents();
+      await loadAudit();
+      setClearAuditDialogOpen(false);
+    } catch (invokeError) {
+      setError(String(invokeError));
+    } finally {
+      setClearAuditBusy(false);
+    }
   }
 
   function handleCatalogTabChange(next: FocusKind) {
@@ -1693,7 +1717,7 @@ export function App() {
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setAuditOpen(false)}
+                onClick={() => handleCloseAuditLog()}
               >
                 Close
               </Button>
@@ -1745,6 +1769,14 @@ export function App() {
               >
                 Apply
               </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={auditBusy || clearAuditBusy}
+                onClick={() => setClearAuditDialogOpen(true)}
+              >
+                Clear logs
+              </Button>
             </div>
             <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-md border border-border/50">
               {auditEvents.length === 0 ? (
@@ -1790,6 +1822,40 @@ export function App() {
                   ))}
                 </ul>
               )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {clearAuditDialogOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Clear audit logs"
+            className="w-full max-w-sm rounded-md border border-border/70 bg-card p-4"
+          >
+            <h2 className="text-sm font-semibold">Clear audit logs</h2>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Remove all audit events from the log?
+            </p>
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={clearAuditBusy}
+                onClick={() => setClearAuditDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={clearAuditBusy}
+                onClick={() => void handleConfirmClearAuditLogs()}
+              >
+                Confirm
+              </Button>
             </div>
           </div>
         </div>

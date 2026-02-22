@@ -86,6 +86,10 @@ export async function listAuditEvents(
   return invoke<AuditEvent[]>("list_audit_events", payload);
 }
 
+export async function clearAuditEvents(): Promise<void> {
+  return invoke<void>("clear_audit_events");
+}
+
 export async function getSkillDetails(skillKey: string): Promise<SkillDetails> {
   return invoke<SkillDetails>("get_skill_details", { skillKey });
 }

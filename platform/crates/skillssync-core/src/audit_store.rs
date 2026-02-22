@@ -86,6 +86,10 @@ impl SyncAuditStore {
             .collect()
     }
 
+    pub fn clear_events(&self) -> Result<(), SyncEngineError> {
+        self.save_events(&[])
+    }
+
     fn save_events(&self, events: &[AuditEvent]) -> Result<(), SyncEngineError> {
         self.paths
             .ensure_runtime_dir()
@@ -164,5 +168,26 @@ mod tests {
             store.list_events(Some(10), Some(AuditEventStatus::Failed), Some("run_sync"));
         assert_eq!(failed_sync.len(), 1);
         assert_eq!(failed_sync[0].id, "event-2");
+    }
+
+    #[test]
+    fn clear_events_clears_all_items_and_keeps_payload_shape() {
+        let dir = tempdir().expect("tempdir");
+        let store = SyncAuditStore::new(SyncPaths::from_runtime(dir.path().to_path_buf()));
+
+        store
+            .append_event(event(1, "run_sync", AuditEventStatus::Success), 100)
+            .expect("append");
+        store
+            .append_event(event(2, "run_sync", AuditEventStatus::Failed), 100)
+            .expect("append");
+
+        store.clear_events().expect("clear events");
+        assert!(store.load_events().is_empty());
+
+        let payload = std::fs::read_to_string(store.paths.audit_log_path.clone())
+            .expect("read payload after clear");
+        assert!(payload.contains("\"version\": 1"));
+        assert!(payload.contains("\"events\": []"));
     }
 }

@@ -14,6 +14,7 @@ vi.mock("./tauriApi", () => ({
   getRuntimeControls: vi.fn(),
   setAllowFilesystemChanges: vi.fn(),
   listAuditEvents: vi.fn(),
+  clearAuditEvents: vi.fn(),
   getState: vi.fn(),
   runSync: vi.fn(),
   runDotagentsSync: vi.fn(),
@@ -145,6 +146,7 @@ function setApiDefaults(
     auto_watch_active: true,
   });
   vi.mocked(tauriApi.listAuditEvents).mockResolvedValue([]);
+  vi.mocked(tauriApi.clearAuditEvents).mockResolvedValue(undefined);
   vi.mocked(tauriApi.getStarredSkillIds).mockResolvedValue([]);
   vi.mocked(tauriApi.listSubagents).mockResolvedValue([
     {
@@ -1091,6 +1093,81 @@ describe("App quiet redesign", () => {
       screen.getByRole("dialog", { name: "Audit log" }),
     ).toBeInTheDocument();
     expect(await screen.findByText(/run_sync/i)).toBeInTheDocument();
+  });
+
+  it("opens clear logs confirm dialog from audit log", async () => {
+    const state = buildState([projectSkill]);
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(screen.getByRole("button", { name: "Audit log" }));
+    await user.click(screen.getByRole("button", { name: "Clear logs" }));
+
+    expect(
+      screen.getByRole("dialog", { name: "Clear audit logs" }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not clear audit log when cancel is clicked", async () => {
+    const state = buildState([projectSkill]);
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(screen.getByRole("button", { name: "Audit log" }));
+    await user.click(screen.getByRole("button", { name: "Clear logs" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(tauriApi.clearAuditEvents).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("dialog", { name: "Clear audit logs" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("clears audit log after confirm and reloads empty state", async () => {
+    const state = buildState([projectSkill]);
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+    vi.mocked(tauriApi.listAuditEvents)
+      .mockResolvedValueOnce([
+        {
+          id: "evt-1",
+          occurred_at: "2026-02-21T12:00:00Z",
+          action: "run_sync",
+          status: "success",
+          trigger: "manual",
+          summary: "target paths +0 -0, canonical shifts 0, mcp changes 1",
+          paths: [],
+          details: "MCP updated (1): global::-::exa",
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(screen.getByRole("button", { name: "Audit log" }));
+    expect(await screen.findByText(/run_sync/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Clear logs" }));
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => {
+      expect(tauriApi.clearAuditEvents).toHaveBeenCalledTimes(1);
+      expect(tauriApi.listAuditEvents).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByText("No audit events.")).toBeInTheDocument();
   });
 
   it("shows backend blocked error when write action is denied", async () => {
