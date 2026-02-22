@@ -41,7 +41,7 @@ jobs:
 
       - name: Detect whether git tag exists
         id: tag_exists
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           RELEASE_TAG: ${{ steps.normalize_tag.outputs.tag }}
         with:
@@ -63,7 +63,7 @@ jobs:
             }
 
       - name: Ensure tag is not a published release
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           RELEASE_TAG: ${{ steps.normalize_tag.outputs.tag }}
         with:
