@@ -75,6 +75,7 @@ endif
 	@if git rev-parse "v$(VERSION)" >/dev/null 2>&1; then \
 		echo "Error: tag v$(VERSION) already exists." >&2; exit 1; \
 	fi
+	$(MAKE) lint
 	@echo "Bumping version to $(VERSION)..."
 	sed -i '' 's/^version = ".*"/version = "$(VERSION)"/' "$(PLATFORM_DIR)/Cargo.toml"
 	sed -i '' 's/"version": ".*"/"version": "$(VERSION)"/' "$(TAURI_DIR)/tauri.conf.json"
