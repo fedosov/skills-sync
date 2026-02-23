@@ -941,7 +941,7 @@ impl McpRegistry {
             return Ok(BTreeMap::new());
         }
 
-        let parsed = body.parse::<toml::Value>().map_err(|error| {
+        let parsed: toml::Table = toml::from_str(body.trim()).map_err(|error| {
             SyncEngineError::Unsupported(format!("invalid central MCP block: {error}"))
         })?;
         let Some(root) = parsed.get("mcp_catalog") else {
@@ -1679,13 +1679,12 @@ fn read_toml_servers(path: &Path) -> Result<Vec<(String, McpDefinition, bool)>, 
 }
 
 fn read_toml_servers_from_str(raw: &str) -> Result<Vec<(String, McpDefinition, bool)>, String> {
-    if raw.trim().is_empty() {
+    let raw = raw.trim();
+    if raw.is_empty() {
         return Ok(Vec::new());
     }
 
-    let parsed = raw
-        .parse::<toml::Value>()
-        .map_err(|error| error.to_string())?;
+    let parsed: toml::Table = toml::from_str(raw).map_err(|error| error.to_string())?;
     let Some(root) = parsed.get("mcp_servers") else {
         return Ok(Vec::new());
     };
