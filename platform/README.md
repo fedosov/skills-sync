@@ -13,8 +13,8 @@ This workspace contains the multiplatform sync engine for `skills` and `subagent
 ```bash
 cd platform
 cargo test
-cargo run -p agent-sync-cli -- sync --trigger manual --json
-cargo run -p agent-sync-cli -- list-subagents --scope all --json
+cargo run -p agent-sync-cli -- sync --scope all --json
+cargo run -p agent-sync-cli -- skills list --scope all --json
 ```
 
 ## Desktop
