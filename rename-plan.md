@@ -104,14 +104,14 @@ Chosen decisions:
 
 ### Task 3: Rename app branding and Tauri identity
 
-- [ ] Update tauri.conf.json productName to Agent Sync Desktop and identifier to dev.fedosov.agent-sync.desktop
-- [ ] Update window title in tauri.conf.json to Agent Sync Desktop
-- [ ] Update ui/index.html title to Agent Sync Desktop
-- [ ] Update ui/package.json name field
-- [ ] Update ui/package-lock.json name field
-- [ ] Update App.tsx any hardcoded SkillsSync brand strings
-- [ ] Update AppHeader.tsx brand strings
-- [ ] Update CLAUDE.md app name and path references
+- [x] Update tauri.conf.json productName to Agent Sync Desktop and identifier to dev.fedosov.agent-sync.desktop
+- [x] Update window title in tauri.conf.json to Agent Sync Desktop
+- [x] Update ui/index.html title to Agent Sync Desktop
+- [x] Update ui/package.json name field
+- [x] Update ui/package-lock.json name field
+- [x] Update App.tsx any hardcoded SkillsSync brand strings
+- [x] Update AppHeader.tsx brand strings
+- [x] Update CLAUDE.md app name and path references
 
 ### Task 4: Rename runtime keys, paths, env vars, and managed markers
 
