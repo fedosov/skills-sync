@@ -36,7 +36,7 @@ vi.mock("./tauriApi", () => ({
 }));
 
 let clipboardWriteSpy: ReturnType<typeof vi.fn>;
-const CATALOG_FOCUS_STORAGE_KEY = "skillssync.catalog.focusKind.v1";
+const CATALOG_FOCUS_STORAGE_KEY = "agent-sync.catalog.focusKind.v1";
 
 function createLocalStorageMock(): Storage {
   const values = new Map<string, string>();
@@ -1406,7 +1406,7 @@ describe("App quiet redesign", () => {
     vi.mocked(tauriApi.runDotagentsSync)
       .mockRejectedValueOnce(
         new Error(
-          "migration required before strict dotagents sync: project scope is not initialized for 1 workspace(s): /tmp/workspace-a; run `skillssync migrate-dotagents --scope project`",
+          "migration required before strict dotagents sync: project scope is not initialized for 1 workspace(s): /tmp/workspace-a; run `agent-sync migrate-dotagents --scope project`",
         ),
       )
       .mockResolvedValueOnce(undefined);

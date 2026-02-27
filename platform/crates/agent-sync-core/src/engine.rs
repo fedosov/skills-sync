@@ -39,9 +39,9 @@ pub struct SyncEngineEnvironment {
 impl SyncEngineEnvironment {
     pub fn current() -> Self {
         let home = home_dir().unwrap_or_else(|| PathBuf::from("/"));
-        let runtime_directory = std::env::var("SKILLS_SYNC_RUNTIME_DIR")
+        let runtime_directory = std::env::var("AGENT_SYNC_RUNTIME_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| home.join(".config").join("ai-agents").join("skillssync"));
+            .unwrap_or_else(|_| home.join(".config").join("ai-agents").join("agent-sync"));
         Self {
             home_directory: home.clone(),
             dev_root: home.join("Dev"),
@@ -1815,7 +1815,7 @@ impl SyncEngine {
                 .user_agents_contract_path()
                 .ok_or_else(|| {
                     SyncEngineError::MigrationRequired(String::from(
-                        "user scope is not initialized: missing agents.toml; run `skillssync migrate-dotagents --scope user` or `dotagents --user init`",
+                        "user scope is not initialized: missing agents.toml; run `agent-sync migrate-dotagents --scope user` or `dotagents --user init`",
                     ))
                 })?;
             let home_cwd = user_contract
@@ -1849,7 +1849,7 @@ impl SyncEngine {
             if !missing.is_empty() {
                 missing.sort();
                 return Err(SyncEngineError::MigrationRequired(format!(
-                    "project scope is not initialized for {} workspace(s): {}; run `skillssync migrate-dotagents --scope project`",
+                    "project scope is not initialized for {} workspace(s): {}; run `agent-sync migrate-dotagents --scope project`",
                     missing.len(),
                     missing.join(", ")
                 )));
@@ -2459,7 +2459,7 @@ impl SyncEngine {
             .home_directory
             .join(".config")
             .join("ai-agents")
-            .join("skillssync")
+            .join("agent-sync")
     }
 
     fn runtime_prompts_root(&self) -> PathBuf {

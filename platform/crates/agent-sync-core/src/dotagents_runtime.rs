@@ -201,7 +201,7 @@ impl DotagentsRuntimeManager {
             return Some(path.clone());
         }
 
-        env::var("SKILLS_SYNC_DOTAGENTS_BIN")
+        env::var("AGENT_SYNC_DOTAGENTS_BIN")
             .ok()
             .map(|raw| raw.trim().to_owned())
             .filter(|raw| !raw.is_empty())
@@ -247,7 +247,7 @@ impl DotagentsRuntimeManager {
             roots.push(root.clone());
         }
 
-        if let Ok(raw_root) = env::var("SKILLS_SYNC_DOTAGENTS_BUNDLE_DIR") {
+        if let Ok(raw_root) = env::var("AGENT_SYNC_DOTAGENTS_BUNDLE_DIR") {
             let trimmed = raw_root.trim();
             if !trimmed.is_empty() {
                 roots.push(PathBuf::from(trimmed));

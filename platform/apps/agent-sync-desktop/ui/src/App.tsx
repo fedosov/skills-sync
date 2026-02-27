@@ -53,7 +53,7 @@ type DeleteDialogState = { skillKey: string; confirmText: string } | null;
 type OpenTargetMenu = "skill" | "subagent" | null;
 type AuditStatusFilter = AuditEventStatus | "all";
 type DotagentsProofStatus = "idle" | "running" | "ok" | "error";
-const CATALOG_FOCUS_STORAGE_KEY = "skillssync.catalog.focusKind.v1";
+const CATALOG_FOCUS_STORAGE_KEY = "agent-sync.catalog.focusKind.v1";
 const DOTAGENTS_MIGRATION_REQUIRED =
   "migration required before strict dotagents sync";
 

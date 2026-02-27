@@ -798,12 +798,12 @@ fn run_sync_writes_codex_subagent_managed_blocks() {
         .join(".codex")
         .join("config.toml");
     let global_raw = fs::read_to_string(global_cfg).expect("global codex config");
-    assert!(global_raw.contains("# skills-sync:subagents:begin"));
+    assert!(global_raw.contains("# agent-sync:subagents:begin"));
     assert!(global_raw.contains("[agents.reviewer]"));
 
     let project_cfg = workspace.join(".codex").join("config.toml");
     let project_raw = fs::read_to_string(project_cfg).expect("project codex config");
-    assert!(project_raw.contains("# skills-sync:subagents:begin"));
+    assert!(project_raw.contains("# agent-sync:subagents:begin"));
     assert!(project_raw.contains("[agents.debugger]"));
 }
 
@@ -842,7 +842,7 @@ fn run_sync_clears_codex_subagent_managed_blocks_when_subagents_removed() {
     assert!(state.subagents.is_empty());
 
     let after = fs::read_to_string(global_cfg).expect("global codex config after");
-    assert!(after.contains("# skills-sync:subagents:begin"));
+    assert!(after.contains("# agent-sync:subagents:begin"));
     assert!(!after.contains("[agents.reviewer]"));
 }
 
@@ -901,7 +901,7 @@ args = ["-y", "mcp-remote@latest", "https://mcp.exa.ai/mcp"]
             .join("config.toml"),
     )
     .expect("read central mcp catalog");
-    assert!(central.contains("# skills-sync:mcp:begin"));
+    assert!(central.contains("# agent-sync:mcp:begin"));
     assert!(central.contains("[mcp_catalog.\"global::exa\"]"));
 }
 
@@ -1495,7 +1495,7 @@ fn run_sync_auto_aligns_claude_enabled_when_observed_in_claude_user_config() {
             .join("ai-agents")
             .join("config.toml"),
         r#"
-# skills-sync:mcp:begin
+# agent-sync:mcp:begin
 [mcp_catalog."global::exa"]
 server_key = "exa"
 scope = "global"
@@ -1505,7 +1505,7 @@ url = "https://mcp.exa.ai/mcp"
 codex = false
 claude = false
 project = false
-# skills-sync:mcp:end
+# agent-sync:mcp:end
 "#,
     );
     write_text(
@@ -1608,7 +1608,7 @@ fn cleanup_removes_only_previous_managed_locators_on_target_switch() {
     write_text(
         &home.join(".config").join("ai-agents").join("config.toml"),
         r#"
-# skills-sync:mcp:begin
+# agent-sync:mcp:begin
 [mcp_catalog."global::exa"]
 server_key = "exa"
 scope = "global"
@@ -1618,7 +1618,7 @@ url = "https://mcp.exa.ai/mcp"
 codex = false
 claude = true
 project = false
-# skills-sync:mcp:end
+# agent-sync:mcp:end
 "#,
     );
     write_text(
@@ -1794,7 +1794,7 @@ exit 9
     fs::set_permissions(&script_path, perms).expect("chmod");
 
     let _lock = dotagents_env_lock().lock().expect("lock env");
-    let _env_guard = set_env_var_with_restore("SKILLS_SYNC_DOTAGENTS_BIN", &script_path);
+    let _env_guard = set_env_var_with_restore("AGENT_SYNC_DOTAGENTS_BIN", &script_path);
 
     let error = engine
         .list_dotagents_mcp(DotagentsScope::User)

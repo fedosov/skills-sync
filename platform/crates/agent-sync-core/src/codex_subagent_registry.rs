@@ -29,8 +29,8 @@ impl CodexSubagentRegistryWriter {
     pub fn new(home_directory: PathBuf) -> Self {
         Self {
             home_directory,
-            begin_marker: "# skills-sync:subagents:begin",
-            end_marker: "# skills-sync:subagents:end",
+            begin_marker: "# agent-sync:subagents:begin",
+            end_marker: "# agent-sync:subagents:end",
         }
     }
 
@@ -248,11 +248,11 @@ mod tests {
         let original = "\
 custom = true
 
-# skills-sync:subagents:begin
+# agent-sync:subagents:begin
 [agents.legacy]
 description = \"Legacy\"
 config_file = \"agents/legacy.toml\"
-# skills-sync:subagents:end
+# agent-sync:subagents:end
 ";
         std::fs::write(&deep_cfg, original).expect("write deep config");
 
@@ -286,11 +286,11 @@ config_file = \"agents/legacy.toml\"
         std::fs::write(
             &workspace_cfg,
             "\
-# skills-sync:subagents:begin
+# agent-sync:subagents:begin
 [agents.legacy]
 description = \"Legacy\"
 config_file = \"agents/legacy.toml\"
-# skills-sync:subagents:end
+# agent-sync:subagents:end
 ",
         )
         .expect("write workspace config");
@@ -301,9 +301,9 @@ config_file = \"agents/legacy.toml\"
             .expect("write registries");
 
         let current = std::fs::read_to_string(&workspace_cfg).expect("read workspace config");
-        assert!(current.contains("# skills-sync:subagents:begin"));
+        assert!(current.contains("# agent-sync:subagents:begin"));
         assert!(current.contains("# No managed subagent entries"));
-        assert!(current.contains("# skills-sync:subagents:end"));
+        assert!(current.contains("# agent-sync:subagents:end"));
     }
 
     #[test]

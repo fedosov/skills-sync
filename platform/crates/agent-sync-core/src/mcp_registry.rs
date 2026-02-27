@@ -7,10 +7,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const CENTRAL_BEGIN: &str = "# skills-sync:mcp:begin";
-const CENTRAL_END: &str = "# skills-sync:mcp:end";
-const CODEX_BEGIN: &str = "# skills-sync:mcp:codex:begin";
-const CODEX_END: &str = "# skills-sync:mcp:codex:end";
+const CENTRAL_BEGIN: &str = "# agent-sync:mcp:begin";
+const CENTRAL_END: &str = "# agent-sync:mcp:end";
+const CODEX_BEGIN: &str = "# agent-sync:mcp:codex:begin";
+const CODEX_END: &str = "# agent-sync:mcp:codex:end";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum McpAgent {
@@ -2073,12 +2073,11 @@ mod tests {
 
     #[test]
     fn upsert_managed_block_replaces_existing() {
-        let current =
-            "alpha = true\n\n# skills-sync:mcp:begin\nold = true\n# skills-sync:mcp:end\n";
+        let current = "alpha = true\n\n# agent-sync:mcp:begin\nold = true\n# agent-sync:mcp:end\n";
         let next = upsert_managed_block(
             current,
-            "# skills-sync:mcp:begin",
-            "# skills-sync:mcp:end",
+            "# agent-sync:mcp:begin",
+            "# agent-sync:mcp:end",
             "new = true",
         );
         assert!(next.contains("new = true"));

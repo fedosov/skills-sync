@@ -1,7 +1,7 @@
 import type { RefreshIntervalMinutes, UiSettings } from "../types";
 
-const STORAGE_KEY = "skillssync.ui.settings.v1";
-const LEGACY_FOCUS_KEY = "skillssync.catalog.focusKind.v1";
+const STORAGE_KEY = "agent-sync.ui.settings.v1";
+const LEGACY_FOCUS_KEY = "agent-sync.catalog.focusKind.v1";
 
 export const DEFAULT_UI_SETTINGS: UiSettings = {
   refreshIntervalMinutes: 0,

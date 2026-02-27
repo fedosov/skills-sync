@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 #[derive(Parser, Debug)]
-#[command(name = "skillssync")]
-#[command(about = "SkillsSync strict dotagents CLI")]
+#[command(name = "agent-sync")]
+#[command(about = "Agent Sync strict dotagents CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -308,7 +308,7 @@ mod tests {
             .expect("time")
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "skillssync-cli-{label}-{}-{nonce}",
+            "agent-sync-cli-{label}-{}-{nonce}",
             std::process::id()
         ));
         fs::create_dir_all(&root).expect("create temp home");

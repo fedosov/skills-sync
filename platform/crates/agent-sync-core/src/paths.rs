@@ -11,7 +11,7 @@ pub struct SyncPaths {
 
 impl SyncPaths {
     pub fn detect() -> Self {
-        if let Ok(override_dir) = std::env::var("SKILLS_SYNC_GROUP_DIR") {
+        if let Ok(override_dir) = std::env::var("AGENT_SYNC_GROUP_DIR") {
             if !override_dir.trim().is_empty() {
                 let runtime = PathBuf::from(override_dir);
                 return Self::from_runtime(runtime);
@@ -24,20 +24,20 @@ impl SyncPaths {
                 let runtime = home
                     .join("Library")
                     .join("Application Support")
-                    .join("SkillsSync");
+                    .join("AgentSync");
                 return Self::from_runtime(runtime);
             }
         }
 
-        if let Some(project_dirs) = ProjectDirs::from("dev", "fedosov", "SkillsSync") {
+        if let Some(project_dirs) = ProjectDirs::from("dev", "fedosov", "AgentSync") {
             return Self::from_runtime(project_dirs.data_dir().to_path_buf());
         }
 
         if let Some(home) = home_dir() {
-            return Self::from_runtime(home.join(".skillssync"));
+            return Self::from_runtime(home.join(".agent-sync"));
         }
 
-        Self::from_runtime(PathBuf::from(".skillssync"))
+        Self::from_runtime(PathBuf::from(".agent-sync"))
     }
 
     pub fn from_runtime(runtime_directory: PathBuf) -> Self {

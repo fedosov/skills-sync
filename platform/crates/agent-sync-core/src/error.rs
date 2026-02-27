@@ -108,7 +108,7 @@ pub enum SyncEngineError {
     },
 
     #[error(
-        "dotagents init already has agents.toml for {scope} scope at {cwd}; run Verify dotagents or `skillssync migrate-dotagents --scope {scope}`"
+        "dotagents init already has agents.toml for {scope} scope at {cwd}; run Verify dotagents or `agent-sync migrate-dotagents --scope {scope}`"
     )]
     DotagentsInitAlreadyExists { scope: String, cwd: PathBuf },
 

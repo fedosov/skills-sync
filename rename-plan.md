@@ -115,17 +115,17 @@ Chosen decisions:
 
 ### Task 4: Rename runtime keys, paths, env vars, and managed markers
 
-- [ ] Update env var names in platform/crates/agent-sync-core/src/paths.rs (SKILLS_SYNC_* -> AGENT_SYNC_*)
-- [ ] Update default storage paths in paths.rs (SkillsSync -> AgentSync, .skillssync -> .agent-sync)
-- [ ] Update engine.rs if it references old env vars or paths
-- [ ] Update dotagents_runtime.rs env var names
-- [ ] Update managed marker constants in codex_registry.rs (# skills-sync: -> # agent-sync:)
-- [ ] Update managed marker constants in codex_subagent_registry.rs
-- [ ] Update managed marker constants in mcp_registry.rs
-- [ ] Update CLI help text / command metadata in agent-sync-cli/src/main.rs
-- [ ] Update ui/src/lib/uiSettings.ts localStorage keys
-- [ ] Update App.tsx localStorage key references
-- [ ] Update App.test.tsx test expectations for new keys
+- [x] Update env var names in platform/crates/agent-sync-core/src/paths.rs (SKILLS_SYNC_* -> AGENT_SYNC_*)
+- [x] Update default storage paths in paths.rs (SkillsSync -> AgentSync, .skillssync -> .agent-sync)
+- [x] Update engine.rs if it references old env vars or paths
+- [x] Update dotagents_runtime.rs env var names
+- [x] Update managed marker constants in codex_registry.rs (# skills-sync: -> # agent-sync:)
+- [x] Update managed marker constants in codex_subagent_registry.rs
+- [x] Update managed marker constants in mcp_registry.rs
+- [x] Update CLI help text / command metadata in agent-sync-cli/src/main.rs
+- [x] Update ui/src/lib/uiSettings.ts localStorage keys
+- [x] Update App.tsx localStorage key references
+- [x] Update App.test.tsx test expectations for new keys
 
 ### Task 5: Update docs/spec/contracts for new command/name
 

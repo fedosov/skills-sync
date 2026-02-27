@@ -25,8 +25,8 @@ impl CodexSkillsRegistryWriter {
     pub fn new(home_directory: std::path::PathBuf) -> Self {
         Self {
             home_directory,
-            begin_marker: "# skills-sync:begin",
-            end_marker: "# skills-sync:end",
+            begin_marker: "# agent-sync:begin",
+            end_marker: "# agent-sync:end",
         }
     }
 
