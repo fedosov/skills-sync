@@ -69,7 +69,6 @@ export function saveUiSettings(settings: UiSettings): void {
   }
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-    window.localStorage.setItem(LEGACY_FOCUS_KEY, settings.lastActiveTab);
   } catch {
     // Ignore storage failures in restricted environments.
   }
