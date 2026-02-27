@@ -134,5 +134,5 @@ Chosen decisions:
 
 ### Task 6: GitHub rename and local remote sync
 
-- [ ] Rename GitHub repository fedosov/skills-sync -> fedosov/agent-sync via GitHub web UI or gh CLI
-- [ ] Update local git remote: git remote set-url origin https://github.com/fedosov/agent-sync.git
+- [x] Rename GitHub repository fedosov/skills-sync -> fedosov/agent-sync via GitHub web UI or gh CLI
+- [x] Update local git remote: git remote set-url origin https://github.com/fedosov/agent-sync.git
