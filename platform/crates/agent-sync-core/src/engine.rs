@@ -947,7 +947,13 @@ impl SyncEngine {
             return Err(error);
         }
 
-        let next = self.run_sync(SyncTrigger::Rename)?;
+        let next = match self.run_sync(SyncTrigger::Rename) {
+            Ok(state) => state,
+            Err(err) => {
+                let _ = fs::rename(&destination, &source);
+                return Err(err);
+            }
+        };
         self.migrate_starred_skill_id(
             &skill.id,
             &skill_entry_id(skill.scope.as_str(), skill.workspace.as_deref(), &new_key),
@@ -1249,7 +1255,7 @@ impl SyncEngine {
                 last_started_at: Some(iso8601(started)),
                 last_finished_at: Some(iso8601(finished)),
                 duration_ms: Some(
-                    (finished.timestamp_millis() - started.timestamp_millis()) as u64,
+                    (finished.timestamp_millis() - started.timestamp_millis()).max(0) as u64,
                 ),
                 error,
                 warnings: mcp_outcome.warnings,
@@ -1309,7 +1315,7 @@ impl SyncEngine {
                 last_started_at: Some(iso8601(started)),
                 last_finished_at: Some(iso8601(finished)),
                 duration_ms: Some(
-                    (finished.timestamp_millis() - started.timestamp_millis()) as u64,
+                    (finished.timestamp_millis() - started.timestamp_millis()).max(0) as u64,
                 ),
                 error: Some(error),
                 warnings: previous.sync.warnings,
