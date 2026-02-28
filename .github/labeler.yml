@@ -5,11 +5,11 @@ core:
 
 ui:
   - changed-files:
-      - any-glob-to-any-file: platform/apps/skillssync-desktop/ui/**
+      - any-glob-to-any-file: platform/apps/agent-sync-desktop/ui/**
 
 rust:
   - changed-files:
-      - any-glob-to-any-file: platform/apps/skillssync-desktop/src-tauri/**
+      - any-glob-to-any-file: platform/apps/agent-sync-desktop/src-tauri/**
 
 ci:
   - changed-files:

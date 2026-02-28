@@ -1,65 +1,65 @@
 {
-  "binary": "skillssync",
+  "binary": "agent-sync",
   "commands": [
     {
       "name": "sync",
       "args": ["--scope", "--json"],
-      "example": "skillssync sync --scope all --json"
+      "example": "agent-sync sync --scope all --json"
     },
     {
       "name": "watch",
       "args": ["--scope", "--interval-seconds"],
-      "example": "skillssync watch --scope all --interval-seconds 5"
+      "example": "agent-sync watch --scope all --interval-seconds 5"
     },
     {
       "name": "skills install",
       "args": ["--scope"],
-      "example": "skillssync skills install --scope all"
+      "example": "agent-sync skills install --scope all"
     },
     {
       "name": "skills list",
       "args": ["--scope", "--json"],
-      "example": "skillssync skills list --scope project --json"
+      "example": "agent-sync skills list --scope project --json"
     },
     {
       "name": "skills add",
       "args": ["<package>", "--scope"],
-      "example": "skillssync skills add owner/repo --scope project"
+      "example": "agent-sync skills add owner/repo --scope project"
     },
     {
       "name": "skills remove",
       "args": ["<package>", "--scope"],
-      "example": "skillssync skills remove owner/repo --scope project"
+      "example": "agent-sync skills remove owner/repo --scope project"
     },
     {
       "name": "skills update",
       "args": ["[package]", "--scope"],
-      "example": "skillssync skills update owner/repo --scope all"
+      "example": "agent-sync skills update owner/repo --scope all"
     },
     {
       "name": "mcp list",
       "args": ["--scope", "--json"],
-      "example": "skillssync mcp list --scope all --json"
+      "example": "agent-sync mcp list --scope all --json"
     },
     {
       "name": "mcp add",
       "args": ["<args...>", "--scope"],
-      "example": "skillssync mcp add exa --scope project"
+      "example": "agent-sync mcp add exa --scope project"
     },
     {
       "name": "mcp remove",
       "args": ["<args...>", "--scope"],
-      "example": "skillssync mcp remove exa --scope project"
+      "example": "agent-sync mcp remove exa --scope project"
     },
     {
       "name": "migrate-dotagents",
       "args": ["--scope"],
-      "example": "skillssync migrate-dotagents --scope all"
+      "example": "agent-sync migrate-dotagents --scope all"
     },
     {
       "name": "doctor",
       "args": [],
-      "example": "skillssync doctor"
+      "example": "agent-sync doctor"
     },
     {
       "name": "legacy commands",

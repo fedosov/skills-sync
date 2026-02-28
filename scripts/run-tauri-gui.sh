@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_DIR="$ROOT_DIR/platform/apps/skillssync-desktop"
-UI_DIR="$ROOT_DIR/platform/apps/skillssync-desktop/ui"
+APP_DIR="$ROOT_DIR/platform/apps/agent-sync-desktop"
+UI_DIR="$ROOT_DIR/platform/apps/agent-sync-desktop/ui"
 
 if ! cargo tauri --help >/dev/null 2>&1; then
   echo "cargo-tauri is not installed. Install it with: cargo install tauri-cli" >&2

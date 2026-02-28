@@ -31,11 +31,11 @@ jobs:
           echo "Cargo.toml version: ${cargo_version}"
 
           tauri_version="$(jq -r .version \
-            platform/apps/skillssync-desktop/src-tauri/tauri.conf.json)"
+            platform/apps/agent-sync-desktop/src-tauri/tauri.conf.json)"
           echo "tauri.conf.json version: ${tauri_version}"
 
           package_version="$(jq -r .version \
-            platform/apps/skillssync-desktop/ui/package.json)"
+            platform/apps/agent-sync-desktop/ui/package.json)"
           echo "package.json version: ${package_version}"
 
           mismatch=0
@@ -78,10 +78,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: platform/apps/skillssync-desktop/ui/package-lock.json
+          cache-dependency-path: platform/apps/agent-sync-desktop/ui/package-lock.json
 
       - name: Install UI dependencies
-        working-directory: platform/apps/skillssync-desktop/ui
+        working-directory: platform/apps/agent-sync-desktop/ui
         run: npm ci
 
       - name: Setup Rust toolchain
@@ -107,8 +107,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: platform/apps/skillssync-desktop
+          projectPath: platform/apps/agent-sync-desktop
           tagName: ${{ github.ref_name }}
-          releaseName: SkillsSync Desktop ${{ github.ref_name }}
+          releaseName: Agent Sync Desktop ${{ github.ref_name }}
           releaseBody: See the assets to download and install this version.
           releaseDraft: true

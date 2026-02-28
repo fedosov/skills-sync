@@ -110,10 +110,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: platform/apps/skillssync-desktop/ui/package-lock.json
+          cache-dependency-path: platform/apps/agent-sync-desktop/ui/package-lock.json
 
       - name: Install UI dependencies
-        working-directory: platform/apps/skillssync-desktop/ui
+        working-directory: platform/apps/agent-sync-desktop/ui
         run: npm ci
 
       - name: Setup Rust toolchain
@@ -139,9 +139,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: platform/apps/skillssync-desktop
+          projectPath: platform/apps/agent-sync-desktop
           tagName: ${{ needs.preflight.outputs.normalized_tag }}
-          releaseName: SkillsSync Desktop ${{ needs.preflight.outputs.normalized_tag }}
+          releaseName: Agent Sync Desktop ${{ needs.preflight.outputs.normalized_tag }}
           releaseBody: See the assets to download and install this version.
           releaseDraft: true
           prerelease: ${{ github.event.inputs.prerelease }}
