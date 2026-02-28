@@ -25,5 +25,5 @@ sha2 = "0.10"
 thiserror = "2.0"
 uuid = { version = "1.8", features = ["v4", "fast-rng"] }
 walkdir = "2.5"
-tempfile = "3.14"
+tempfile = "3.26"
 toml = "1.0"
