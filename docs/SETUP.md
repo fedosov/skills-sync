@@ -1,4 +1,4 @@
-# SkillsSync Setup and Operations
+# Agent Sync Setup and Operations
 
 This guide contains the full setup and operational details that were removed from the minimal root `README.md`.
 
@@ -28,7 +28,7 @@ Quick start:
 Manual start:
 
 ```bash
-cd platform/apps/skillssync-desktop/ui
+cd platform/apps/agent-sync-desktop/ui
 npm install
 cd ../src-tauri
 cargo tauri dev
@@ -39,7 +39,7 @@ cargo tauri dev
 Quick sequence:
 
 ```powershell
-cd platform/apps/skillssync-desktop/ui
+cd platform/apps/agent-sync-desktop/ui
 npm install
 cd ../src-tauri
 cargo tauri dev
@@ -48,7 +48,7 @@ cargo tauri dev
 One-liner:
 
 ```powershell
-cd platform/apps/skillssync-desktop/ui; npm install; cd ../src-tauri; cargo tauri dev
+cd platform/apps/agent-sync-desktop/ui; npm install; cd ../src-tauri; cargo tauri dev
 ```
 
 ### Linux
@@ -62,7 +62,7 @@ Quick start:
 Manual start:
 
 ```bash
-cd platform/apps/skillssync-desktop/ui
+cd platform/apps/agent-sync-desktop/ui
 npm install
 cd ../src-tauri
 cargo tauri dev
@@ -76,14 +76,14 @@ All commands below can be run through Cargo from the repository root.
 
 ```bash
 cd platform
-cargo run -p skillssync-cli -- sync --scope all --json
+cargo run -p agent-sync-cli -- sync --scope all --json
 ```
 
 ### Contract migration (required before strict sync in uninitialized environments)
 
 ```bash
 cd platform
-cargo run -p skillssync-cli -- migrate-dotagents --scope all
+cargo run -p agent-sync-cli -- migrate-dotagents --scope all
 ```
 
 For step-by-step migration and rollback, see [dotagents-migration.md](dotagents-migration.md).
@@ -92,34 +92,34 @@ For step-by-step migration and rollback, see [dotagents-migration.md](dotagents-
 
 ```bash
 cd platform
-cargo run -p skillssync-cli -- skills install --scope all
-cargo run -p skillssync-cli -- skills list --scope project --json
-cargo run -p skillssync-cli -- skills add owner/repo --scope project
-cargo run -p skillssync-cli -- skills remove owner/repo --scope project
-cargo run -p skillssync-cli -- skills update --scope all
+cargo run -p agent-sync-cli -- skills install --scope all
+cargo run -p agent-sync-cli -- skills list --scope project --json
+cargo run -p agent-sync-cli -- skills add owner/repo --scope project
+cargo run -p agent-sync-cli -- skills remove owner/repo --scope project
+cargo run -p agent-sync-cli -- skills update --scope all
 ```
 
 ### MCP management
 
 ```bash
 cd platform
-cargo run -p skillssync-cli -- mcp list --scope all --json
-cargo run -p skillssync-cli -- mcp add exa --scope project
-cargo run -p skillssync-cli -- mcp remove exa --scope project
+cargo run -p agent-sync-cli -- mcp list --scope all --json
+cargo run -p agent-sync-cli -- mcp add exa --scope project
+cargo run -p agent-sync-cli -- mcp remove exa --scope project
 ```
 
 ### Environment diagnostics
 
 ```bash
 cd platform
-cargo run -p skillssync-cli -- doctor
+cargo run -p agent-sync-cli -- doctor
 ```
 
 ### Continuous watch mode
 
 ```bash
 cd platform
-cargo run -p skillssync-cli -- watch --scope all --interval-seconds 15
+cargo run -p agent-sync-cli -- watch --scope all --interval-seconds 15
 ```
 
 ## Linux systemd service + timer example
@@ -127,34 +127,34 @@ cargo run -p skillssync-cli -- watch --scope all --interval-seconds 15
 Build and install the binary first:
 
 ```bash
-cd /opt/skills-sync/platform
-cargo build -p skillssync-cli --release
-sudo install -m 0755 target/release/skillssync /usr/local/bin/skillssync
+cd /opt/agent-sync/platform
+cargo build -p agent-sync-cli --release
+sudo install -m 0755 target/release/agent-sync /usr/local/bin/agent-sync
 ```
 
-Create `/etc/systemd/system/skillssync-sync.service`:
+Create `/etc/systemd/system/agent-sync-sync.service`:
 
 ```ini
 [Unit]
-Description=SkillsSync manual sync run
+Description=Agent Sync manual sync run
 After=network.target
 
 [Service]
 Type=oneshot
 User=%i
-ExecStart=/usr/local/bin/skillssync sync --scope all --json
+ExecStart=/usr/local/bin/agent-sync sync --scope all --json
 ```
 
-Create `/etc/systemd/system/skillssync-sync.timer`:
+Create `/etc/systemd/system/agent-sync-sync.timer`:
 
 ```ini
 [Unit]
-Description=Run SkillsSync sync every 15 minutes
+Description=Run Agent Sync sync every 15 minutes
 
 [Timer]
 OnBootSec=2min
 OnUnitActiveSec=15min
-Unit=skillssync-sync.service
+Unit=agent-sync-sync.service
 
 [Install]
 WantedBy=timers.target
@@ -164,8 +164,8 @@ Enable timer:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now skillssync-sync.timer
-systemctl list-timers | rg skillssync
+sudo systemctl enable --now agent-sync-sync.timer
+systemctl list-timers | rg agent-sync
 ```
 
 ## Lint and Tests
@@ -181,7 +181,7 @@ make test
 UI tests directly:
 
 ```bash
-cd platform/apps/skillssync-desktop/ui
+cd platform/apps/agent-sync-desktop/ui
 npm run test
 npm run test:coverage
 ```
@@ -212,9 +212,9 @@ Desktop actions (confirmation required for destructive operations):
 
 ## Repository Layout
 
-- `platform/crates/skillssync-core`: shared sync engine
-- `platform/crates/skillssync-cli`: command-line interface
-- `platform/apps/skillssync-desktop`: desktop app (Tauri + React)
+- `platform/crates/agent-sync-core`: shared sync engine
+- `platform/crates/agent-sync-cli`: command-line interface
+- `platform/apps/agent-sync-desktop`: desktop app (Tauri + React)
 
 ## Related Docs
 

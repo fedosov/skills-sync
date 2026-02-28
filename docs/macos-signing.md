@@ -1,6 +1,6 @@
 # macOS Code Signing & Notarization
 
-Guide for setting up Apple code signing and notarization for SkillsSync Desktop.
+Guide for setting up Apple code signing and notarization for Agent Sync Desktop.
 
 > **Status:** not yet configured. The app currently triggers Gatekeeper
 > ("damaged and can't be opened") because the `.app` bundle is unsigned.
@@ -13,7 +13,7 @@ Guide for setting up Apple code signing and notarization for SkillsSync Desktop.
 
 ## 1. Entitlements
 
-Create `platform/apps/skillssync-desktop/src-tauri/Entitlements.plist`:
+Create `platform/apps/agent-sync-desktop/src-tauri/Entitlements.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -92,24 +92,24 @@ environment variables are present.
 ```bash
 # Sign with Developer ID
 codesign --force --deep --options runtime \
-  --entitlements platform/apps/skillssync-desktop/src-tauri/Entitlements.plist \
+  --entitlements platform/apps/agent-sync-desktop/src-tauri/Entitlements.plist \
   --sign "Developer ID Application: Your Name (TEAM_ID)" \
-  "target/release/bundle/macos/SkillsSync Desktop.app"
+  "target/release/bundle/macos/Agent Sync Desktop.app"
 
 # Create ZIP for notarization
 ditto -c -k --keepParent \
-  "target/release/bundle/macos/SkillsSync Desktop.app" \
-  SkillsSync.zip
+  "target/release/bundle/macos/Agent Sync Desktop.app" \
+  AgentSync.zip
 
 # Submit for notarization
-xcrun notarytool submit SkillsSync.zip \
+xcrun notarytool submit AgentSync.zip \
   --apple-id "$APPLE_ID" \
   --password "$APPLE_PASSWORD" \
   --team-id "$APPLE_TEAM_ID" \
   --wait
 
 # Staple the ticket
-xcrun stapler staple "target/release/bundle/macos/SkillsSync Desktop.app"
+xcrun stapler staple "target/release/bundle/macos/Agent Sync Desktop.app"
 ```
 
 ## References

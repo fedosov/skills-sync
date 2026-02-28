@@ -71,10 +71,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: platform/apps/skillssync-desktop/ui/package-lock.json
+          cache-dependency-path: platform/apps/agent-sync-desktop/ui/package-lock.json
 
       - name: Install UI dependencies
-        working-directory: platform/apps/skillssync-desktop/ui
+        working-directory: platform/apps/agent-sync-desktop/ui
         run: npm ci
 
       - name: Run UI lint
@@ -101,11 +101,11 @@ jobs:
           workspaces: platform
 
       - name: Prepare bundled dotagents runtime
-        working-directory: platform/apps/skillssync-desktop/ui
+        working-directory: platform/apps/agent-sync-desktop/ui
         run: npm run dotagents:prepare
 
       - name: Create UI dist stub
-        run: mkdir -p platform/apps/skillssync-desktop/ui/dist
+        run: mkdir -p platform/apps/agent-sync-desktop/ui/dist
 
       - name: Run Rust tests
         working-directory: platform
@@ -123,14 +123,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: platform/apps/skillssync-desktop/ui/package-lock.json
+          cache-dependency-path: platform/apps/agent-sync-desktop/ui/package-lock.json
 
       - name: Install UI dependencies
-        working-directory: platform/apps/skillssync-desktop/ui
+        working-directory: platform/apps/agent-sync-desktop/ui
         run: npm ci
 
       - name: Build UI
-        working-directory: platform/apps/skillssync-desktop/ui
+        working-directory: platform/apps/agent-sync-desktop/ui
         run: npm run build
 
   ui-test:
@@ -145,14 +145,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: platform/apps/skillssync-desktop/ui/package-lock.json
+          cache-dependency-path: platform/apps/agent-sync-desktop/ui/package-lock.json
 
       - name: Install UI dependencies
-        working-directory: platform/apps/skillssync-desktop/ui
+        working-directory: platform/apps/agent-sync-desktop/ui
         run: npm ci
 
       - name: Run UI tests
-        working-directory: platform/apps/skillssync-desktop/ui
+        working-directory: platform/apps/agent-sync-desktop/ui
         run: npm run test
 
   windows-tauri-preflight:
@@ -168,7 +168,7 @@ jobs:
           node-version: 22
 
       - name: Install and build UI
-        working-directory: platform/apps/skillssync-desktop/ui
+        working-directory: platform/apps/agent-sync-desktop/ui
         run: |
           npm ci
           npm run build

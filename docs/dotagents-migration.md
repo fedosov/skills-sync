@@ -2,7 +2,7 @@
 
 ## Scope
 
-SkillsSync strict mode requires `agents.toml` contracts for both user and project scopes before `sync` can run.
+Agent Sync strict mode requires `agents.toml` contracts for both user and project scopes before `sync` can run.
 
 ## Migration
 
@@ -11,15 +11,15 @@ SkillsSync strict mode requires `agents.toml` contracts for both user and projec
    - `npm install -g @sentry/dotagents@0.10.0`
    - Desktop app bundles include `dotagents` runtime automatically and do not require global `dotagents`.
 3. Initialize strict contracts:
-   - user scope: `skillssync migrate-dotagents --scope user`
-   - project scope: `skillssync migrate-dotagents --scope project`
+   - user scope: `agent-sync migrate-dotagents --scope user`
+   - project scope: `agent-sync migrate-dotagents --scope project`
 4. Run strict sync:
-   - `skillssync sync --scope all --json`
+   - `agent-sync sync --scope all --json`
 5. Verify lock-integrity install:
-   - `skillssync skills install --scope all`
+   - `agent-sync skills install --scope all`
 6. Inspect resulting declarations:
-   - `skillssync skills list --scope all --json`
-   - `skillssync mcp list --scope all --json`
+   - `agent-sync skills list --scope all --json`
+   - `agent-sync mcp list --scope all --json`
 
 ## Failure Behavior
 
