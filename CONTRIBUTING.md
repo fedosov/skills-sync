@@ -39,7 +39,7 @@ Run tests:
 cd platform
 cargo test
 
-cd platform/apps/agent-sync-desktop/ui
+cd apps/agent-sync-desktop/ui
 npm run test:coverage
 ```
 
