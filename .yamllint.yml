@@ -10,4 +10,4 @@ rules:
   truthy: disable
 
 ignore: |
-  platform/apps/skillssync-desktop/ui/node_modules/
+  platform/apps/agent-sync-desktop/ui/node_modules/

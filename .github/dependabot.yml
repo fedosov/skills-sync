@@ -3,7 +3,7 @@ version: 2
 
 updates:
   - package-ecosystem: npm
-    directory: /platform/apps/skillssync-desktop/ui
+    directory: /platform/apps/agent-sync-desktop/ui
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
