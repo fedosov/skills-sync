@@ -41,6 +41,11 @@ export type SubagentRecord = {
   model: string | null;
   tools: string[];
   codex_tools_ignored: boolean;
+  status?: SkillLifecycleStatus;
+  archived_at?: string | null;
+  archived_bundle_path?: string | null;
+  archived_original_scope?: string | null;
+  archived_original_workspace?: string | null;
 };
 
 export type RuntimeControls = {
@@ -109,6 +114,8 @@ export type McpServerRecord = {
   enabled_by_agent: McpEnabledByAgent;
   targets: string[];
   warnings: string[];
+  status?: SkillLifecycleStatus;
+  archived_at?: string | null;
 };
 
 export type SyncState = {
@@ -206,6 +213,24 @@ export type MutationCommand =
   | "restore_skill"
   | "delete_skill"
   | "make_global";
+
+export type CatalogMutationAction = "archive" | "restore" | "delete";
+
+export type CatalogMutationTarget =
+  | { kind: "skill"; skillKey: string }
+  | { kind: "subagent"; subagentId: string }
+  | {
+      kind: "mcp";
+      serverKey: string;
+      scope: "global" | "project";
+      workspace?: string | null;
+    };
+
+export type CatalogMutationRequest = {
+  action: CatalogMutationAction;
+  target: CatalogMutationTarget;
+  confirmed: boolean;
+};
 
 export type SubagentTargetKind =
   | "symlink"

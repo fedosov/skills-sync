@@ -1,11 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use agent_sync_core::{
-    watch::SyncWatchStream, AgentsContextReport, AuditEvent, AuditEventStatus, DotagentsScope,
-    McpAgent, McpServerRecord, ScopeFilter, SkillLifecycleStatus, SkillLocator, SkillRecord,
-    SubagentRecord, SyncEngine, SyncState, SyncTrigger,
+    watch::SyncWatchStream, AgentsContextReport, AuditEvent, AuditEventStatus,
+    CatalogMutationAction, CatalogMutationTarget, DotagentsScope, McpAgent, McpServerRecord,
+    ScopeFilter, SkillLifecycleStatus, SkillLocator, SkillRecord, SubagentRecord, SyncEngine,
+    SyncState, SyncTrigger,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -97,6 +98,44 @@ struct SubagentTargetStatus {
     kind: SubagentTargetKind,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum CatalogMutationActionPayload {
+    Archive,
+    Restore,
+    Delete,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind")]
+enum CatalogMutationTargetPayload {
+    #[serde(rename = "skill")]
+    Skill {
+        #[serde(rename = "skillKey")]
+        skill_key: String,
+    },
+    #[serde(rename = "subagent")]
+    Subagent {
+        #[serde(rename = "subagentId")]
+        subagent_id: String,
+    },
+    #[serde(rename = "mcp")]
+    Mcp {
+        #[serde(rename = "serverKey")]
+        server_key: String,
+        scope: String,
+        workspace: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatalogMutationRequestPayload {
+    action: CatalogMutationActionPayload,
+    target: CatalogMutationTargetPayload,
+    confirmed: bool,
+}
+
 fn blocked_write_message(action: &str) -> String {
     format!("Filesystem changes are disabled. Enable 'Allow filesystem changes' to run {action}.")
 }
@@ -127,6 +166,86 @@ fn parse_dotagents_scope(value: Option<&str>) -> Result<DotagentsScope, String> 
     normalized
         .parse::<DotagentsScope>()
         .map_err(|_| format!("unsupported scope: {normalized} (all|user|project)"))
+}
+
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+}
+
+fn to_catalog_mutation_action(value: CatalogMutationActionPayload) -> CatalogMutationAction {
+    match value {
+        CatalogMutationActionPayload::Archive => CatalogMutationAction::Archive,
+        CatalogMutationActionPayload::Restore => CatalogMutationAction::Restore,
+        CatalogMutationActionPayload::Delete => CatalogMutationAction::Delete,
+    }
+}
+
+fn validate_catalog_mutation_target(target: &CatalogMutationTargetPayload) -> Result<(), String> {
+    match target {
+        CatalogMutationTargetPayload::Skill { skill_key } => {
+            if skill_key.trim().is_empty() {
+                return Err(String::from("skillKey must be non-empty"));
+            }
+            Ok(())
+        }
+        CatalogMutationTargetPayload::Subagent { subagent_id } => {
+            if subagent_id.trim().is_empty() {
+                return Err(String::from("subagentId must be non-empty"));
+            }
+            Ok(())
+        }
+        CatalogMutationTargetPayload::Mcp {
+            server_key,
+            scope,
+            workspace,
+        } => {
+            if server_key.trim().is_empty() {
+                return Err(String::from("serverKey must be non-empty"));
+            }
+            let scope_value = scope.trim().to_ascii_lowercase();
+            if scope_value != "global" && scope_value != "project" {
+                return Err(format!("unsupported mcp scope: {scope} (global|project)"));
+            }
+            if scope_value == "global"
+                && workspace
+                    .as_ref()
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false)
+            {
+                return Err(String::from(
+                    "workspace must be omitted for mcp scope=global",
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+fn to_catalog_mutation_target(
+    value: CatalogMutationTargetPayload,
+) -> Result<CatalogMutationTarget, String> {
+    validate_catalog_mutation_target(&value)?;
+    match value {
+        CatalogMutationTargetPayload::Skill { skill_key } => Ok(CatalogMutationTarget::Skill {
+            skill_key: skill_key.trim().to_string(),
+        }),
+        CatalogMutationTargetPayload::Subagent { subagent_id } => {
+            Ok(CatalogMutationTarget::Subagent {
+                subagent_id: subagent_id.trim().to_string(),
+            })
+        }
+        CatalogMutationTargetPayload::Mcp {
+            server_key,
+            scope,
+            workspace,
+        } => Ok(CatalogMutationTarget::Mcp {
+            server_key: server_key.trim().to_string(),
+            scope: scope.trim().to_ascii_lowercase(),
+            workspace: normalize_optional_string(workspace),
+        }),
+    }
 }
 
 fn runtime_controls(engine: &SyncEngine, runtime: &RuntimeState) -> RuntimeControls {
@@ -613,22 +732,50 @@ fn set_mcp_server_enabled(
         .map_err(|error| error.to_string())
 }
 
+fn mutate_catalog_item_inner(
+    request: CatalogMutationRequestPayload,
+    action_name: &str,
+    runtime: &RuntimeState,
+    engine: &SyncEngine,
+) -> Result<SyncState, String> {
+    validate_catalog_mutation_target(&request.target)?;
+    ensure_write_allowed(engine, action_name)?;
+    let _guard = runtime
+        .sync_lock
+        .lock()
+        .map_err(|_| String::from("internal lock error"))?;
+    let action = to_catalog_mutation_action(request.action);
+    let target = to_catalog_mutation_target(request.target)?;
+    engine
+        .mutate_catalog_item(action, target, request.confirmed)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn mutate_catalog_item(
+    request: CatalogMutationRequestPayload,
+    runtime: tauri::State<RuntimeState>,
+) -> Result<SyncState, String> {
+    let engine = SyncEngine::current();
+    mutate_catalog_item_inner(request, "mutate_catalog_item", &runtime, &engine)
+}
+
 #[tauri::command]
 fn delete_skill(
     skill_key: String,
     confirmed: bool,
     runtime: tauri::State<RuntimeState>,
 ) -> Result<SyncState, String> {
-    let engine = SyncEngine::current();
-    ensure_write_allowed(&engine, "delete_skill")?;
-    let _guard = runtime
-        .sync_lock
-        .lock()
-        .map_err(|_| String::from("internal lock error"))?;
-    let skill = find_skill(&engine, &skill_key, None)?;
-    engine
-        .delete(&skill, confirmed)
-        .map_err(|error| error.to_string())
+    mutate_catalog_item_inner(
+        CatalogMutationRequestPayload {
+            action: CatalogMutationActionPayload::Delete,
+            target: CatalogMutationTargetPayload::Skill { skill_key },
+            confirmed,
+        },
+        "delete_skill",
+        &runtime,
+        &SyncEngine::current(),
+    )
 }
 
 #[tauri::command]
@@ -637,16 +784,16 @@ fn archive_skill(
     confirmed: bool,
     runtime: tauri::State<RuntimeState>,
 ) -> Result<SyncState, String> {
-    let engine = SyncEngine::current();
-    ensure_write_allowed(&engine, "archive_skill")?;
-    let _guard = runtime
-        .sync_lock
-        .lock()
-        .map_err(|_| String::from("internal lock error"))?;
-    let skill = find_skill(&engine, &skill_key, Some(SkillLifecycleStatus::Active))?;
-    engine
-        .archive(&skill, confirmed)
-        .map_err(|error| error.to_string())
+    mutate_catalog_item_inner(
+        CatalogMutationRequestPayload {
+            action: CatalogMutationActionPayload::Archive,
+            target: CatalogMutationTargetPayload::Skill { skill_key },
+            confirmed,
+        },
+        "archive_skill",
+        &runtime,
+        &SyncEngine::current(),
+    )
 }
 
 #[tauri::command]
@@ -655,16 +802,16 @@ fn restore_skill(
     confirmed: bool,
     runtime: tauri::State<RuntimeState>,
 ) -> Result<SyncState, String> {
-    let engine = SyncEngine::current();
-    ensure_write_allowed(&engine, "restore_skill")?;
-    let _guard = runtime
-        .sync_lock
-        .lock()
-        .map_err(|_| String::from("internal lock error"))?;
-    let skill = find_skill(&engine, &skill_key, Some(SkillLifecycleStatus::Archived))?;
-    engine
-        .restore(&skill, confirmed)
-        .map_err(|error| error.to_string())
+    mutate_catalog_item_inner(
+        CatalogMutationRequestPayload {
+            action: CatalogMutationActionPayload::Restore,
+            target: CatalogMutationTargetPayload::Skill { skill_key },
+            confirmed,
+        },
+        "restore_skill",
+        &runtime,
+        &SyncEngine::current(),
+    )
 }
 
 #[tauri::command]
@@ -1174,6 +1321,7 @@ fn main() {
             migrate_dotagents,
             get_mcp_servers,
             set_mcp_server_enabled,
+            mutate_catalog_item,
             delete_skill,
             archive_skill,
             restore_skill,
@@ -1195,7 +1343,8 @@ mod tests {
         build_platform_context, build_subagent_target_status, enable_auto_watch_and_initial_sync,
         ensure_write_allowed, normalize_os_name, read_skill_dir_tree,
         set_allow_filesystem_changes_inner, set_allow_filesystem_changes_inner_with,
-        stop_auto_watch, RuntimeState, SubagentTargetKind,
+        stop_auto_watch, validate_catalog_mutation_target, CatalogMutationTargetPayload,
+        RuntimeState, SubagentTargetKind,
     };
     use agent_sync_core::{
         AuditEventStatus, SyncEngine, SyncEngineEnvironment, SyncPaths, SyncPreferencesStore,
@@ -1369,6 +1518,64 @@ mod tests {
         let after =
             engine.list_audit_events(Some(10), Some(AuditEventStatus::Blocked), Some("run_sync"));
         assert!(after.is_empty());
+    }
+
+    #[test]
+    fn ensure_write_allowed_blocks_mutate_catalog_item_when_writes_disabled() {
+        let temp = tempdir().expect("create tempdir");
+        let engine = engine_in_temp(&temp);
+        engine
+            .set_allow_filesystem_changes(false)
+            .expect("disable filesystem changes");
+
+        let error = ensure_write_allowed(&engine, "mutate_catalog_item").expect_err("blocked");
+        assert!(error.contains("mutate_catalog_item"));
+    }
+
+    #[test]
+    fn validate_catalog_mutation_target_checks_mcp_payload_scope() {
+        let invalid_scope = CatalogMutationTargetPayload::Mcp {
+            server_key: String::from("exa"),
+            scope: String::from("invalid"),
+            workspace: None,
+        };
+        assert!(validate_catalog_mutation_target(&invalid_scope).is_err());
+
+        let invalid_global_workspace = CatalogMutationTargetPayload::Mcp {
+            server_key: String::from("exa"),
+            scope: String::from("global"),
+            workspace: Some(String::from("/tmp/workspace")),
+        };
+        assert!(validate_catalog_mutation_target(&invalid_global_workspace).is_err());
+
+        let valid_project = CatalogMutationTargetPayload::Mcp {
+            server_key: String::from("exa"),
+            scope: String::from("project"),
+            workspace: Some(String::from("/tmp/workspace")),
+        };
+        assert!(validate_catalog_mutation_target(&valid_project).is_ok());
+    }
+
+    #[test]
+    fn validate_catalog_mutation_target_checks_skill_and_subagent_keys() {
+        let empty_skill = CatalogMutationTargetPayload::Skill {
+            skill_key: String::new(),
+        };
+        assert!(validate_catalog_mutation_target(&empty_skill).is_err());
+
+        let empty_subagent = CatalogMutationTargetPayload::Subagent {
+            subagent_id: String::from("   "),
+        };
+        assert!(validate_catalog_mutation_target(&empty_subagent).is_err());
+
+        let valid_skill = CatalogMutationTargetPayload::Skill {
+            skill_key: String::from("alpha"),
+        };
+        let valid_subagent = CatalogMutationTargetPayload::Subagent {
+            subagent_id: String::from("subagent-id"),
+        };
+        assert!(validate_catalog_mutation_target(&valid_skill).is_ok());
+        assert!(validate_catalog_mutation_target(&valid_subagent).is_ok());
     }
 
     #[test]

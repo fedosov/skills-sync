@@ -22,9 +22,10 @@ pub use engine::{DotagentsScope, ScopeFilter, SkillLocator, SyncEngine, SyncEngi
 pub use error::SyncEngineError;
 pub use mcp_registry::{McpAgent, UnmanagedClaudeMcpCandidate, UnmanagedClaudeMcpFixReport};
 pub use models::{
-    AuditEvent, AuditEventStatus, McpEnabledByAgent, McpServerRecord, McpTransport,
-    SkillLifecycleStatus, SkillRecord, SubagentRecord, SyncConflict, SyncHealthStatus,
-    SyncMetadata, SyncState, SyncSummary, SyncTrigger,
+    AuditEvent, AuditEventStatus, CatalogMutationAction, CatalogMutationRequest,
+    CatalogMutationTarget, McpEnabledByAgent, McpServerRecord, McpTransport, SkillLifecycleStatus,
+    SkillRecord, SubagentRecord, SyncConflict, SyncHealthStatus, SyncMetadata, SyncState,
+    SyncSummary, SyncTrigger,
 };
 pub use paths::SyncPaths;
 pub use settings::{SyncAppSettings, SyncPreferencesStore};

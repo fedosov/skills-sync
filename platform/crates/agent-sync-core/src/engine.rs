@@ -7,9 +7,9 @@ use crate::dotagents_runtime::DotagentsRuntimeManager;
 use crate::error::SyncEngineError;
 use crate::mcp_registry::{McpAgent, McpRegistry, McpSyncOutcome, UnmanagedClaudeMcpFixReport};
 use crate::models::{
-    AuditEvent, AuditEventStatus, McpServerRecord, SkillLifecycleStatus, SkillRecord,
-    SubagentRecord, SyncConflict, SyncConflictKind, SyncHealthStatus, SyncMetadata, SyncState,
-    SyncSummary, SyncTrigger,
+    AuditEvent, AuditEventStatus, CatalogMutationAction, CatalogMutationTarget, McpServerRecord,
+    SkillLifecycleStatus, SkillRecord, SubagentRecord, SyncConflict, SyncConflictKind,
+    SyncHealthStatus, SyncMetadata, SyncState, SyncSummary, SyncTrigger,
 };
 use crate::paths::{home_dir, SyncPaths};
 use crate::settings::{AppUiState, SyncPreferencesStore};
@@ -181,6 +181,24 @@ struct ArchivedSkillManifest {
     moved_links: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ArchivedSubagentManifest {
+    version: u32,
+    #[serde(rename = "archived_at")]
+    archived_at: String,
+    #[serde(rename = "subagent_key")]
+    subagent_key: String,
+    name: String,
+    #[serde(rename = "original_scope")]
+    original_scope: String,
+    #[serde(rename = "original_workspace")]
+    original_workspace: Option<String>,
+    #[serde(rename = "original_canonical_source_path")]
+    original_canonical_source_path: String,
+    #[serde(rename = "moved_links")]
+    moved_links: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SyncEngine {
     environment: SyncEngineEnvironment,
@@ -327,9 +345,13 @@ impl SyncEngine {
             .into_iter()
             .filter(|item| match scope {
                 ScopeFilter::All => true,
-                ScopeFilter::Global => item.scope == "global",
-                ScopeFilter::Project => item.scope == "project",
-                ScopeFilter::Archived => false,
+                ScopeFilter::Global => {
+                    item.status == SkillLifecycleStatus::Active && item.scope == "global"
+                }
+                ScopeFilter::Project => {
+                    item.status == SkillLifecycleStatus::Active && item.scope == "project"
+                }
+                ScopeFilter::Archived => item.status == SkillLifecycleStatus::Archived,
             })
             .collect();
         items.sort_by(sort_subagent_entries);
@@ -338,7 +360,13 @@ impl SyncEngine {
 
     pub fn list_mcp_servers(&self) -> Vec<McpServerRecord> {
         let mut items = self.store.load_state().mcp_servers;
-        items.sort_by(|lhs, rhs| lhs.server_key.cmp(&rhs.server_key));
+        items.sort_by(|lhs, rhs| {
+            lhs.status
+                .cmp(&rhs.status)
+                .then_with(|| lhs.server_key.cmp(&rhs.server_key))
+                .then_with(|| lhs.scope.cmp(&rhs.scope))
+                .then_with(|| lhs.workspace.cmp(&rhs.workspace))
+        });
         items
     }
 
@@ -505,6 +533,8 @@ impl SyncEngine {
                     enabled_by_agent: crate::models::McpEnabledByAgent::default(),
                     targets: json_string_array_field(entry, &["targets"]),
                     warnings: json_string_array_field(entry, &["warnings"]),
+                    status: SkillLifecycleStatus::Active,
+                    archived_at: None,
                 });
             }
         }
@@ -606,6 +636,88 @@ impl SyncEngine {
             .subagents
             .into_iter()
             .find(|item| item.id == subagent_id)
+    }
+
+    pub fn mutate_catalog_item(
+        &self,
+        action: CatalogMutationAction,
+        target: CatalogMutationTarget,
+        confirmed: bool,
+    ) -> Result<SyncState, SyncEngineError> {
+        if !confirmed {
+            return Err(SyncEngineError::CatalogMutationRequiresConfirmation);
+        }
+
+        match target {
+            CatalogMutationTarget::Skill { skill_key } => match action {
+                CatalogMutationAction::Archive => {
+                    let skill = self
+                        .find_skill(&SkillLocator {
+                            skill_key,
+                            status: Some(SkillLifecycleStatus::Active),
+                        })
+                        .ok_or(SyncEngineError::ArchiveSourceMissing)?;
+                    self.archive(&skill, true)
+                }
+                CatalogMutationAction::Restore => {
+                    let skill = self
+                        .find_skill(&SkillLocator {
+                            skill_key,
+                            status: Some(SkillLifecycleStatus::Archived),
+                        })
+                        .ok_or(SyncEngineError::RestoreBundleMissing)?;
+                    self.restore(&skill, true)
+                }
+                CatalogMutationAction::Delete => {
+                    let skill = self
+                        .find_skill(&SkillLocator {
+                            skill_key: skill_key.clone(),
+                            status: Some(SkillLifecycleStatus::Active),
+                        })
+                        .or_else(|| {
+                            self.find_skill(&SkillLocator {
+                                skill_key,
+                                status: Some(SkillLifecycleStatus::Archived),
+                            })
+                        })
+                        .ok_or(SyncEngineError::DeletionTargetMissing)?;
+                    self.delete(&skill, true)
+                }
+            },
+            CatalogMutationTarget::Subagent { subagent_id } => {
+                let subagent = self
+                    .find_subagent_by_id(&subagent_id)
+                    .ok_or(SyncEngineError::DeletionSubagentTargetMissing)?;
+                match action {
+                    CatalogMutationAction::Archive => self.archive_subagent(&subagent, true),
+                    CatalogMutationAction::Restore => self.restore_subagent(&subagent, true),
+                    CatalogMutationAction::Delete => self.delete_subagent(&subagent, true),
+                }
+            }
+            CatalogMutationTarget::Mcp {
+                server_key,
+                scope,
+                workspace,
+            } => {
+                let workspaces = self.workspace_candidates();
+                let registry = McpRegistry::new(
+                    self.environment.home_directory.clone(),
+                    self.environment.runtime_directory.clone(),
+                );
+                registry.mutate_catalog_entry(
+                    &workspaces,
+                    action,
+                    &server_key,
+                    &scope,
+                    workspace.as_deref(),
+                )?;
+                self.run_sync(match action {
+                    CatalogMutationAction::Archive => SyncTrigger::Archive,
+                    CatalogMutationAction::Restore => SyncTrigger::Restore,
+                    CatalogMutationAction::Delete => SyncTrigger::Delete,
+                })
+            }
+        }
     }
 
     pub fn run_sync(&self, trigger: SyncTrigger) -> Result<SyncState, SyncEngineError> {
@@ -840,6 +952,172 @@ impl SyncEngine {
         fs::rename(&source, &destination).map_err(|e| SyncEngineError::io(&source, e))?;
         let _ = fs::remove_dir_all(&bundle);
 
+        self.run_sync(SyncTrigger::Restore)
+    }
+
+    pub fn delete_subagent(
+        &self,
+        subagent: &SubagentRecord,
+        confirmed: bool,
+    ) -> Result<SyncState, SyncEngineError> {
+        if !confirmed {
+            return Err(SyncEngineError::DeleteSubagentRequiresConfirmation);
+        }
+
+        let target = if subagent.status == SkillLifecycleStatus::Archived {
+            subagent
+                .archived_bundle_path
+                .as_ref()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(&subagent.canonical_source_path))
+        } else {
+            PathBuf::from(&subagent.canonical_source_path)
+        };
+
+        if self.is_protected_path(&target) {
+            return Err(SyncEngineError::DeletionSubagentBlockedProtectedPath);
+        }
+
+        let roots = self.allowed_subagent_lifecycle_roots();
+        if !roots.iter().any(|root| self.is_relative_to(&target, root)) {
+            return Err(SyncEngineError::DeletionSubagentOutsideAllowedRoots);
+        }
+
+        if !path_exists_or_symlink(&target) {
+            return Err(SyncEngineError::DeletionSubagentTargetMissing);
+        }
+
+        self.move_to_trash(&target)?;
+        self.run_sync(SyncTrigger::Delete)
+    }
+
+    pub fn archive_subagent(
+        &self,
+        subagent: &SubagentRecord,
+        confirmed: bool,
+    ) -> Result<SyncState, SyncEngineError> {
+        if !confirmed {
+            return Err(SyncEngineError::ArchiveSubagentRequiresConfirmation);
+        }
+        if subagent.status != SkillLifecycleStatus::Active {
+            return Err(SyncEngineError::ArchiveOnlyForActiveSubagent);
+        }
+
+        let source = PathBuf::from(&subagent.canonical_source_path);
+        if self.is_protected_path(&source) {
+            return Err(SyncEngineError::ArchiveSubagentBlockedProtectedPath);
+        }
+
+        let roots = self.allowed_subagent_lifecycle_roots();
+        if !roots.iter().any(|root| self.is_relative_to(&source, root)) {
+            return Err(SyncEngineError::ArchiveSubagentOutsideAllowedRoots);
+        }
+        if !path_exists_or_symlink(&source) {
+            return Err(SyncEngineError::ArchiveSubagentSourceMissing);
+        }
+
+        let archived_at = iso8601_now();
+        let bundle = self
+            .subagent_archives_root()
+            .join(self.make_archive_bundle_name(&subagent.subagent_key));
+        let source_archive_path = bundle.join("source.md");
+        let links_archive_path = bundle.join("links");
+
+        fs::create_dir_all(&links_archive_path)
+            .map_err(|e| SyncEngineError::io(&links_archive_path, e))?;
+        fs::rename(&source, &source_archive_path).map_err(|e| SyncEngineError::io(&source, e))?;
+
+        let mut moved_links = Vec::new();
+        let mut used_link_names: HashSet<String> = HashSet::new();
+        for target_path in &subagent.target_paths {
+            let target = PathBuf::from(target_path);
+            if standardized_path(&target) == standardized_path(&source) {
+                continue;
+            }
+            if !is_symlink(&target) {
+                continue;
+            }
+            let archived_link = self.unique_archived_link_path(
+                target
+                    .file_name()
+                    .unwrap_or_else(|| OsStr::new("link"))
+                    .to_string_lossy()
+                    .as_ref(),
+                &links_archive_path,
+                &mut used_link_names,
+            );
+            fs::rename(&target, &archived_link).map_err(|e| SyncEngineError::io(&target, e))?;
+            moved_links.push(target.display().to_string());
+        }
+
+        let manifest = ArchivedSubagentManifest {
+            version: 1,
+            archived_at,
+            subagent_key: subagent.subagent_key.clone(),
+            name: subagent.name.clone(),
+            original_scope: subagent.scope.clone(),
+            original_workspace: subagent.workspace.clone(),
+            original_canonical_source_path: source.display().to_string(),
+            moved_links,
+        };
+
+        self.write_archived_subagent_manifest(&manifest, &bundle)?;
+        self.run_sync(SyncTrigger::Archive)
+    }
+
+    pub fn restore_subagent(
+        &self,
+        subagent: &SubagentRecord,
+        confirmed: bool,
+    ) -> Result<SyncState, SyncEngineError> {
+        if !confirmed {
+            return Err(SyncEngineError::RestoreSubagentRequiresConfirmation);
+        }
+        if subagent.status != SkillLifecycleStatus::Archived {
+            return Err(SyncEngineError::RestoreOnlyForArchivedSubagent);
+        }
+
+        let bundle = subagent
+            .archived_bundle_path
+            .as_ref()
+            .map(PathBuf::from)
+            .ok_or(SyncEngineError::RestoreSubagentBundleMissing)?;
+        let source = bundle.join("source.md");
+        if !path_exists_or_symlink(&source) {
+            return Err(SyncEngineError::RestoreSubagentSourceMissing);
+        }
+
+        let manifest = self.read_archived_subagent_manifest(&bundle)?;
+        let destination = PathBuf::from(&manifest.original_canonical_source_path);
+        if self.is_protected_path(&destination) {
+            return Err(SyncEngineError::RestoreSubagentBlockedProtectedPath);
+        }
+        let mut roots = self.allowed_subagent_lifecycle_roots();
+        if manifest.original_scope == "project" {
+            if let Some(workspace) = manifest
+                .original_workspace
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                roots.extend(self.project_subagent_targets(Path::new(workspace)));
+            }
+        }
+        if !roots
+            .iter()
+            .any(|root| self.is_relative_to(&destination, root))
+        {
+            return Err(SyncEngineError::RestoreSubagentOutsideAllowedRoots);
+        }
+        if path_exists_or_symlink(&destination) {
+            return Err(SyncEngineError::RestoreSubagentTargetExists);
+        }
+
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(|e| SyncEngineError::io(parent, e))?;
+        }
+        fs::rename(&source, &destination).map_err(|e| SyncEngineError::io(&source, e))?;
+        let _ = fs::remove_dir_all(&bundle);
         self.run_sync(SyncTrigger::Restore)
     }
 
@@ -1163,6 +1441,7 @@ impl SyncEngine {
         self.save_subagent_managed_links_manifest(&new_subagent_managed_links)?;
 
         entries.extend(self.load_archived_entries());
+        subagent_entries.extend(self.load_archived_subagent_entries());
         entries.sort_by(sort_entries);
         subagent_entries.sort_by(sort_subagent_entries);
 
@@ -1233,6 +1512,11 @@ impl SyncEngine {
             model: package.model.clone(),
             tools: package.tools.clone(),
             codex_tools_ignored: !package.tools.is_empty(),
+            status: SkillLifecycleStatus::Active,
+            archived_at: None,
+            archived_bundle_path: None,
+            archived_original_scope: None,
+            archived_original_workspace: None,
         }
     }
 
@@ -1286,17 +1570,25 @@ impl SyncEngine {
                     })
                     .count(),
                 conflict_count: skill_conflict_count,
-                mcp_count: mcp_outcome.records.len(),
+                mcp_count: mcp_outcome
+                    .records
+                    .iter()
+                    .filter(|entry| entry.status == SkillLifecycleStatus::Active)
+                    .count(),
                 mcp_warning_count,
             },
             subagent_summary: SyncSummary {
                 global_count: subagent_entries
                     .iter()
-                    .filter(|entry| entry.scope == "global")
+                    .filter(|entry| {
+                        entry.scope == "global" && entry.status == SkillLifecycleStatus::Active
+                    })
                     .count(),
                 project_count: subagent_entries
                     .iter()
-                    .filter(|entry| entry.scope == "project")
+                    .filter(|entry| {
+                        entry.scope == "project" && entry.status == SkillLifecycleStatus::Active
+                    })
                     .count(),
                 conflict_count: subagent_conflict_count,
                 mcp_count: 0,
@@ -2127,6 +2419,7 @@ impl SyncEngine {
             self.claude_agents_root(),
             self.cursor_agents_root(),
             self.archives_root(),
+            self.subagent_archives_root(),
             self.runtime_skills_root(),
             self.runtime_prompts_root(),
             self.environment.runtime_directory.clone(),
@@ -2378,6 +2671,100 @@ impl SyncEngine {
         result
     }
 
+    fn write_archived_subagent_manifest(
+        &self,
+        manifest: &ArchivedSubagentManifest,
+        bundle: &Path,
+    ) -> Result<(), SyncEngineError> {
+        let path = bundle.join("manifest.json");
+        let mut data = serde_json::to_vec_pretty(manifest)?;
+        data.push(b'\n');
+        fs::write(&path, data).map_err(|_| SyncEngineError::ArchiveSubagentManifestWriteFailed)
+    }
+
+    fn read_archived_subagent_manifest(
+        &self,
+        bundle: &Path,
+    ) -> Result<ArchivedSubagentManifest, SyncEngineError> {
+        let path = bundle.join("manifest.json");
+        if !path.exists() {
+            return Err(SyncEngineError::RestoreSubagentManifestMissing);
+        }
+
+        let data = fs::read(&path).map_err(|_| SyncEngineError::RestoreSubagentManifestMissing)?;
+        serde_json::from_slice(&data).map_err(|_| SyncEngineError::RestoreSubagentManifestMissing)
+    }
+
+    fn load_archived_subagent_entries(&self) -> Vec<SubagentRecord> {
+        let archives_root = self.subagent_archives_root();
+        let Ok(entries) = fs::read_dir(&archives_root) else {
+            return Vec::new();
+        };
+
+        let mut result = Vec::new();
+        for entry in entries.filter_map(Result::ok) {
+            let bundle = entry.path();
+            let Ok(metadata) = fs::symlink_metadata(&bundle) else {
+                continue;
+            };
+            if !metadata.is_dir() {
+                continue;
+            }
+
+            let Ok(manifest) = self.read_archived_subagent_manifest(&bundle) else {
+                continue;
+            };
+            let source = bundle.join("source.md");
+            let exists = path_exists_or_symlink(&source);
+            let parsed = fs::read_to_string(&source)
+                .ok()
+                .and_then(|raw| parse_subagent_markdown(&raw));
+            let scope = if manifest.original_scope.trim().is_empty() {
+                String::from("global")
+            } else {
+                manifest.original_scope.clone()
+            };
+
+            result.push(SubagentRecord {
+                id: skill_entry_id(
+                    "archived",
+                    Some(bundle.to_string_lossy().as_ref()),
+                    &manifest.subagent_key,
+                ),
+                name: manifest.name.clone(),
+                description: parsed
+                    .as_ref()
+                    .map(|entry| entry.description.clone())
+                    .unwrap_or_default(),
+                scope,
+                workspace: manifest.original_workspace.clone(),
+                canonical_source_path: source.display().to_string(),
+                target_paths: manifest.moved_links.clone(),
+                exists,
+                is_symlink_canonical: is_symlink(&source),
+                package_type: String::from("file"),
+                subagent_key: manifest.subagent_key.clone(),
+                symlink_target: source.display().to_string(),
+                model: parsed.as_ref().and_then(|entry| entry.model.clone()),
+                tools: parsed
+                    .as_ref()
+                    .map(|entry| entry.tools.clone())
+                    .unwrap_or_default(),
+                codex_tools_ignored: parsed
+                    .as_ref()
+                    .map(|entry| !entry.tools.is_empty())
+                    .unwrap_or(false),
+                status: SkillLifecycleStatus::Archived,
+                archived_at: Some(manifest.archived_at.clone()),
+                archived_bundle_path: Some(bundle.display().to_string()),
+                archived_original_scope: Some(manifest.original_scope.clone()),
+                archived_original_workspace: manifest.original_workspace.clone(),
+            });
+        }
+
+        result
+    }
+
     fn unique_archived_link_path(
         &self,
         base_name: &str,
@@ -2411,10 +2798,13 @@ impl SyncEngine {
             self.agents_skills_root(),
             self.codex_skills_root(),
             self.archives_root(),
+            self.subagent_archives_root(),
         ];
         for workspace in self.workspace_candidates() {
             roots.extend(self.project_targets(&workspace));
+            roots.extend(self.project_subagent_targets(&workspace));
         }
+        roots.extend(self.global_subagent_targets());
         roots
     }
 
@@ -2472,6 +2862,10 @@ impl SyncEngine {
         self.environment.runtime_directory.join("archives")
     }
 
+    fn subagent_archives_root(&self) -> PathBuf {
+        self.archives_root().join("subagents")
+    }
+
     fn runtime_skills_root(&self) -> PathBuf {
         self.environment
             .home_directory
@@ -2523,21 +2917,39 @@ impl SyncEngine {
             workspace.join(".cursor").join("agents"),
         ]
     }
+
+    fn allowed_subagent_lifecycle_roots(&self) -> Vec<PathBuf> {
+        let mut roots = self.global_subagent_targets();
+        roots.push(self.subagent_archives_root());
+        for workspace in self.workspace_candidates() {
+            roots.extend(self.project_subagent_targets(&workspace));
+        }
+        roots
+    }
 }
 
 fn collect_all_managed_paths(state: &SyncState) -> std::collections::BTreeSet<String> {
     let mut paths = std::collections::BTreeSet::new();
     for skill in &state.skills {
+        if skill.status != SkillLifecycleStatus::Active {
+            continue;
+        }
         for path in &skill.target_paths {
             paths.insert(path.clone());
         }
     }
     for subagent in &state.subagents {
+        if subagent.status != SkillLifecycleStatus::Active {
+            continue;
+        }
         for path in &subagent.target_paths {
             paths.insert(path.clone());
         }
     }
     for server in &state.mcp_servers {
+        if server.status != SkillLifecycleStatus::Active {
+            continue;
+        }
         for path in &server.targets {
             paths.insert(path.clone());
         }
@@ -2571,6 +2983,8 @@ impl AuditSyncDiff {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct McpComparableConfig {
+    status: SkillLifecycleStatus,
+    archived_at: Option<String>,
     transport: crate::models::McpTransport,
     command: Option<String>,
     args: Vec<String>,
@@ -2740,6 +3154,8 @@ fn collect_mcp_configs(state: &SyncState) -> BTreeMap<String, McpComparableConfi
         configs.insert(
             key,
             McpComparableConfig {
+                status: server.status,
+                archived_at: server.archived_at.clone(),
                 transport: server.transport,
                 command: server.command.clone(),
                 args: server.args.clone(),
@@ -2775,9 +3191,14 @@ fn collect_canonical_paths(state: &SyncState) -> std::collections::BTreeMap<Stri
     }
 
     for subagent in &state.subagents {
+        let status = if subagent.status == SkillLifecycleStatus::Active {
+            "active"
+        } else {
+            "archived"
+        };
         canonical.insert(
             format!(
-                "subagent:{}:{}:{}",
+                "subagent:{status}:{}:{}:{}",
                 subagent.scope,
                 subagent.workspace.as_deref().unwrap_or("-"),
                 subagent.subagent_key
@@ -2842,10 +3263,21 @@ fn is_symlink(path: &Path) -> bool {
 }
 
 fn standardized_path(path: &Path) -> String {
-    fs::canonicalize(path)
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .to_string()
+    if let Ok(canonical) = fs::canonicalize(path) {
+        return canonical.to_string_lossy().to_string();
+    }
+    if let Some(parent) = path.parent() {
+        if let Ok(canonical_parent) = fs::canonicalize(parent) {
+            if let Some(file_name) = path.file_name() {
+                return canonical_parent
+                    .join(file_name)
+                    .to_string_lossy()
+                    .to_string();
+            }
+            return canonical_parent.to_string_lossy().to_string();
+        }
+    }
+    path.to_string_lossy().to_string()
 }
 
 fn iso8601(value: chrono::DateTime<Utc>) -> String {
@@ -2877,8 +3309,9 @@ fn sort_entries(lhs: &SkillRecord, rhs: &SkillRecord) -> std::cmp::Ordering {
 }
 
 fn sort_subagent_entries(lhs: &SubagentRecord, rhs: &SubagentRecord) -> std::cmp::Ordering {
-    lhs.scope
-        .cmp(&rhs.scope)
+    lhs.status
+        .cmp(&rhs.status)
+        .then_with(|| lhs.scope.cmp(&rhs.scope))
         .then_with(|| {
             lhs.name
                 .to_ascii_lowercase()
@@ -3206,8 +3639,8 @@ mod tests {
         should_record_audit_success, updated_skill_contents, DotagentsInvocationContext,
     };
     use crate::models::{
-        McpEnabledByAgent, McpServerRecord, McpTransport, SyncHealthStatus, SyncMetadata,
-        SyncState, SyncSummary,
+        McpEnabledByAgent, McpServerRecord, McpTransport, SkillLifecycleStatus, SyncHealthStatus,
+        SyncMetadata, SyncState, SyncSummary,
     };
     use std::path::PathBuf;
 
@@ -3254,6 +3687,8 @@ mod tests {
                 .iter()
                 .map(|warning| (*warning).to_string())
                 .collect(),
+            status: SkillLifecycleStatus::Active,
+            archived_at: None,
         }
     }
 

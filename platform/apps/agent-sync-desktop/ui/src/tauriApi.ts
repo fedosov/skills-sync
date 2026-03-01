@@ -3,6 +3,7 @@ import type {
   AgentsContextReport,
   AuditEvent,
   AuditQuery,
+  CatalogMutationRequest,
   DashboardSnapshot,
   DotagentsScope,
   MutationCommand,
@@ -218,6 +219,14 @@ export async function mutateSkill(
   return invoke<SyncState>(command, {
     skillKey,
     confirmed: true,
+  });
+}
+
+export async function mutateCatalogItem(
+  request: CatalogMutationRequest,
+): Promise<SyncState> {
+  return invoke<SyncState>("mutate_catalog_item", {
+    request,
   });
 }
 

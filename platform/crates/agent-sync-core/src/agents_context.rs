@@ -802,6 +802,11 @@ mod tests {
             model: None,
             tools: Vec::new(),
             codex_tools_ignored: false,
+            status: SkillLifecycleStatus::Active,
+            archived_at: None,
+            archived_bundle_path: None,
+            archived_original_scope: None,
+            archived_original_workspace: None,
         }
     }
 
@@ -818,6 +823,8 @@ mod tests {
             enabled_by_agent: McpEnabledByAgent::default(),
             targets: Vec::new(),
             warnings: Vec::new(),
+            status: SkillLifecycleStatus::Active,
+            archived_at: None,
         }
     }
 

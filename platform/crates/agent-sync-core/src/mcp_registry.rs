@@ -1,5 +1,7 @@
 use crate::error::SyncEngineError;
-use crate::models::{McpEnabledByAgent, McpServerRecord, McpTransport};
+use crate::models::{
+    CatalogMutationAction, McpEnabledByAgent, McpServerRecord, McpTransport, SkillLifecycleStatus,
+};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -142,6 +144,8 @@ struct CatalogEntry {
     definition: McpDefinition,
     enabled_by_agent: McpEnabledByAgent,
     project_claude_target: ProjectClaudeTarget,
+    status: SkillLifecycleStatus,
+    archived_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -262,7 +266,11 @@ impl McpRegistry {
         let global_codex_defs = definitions_for_entries(
             catalog
                 .values()
-                .filter(|item| item.scope == McpScope::Global && item.enabled_by_agent.codex)
+                .filter(|item| {
+                    item.scope == McpScope::Global
+                        && item.enabled_by_agent.codex
+                        && item.status == SkillLifecycleStatus::Active
+                })
                 .cloned()
                 .collect::<Vec<_>>()
                 .as_slice(),
@@ -282,7 +290,10 @@ impl McpRegistry {
 
         let mut json_plans: Vec<JsonWritePlan> = Vec::new();
         for item in catalog.values() {
-            if item.scope == McpScope::Global && item.enabled_by_agent.claude {
+            if item.status == SkillLifecycleStatus::Active
+                && item.scope == McpScope::Global
+                && item.enabled_by_agent.claude
+            {
                 push_json_plan_entry(
                     &mut json_plans,
                     &global_claude_target,
@@ -296,7 +307,8 @@ impl McpRegistry {
                 );
             }
 
-            if item.scope != McpScope::Project
+            if item.status != SkillLifecycleStatus::Active
+                || item.scope != McpScope::Project
                 || !item.enabled_by_agent.project
                 || !item.enabled_by_agent.claude
             {
@@ -410,6 +422,7 @@ impl McpRegistry {
                     .values()
                     .filter(|item| {
                         item.scope == McpScope::Project
+                            && item.status == SkillLifecycleStatus::Active
                             && item.workspace.as_deref() == Some(workspace_key.as_str())
                             && item.enabled_by_agent.project
                             && item.enabled_by_agent.codex
@@ -456,6 +469,8 @@ impl McpRegistry {
                     workspace,
                     definition,
                     enabled_by_agent,
+                    status,
+                    archived_at,
                     ..
                 } = entry;
                 McpServerRecord {
@@ -468,18 +483,25 @@ impl McpRegistry {
                     url: definition.url,
                     env: definition.env,
                     enabled_by_agent,
-                    targets,
+                    targets: if status == SkillLifecycleStatus::Active {
+                        targets
+                    } else {
+                        Vec::new()
+                    },
                     warnings: {
                         record_warnings.sort();
                         record_warnings.dedup();
                         record_warnings
                     },
+                    status,
+                    archived_at,
                 }
             })
             .collect::<Vec<_>>();
         records.sort_by(|lhs, rhs| {
-            lhs.server_key
-                .cmp(&rhs.server_key)
+            lhs.status
+                .cmp(&rhs.status)
+                .then_with(|| lhs.server_key.cmp(&rhs.server_key))
                 .then_with(|| lhs.scope.cmp(&rhs.scope))
                 .then_with(|| lhs.workspace.cmp(&rhs.workspace))
         });
@@ -518,6 +540,7 @@ impl McpRegistry {
             .values()
             .filter(|item| {
                 item.server_key == server_key
+                    && item.status == SkillLifecycleStatus::Active
                     && scope_filter
                         .map(|scope| item.scope == scope)
                         .unwrap_or(true)
@@ -560,6 +583,94 @@ impl McpRegistry {
 
         if entry.scope == McpScope::Global {
             entry.enabled_by_agent.project = false;
+        }
+
+        self.write_central_catalog(&catalog)
+    }
+
+    pub fn mutate_catalog_entry(
+        &self,
+        workspaces: &[PathBuf],
+        action: CatalogMutationAction,
+        server_key: &str,
+        scope: &str,
+        workspace: Option<&str>,
+    ) -> Result<(), SyncEngineError> {
+        let mut warnings = Vec::new();
+        let discovered = self.discover_all(workspaces, &mut warnings);
+        let mut catalog = self.load_central_catalog(&mut warnings)?;
+        if catalog.is_empty() {
+            catalog = self.bootstrap_catalog(&discovered, &mut warnings);
+        }
+
+        let scope_value =
+            McpScope::parse(scope).map_err(|_| SyncEngineError::McpMutationInvalidScope {
+                scope: scope.to_string(),
+            })?;
+        let workspace_filter = workspace
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty());
+
+        let matches = catalog
+            .values()
+            .filter(|item| {
+                if item.server_key != server_key || item.scope != scope_value {
+                    return false;
+                }
+                if item.scope == McpScope::Project {
+                    if let Some(workspace_filter) = workspace_filter {
+                        return item.workspace.as_deref() == Some(workspace_filter);
+                    }
+                }
+                true
+            })
+            .map(|item| item.catalog_id.clone())
+            .collect::<Vec<_>>();
+
+        if matches.is_empty() {
+            return Err(SyncEngineError::McpCatalogEntryNotFound {
+                server_key: server_key.to_string(),
+                scope: scope.to_string(),
+            });
+        }
+        if matches.len() > 1 {
+            return Err(SyncEngineError::McpCatalogEntryAmbiguous {
+                server_key: server_key.to_string(),
+                scope: scope.to_string(),
+            });
+        }
+
+        let catalog_id = matches[0].clone();
+        match action {
+            CatalogMutationAction::Delete => {
+                catalog.remove(&catalog_id);
+            }
+            CatalogMutationAction::Archive => {
+                let Some(entry) = catalog.get_mut(&catalog_id) else {
+                    return Err(SyncEngineError::McpCatalogEntryNotFound {
+                        server_key: server_key.to_string(),
+                        scope: scope.to_string(),
+                    });
+                };
+                if entry.status != SkillLifecycleStatus::Active {
+                    return Err(SyncEngineError::McpArchiveOnlyForActive);
+                }
+                entry.status = SkillLifecycleStatus::Archived;
+                entry.archived_at = Some(iso8601_now());
+            }
+            CatalogMutationAction::Restore => {
+                let Some(entry) = catalog.get_mut(&catalog_id) else {
+                    return Err(SyncEngineError::McpCatalogEntryNotFound {
+                        server_key: server_key.to_string(),
+                        scope: scope.to_string(),
+                    });
+                };
+                if entry.status != SkillLifecycleStatus::Archived {
+                    return Err(SyncEngineError::McpRestoreOnlyForArchived);
+                }
+                entry.status = SkillLifecycleStatus::Active;
+                entry.archived_at = None;
+            }
         }
 
         self.write_central_catalog(&catalog)
@@ -622,6 +733,9 @@ impl McpRegistry {
             let Some(existing) = catalog.get_mut(&item.entry.catalog_id) else {
                 continue;
             };
+            if existing.status != SkillLifecycleStatus::Active {
+                continue;
+            }
             if existing.enabled_by_agent.claude {
                 continue;
             }
@@ -703,6 +817,8 @@ impl McpRegistry {
                                         project: true,
                                     },
                                     project_claude_target: ProjectClaudeTarget::WorkspaceMcpJson,
+                                    status: SkillLifecycleStatus::Active,
+                                    archived_at: None,
                                 },
                                 enabled,
                             });
@@ -740,6 +856,8 @@ impl McpRegistry {
                                         project: true,
                                     },
                                     project_claude_target: ProjectClaudeTarget::WorkspaceMcpJson,
+                                    status: SkillLifecycleStatus::Active,
+                                    archived_at: None,
                                 },
                                 enabled,
                             });
@@ -776,6 +894,8 @@ impl McpRegistry {
                             project: false,
                         },
                         project_claude_target: ProjectClaudeTarget::WorkspaceMcpJson,
+                        status: SkillLifecycleStatus::Active,
+                        archived_at: None,
                     },
                     enabled,
                 })
@@ -813,6 +933,8 @@ impl McpRegistry {
                                 project: false,
                             },
                             project_claude_target: ProjectClaudeTarget::WorkspaceMcpJson,
+                            status: SkillLifecycleStatus::Active,
+                            archived_at: None,
                         },
                         enabled,
                     });
@@ -838,6 +960,8 @@ impl McpRegistry {
                                     project: true,
                                 },
                                 project_claude_target: ProjectClaudeTarget::ClaudeUserProject,
+                                status: SkillLifecycleStatus::Active,
+                                archived_at: None,
                             },
                             enabled,
                         });
@@ -878,6 +1002,8 @@ impl McpRegistry {
                                 project: false,
                             },
                             project_claude_target: ProjectClaudeTarget::WorkspaceMcpJson,
+                            status: SkillLifecycleStatus::Active,
+                            archived_at: None,
                         },
                         enabled,
                     });
@@ -912,6 +1038,8 @@ impl McpRegistry {
                                 project: false,
                             },
                             project_claude_target: ProjectClaudeTarget::WorkspaceMcpJson,
+                            status: SkillLifecycleStatus::Active,
+                            archived_at: None,
                         },
                         enabled,
                     });
@@ -999,6 +1127,8 @@ impl McpRegistry {
                         SourceKind::ClaudeUserProject => ProjectClaudeTarget::ClaudeUserProject,
                         _ => ProjectClaudeTarget::WorkspaceMcpJson,
                     },
+                    status: SkillLifecycleStatus::Active,
+                    archived_at: None,
                 },
             );
         }
@@ -1096,6 +1226,21 @@ impl McpRegistry {
                 .and_then(toml::Value::as_str)
                 .and_then(ProjectClaudeTarget::parse)
                 .unwrap_or(ProjectClaudeTarget::WorkspaceMcpJson);
+            let status = match table.get("status").and_then(toml::Value::as_str) {
+                Some("archived") => SkillLifecycleStatus::Archived,
+                Some("active") | None => SkillLifecycleStatus::Active,
+                Some(other) => {
+                    warnings.push(format!(
+                        "Skipped central MCP entry '{}' because status is invalid: {}",
+                        raw_catalog_id, other
+                    ));
+                    continue;
+                }
+            };
+            let archived_at = table
+                .get("archived_at")
+                .and_then(toml::Value::as_str)
+                .map(ToString::to_string);
             if scope == McpScope::Global {
                 enabled.project = false;
                 project_claude_target = ProjectClaudeTarget::WorkspaceMcpJson;
@@ -1117,6 +1262,12 @@ impl McpRegistry {
                     definition,
                     enabled_by_agent: enabled,
                     project_claude_target,
+                    status,
+                    archived_at: if status == SkillLifecycleStatus::Archived {
+                        archived_at
+                    } else {
+                        None
+                    },
                 },
             );
         }
@@ -2218,6 +2369,16 @@ fn render_central_block(catalog: &BTreeMap<String, CatalogEntry>) -> String {
             toml_escape(&entry.server_key)
         ));
         lines.push(format!("scope = \"{}\"", entry.scope.as_str()));
+        lines.push(format!(
+            "status = \"{}\"",
+            match entry.status {
+                SkillLifecycleStatus::Active => "active",
+                SkillLifecycleStatus::Archived => "archived",
+            }
+        ));
+        if let Some(archived_at) = &entry.archived_at {
+            lines.push(format!("archived_at = \"{}\"", toml_escape(archived_at)));
+        }
         if let Some(workspace) = &entry.workspace {
             lines.push(format!("workspace = \"{}\"", toml_escape(workspace)));
             lines.push(format!(
@@ -2493,8 +2654,23 @@ fn iso8601_now() -> String {
 mod tests {
     use super::{
         extract_managed_block_from_markers, read_json_servers, read_toml_servers_from_str,
-        strip_managed_blocks, upsert_managed_block, CENTRAL_MARKER_PAIRS, CODEX_MARKER_PAIRS,
+        render_central_block, strip_managed_blocks, upsert_managed_block, CatalogEntry,
+        McpDefinition, McpRegistry, McpScope, ProjectClaudeTarget, CENTRAL_BEGIN, CENTRAL_END,
+        CENTRAL_MARKER_PAIRS, CODEX_MARKER_PAIRS,
     };
+    use crate::models::{McpEnabledByAgent, McpTransport, SkillLifecycleStatus};
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    fn registry_in_temp() -> (tempfile::TempDir, McpRegistry, PathBuf, PathBuf) {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = temp.path().join("home");
+        let runtime = temp.path().join("runtime");
+        std::fs::create_dir_all(&home).expect("home");
+        std::fs::create_dir_all(&runtime).expect("runtime");
+        let registry = McpRegistry::new(home.clone(), runtime.clone());
+        (temp, registry, home, runtime)
+    }
 
     #[test]
     fn upsert_managed_block_replaces_existing() {
@@ -2600,5 +2776,136 @@ API_KEY = "${API_KEY}"
         assert_eq!(items[0].0, "exa");
         assert_eq!(items[0].1.url.as_deref(), Some("https://mcp.exa.ai/mcp"));
         assert!(items[0].2);
+    }
+
+    #[test]
+    fn central_catalog_roundtrip_preserves_status_and_archived_at() {
+        let (_temp, registry, home, _runtime) = registry_in_temp();
+        let archived_at = "2026-03-02T12:34:56.000Z";
+
+        let mut catalog = BTreeMap::new();
+        catalog.insert(
+            String::from("global::exa"),
+            CatalogEntry {
+                catalog_id: String::from("global::exa"),
+                server_key: String::from("exa"),
+                scope: McpScope::Global,
+                workspace: None,
+                definition: McpDefinition {
+                    transport: McpTransport::Stdio,
+                    command: Some(String::from("npx")),
+                    args: vec![String::from("-y"), String::from("exa-mcp")],
+                    url: None,
+                    env: BTreeMap::new(),
+                },
+                enabled_by_agent: McpEnabledByAgent {
+                    codex: true,
+                    claude: false,
+                    project: false,
+                },
+                project_claude_target: ProjectClaudeTarget::WorkspaceMcpJson,
+                status: SkillLifecycleStatus::Archived,
+                archived_at: Some(archived_at.to_string()),
+            },
+        );
+
+        let block = render_central_block(&catalog);
+        assert!(block.contains("status = \"archived\""));
+        assert!(block.contains(&format!("archived_at = \"{archived_at}\"")));
+
+        let config_path = home.join(".config").join("ai-agents").join("config.toml");
+        let wrapped = format!("{CENTRAL_BEGIN}\n{block}\n{CENTRAL_END}\n");
+        std::fs::create_dir_all(config_path.parent().expect("parent")).expect("mkdir parent");
+        std::fs::write(&config_path, wrapped).expect("write central");
+
+        let parsed = registry
+            .load_central_catalog(&mut Vec::new())
+            .expect("load central catalog");
+        let entry = parsed.get("global::exa").expect("parsed entry");
+        assert_eq!(entry.status, SkillLifecycleStatus::Archived);
+        assert_eq!(entry.archived_at.as_deref(), Some(archived_at));
+    }
+
+    #[test]
+    fn sync_writes_only_active_entries_but_returns_archived_records() {
+        let (_temp, registry, home, _runtime) = registry_in_temp();
+
+        let mut catalog = BTreeMap::new();
+        catalog.insert(
+            String::from("global::active-exa"),
+            CatalogEntry {
+                catalog_id: String::from("global::active-exa"),
+                server_key: String::from("active-exa"),
+                scope: McpScope::Global,
+                workspace: None,
+                definition: McpDefinition {
+                    transport: McpTransport::Stdio,
+                    command: Some(String::from("npx")),
+                    args: vec![String::from("-y"), String::from("active-mcp")],
+                    url: None,
+                    env: BTreeMap::new(),
+                },
+                enabled_by_agent: McpEnabledByAgent {
+                    codex: true,
+                    claude: false,
+                    project: false,
+                },
+                project_claude_target: ProjectClaudeTarget::WorkspaceMcpJson,
+                status: SkillLifecycleStatus::Active,
+                archived_at: None,
+            },
+        );
+        catalog.insert(
+            String::from("global::archived-exa"),
+            CatalogEntry {
+                catalog_id: String::from("global::archived-exa"),
+                server_key: String::from("archived-exa"),
+                scope: McpScope::Global,
+                workspace: None,
+                definition: McpDefinition {
+                    transport: McpTransport::Stdio,
+                    command: Some(String::from("npx")),
+                    args: vec![String::from("-y"), String::from("archived-mcp")],
+                    url: None,
+                    env: BTreeMap::new(),
+                },
+                enabled_by_agent: McpEnabledByAgent {
+                    codex: true,
+                    claude: false,
+                    project: false,
+                },
+                project_claude_target: ProjectClaudeTarget::WorkspaceMcpJson,
+                status: SkillLifecycleStatus::Archived,
+                archived_at: Some(String::from("2026-03-02T12:34:56.000Z")),
+            },
+        );
+
+        let central_path = home.join(".config").join("ai-agents").join("config.toml");
+        let wrapped = format!(
+            "{CENTRAL_BEGIN}\n{}\n{CENTRAL_END}\n",
+            render_central_block(&catalog)
+        );
+        std::fs::create_dir_all(central_path.parent().expect("parent")).expect("mkdir parent");
+        std::fs::write(&central_path, wrapped).expect("write central");
+
+        let outcome = registry.sync(&[]).expect("sync outcome");
+        let codex_path = home.join(".codex").join("config.toml");
+        let codex_raw = std::fs::read_to_string(&codex_path).expect("codex config");
+        assert!(codex_raw.contains("active-exa"));
+        assert!(!codex_raw.contains("archived-exa"));
+
+        let active = outcome
+            .records
+            .iter()
+            .find(|record| record.server_key == "active-exa")
+            .expect("active record");
+        let archived = outcome
+            .records
+            .iter()
+            .find(|record| record.server_key == "archived-exa")
+            .expect("archived record");
+        assert_eq!(active.status, SkillLifecycleStatus::Active);
+        assert_eq!(archived.status, SkillLifecycleStatus::Archived);
+        assert!(archived.targets.is_empty());
     }
 }

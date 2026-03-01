@@ -11,6 +11,7 @@ import {
   listSubagents,
   getPlatformContext,
   getMcpServers,
+  mutateCatalogItem,
   mutateSkill,
   migrateDotagents,
   dotagentsMcpAdd,
@@ -70,6 +71,21 @@ describe("tauriApi command payloads", () => {
     expect(invoke).toHaveBeenCalledWith("archive_skill", {
       skillKey: "alpha",
       confirmed: true,
+    });
+  });
+
+  it("sends catalog mutation payload for mutate_catalog_item", async () => {
+    await mutateCatalogItem({
+      action: "archive",
+      target: { kind: "subagent", subagentId: "reviewer" },
+      confirmed: true,
+    });
+    expect(invoke).toHaveBeenCalledWith("mutate_catalog_item", {
+      request: {
+        action: "archive",
+        target: { kind: "subagent", subagentId: "reviewer" },
+        confirmed: true,
+      },
     });
   });
 

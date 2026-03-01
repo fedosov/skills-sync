@@ -26,6 +26,7 @@ vi.mock("./tauriApi", () => ({
   getSkillDetails: vi.fn(),
   getSubagentDetails: vi.fn(),
   listSubagents: vi.fn(),
+  mutateCatalogItem: vi.fn(),
   mutateSkill: vi.fn(),
   renameSkill: vi.fn(),
   openSkillPath: vi.fn(),
@@ -275,6 +276,7 @@ function setApiDefaults(
     state.mcp_servers ?? [],
   );
   vi.mocked(tauriApi.migrateDotagents).mockResolvedValue(undefined);
+  vi.mocked(tauriApi.mutateCatalogItem).mockResolvedValue(state);
   vi.mocked(tauriApi.mutateSkill).mockResolvedValue(state);
   vi.mocked(tauriApi.renameSkill).mockResolvedValue(state);
   vi.mocked(tauriApi.openSkillPath).mockResolvedValue(undefined);
@@ -788,7 +790,7 @@ describe("App quiet redesign", () => {
     );
   });
 
-  it("renders overflow actions and confirms delete with DELETE text", async () => {
+  it("renders overflow actions and confirms delete in dialog", async () => {
     const state = buildState([projectSkill]);
     setApiDefaults(state, {
       [projectSkill.skill_key]: buildDetails(projectSkill),
@@ -813,20 +815,131 @@ describe("App quiet redesign", () => {
     const confirmButton = within(dialog).getByRole("button", {
       name: "Delete",
     });
-    expect(confirmButton).toBeDisabled();
-
-    await user.type(
-      within(dialog).getByLabelText("Type DELETE to confirm"),
-      "DELETE",
-    );
     expect(confirmButton).toBeEnabled();
 
     await user.click(confirmButton);
 
-    expect(tauriApi.mutateSkill).toHaveBeenCalledWith(
-      "delete_skill",
-      projectSkill.skill_key,
+    expect(tauriApi.mutateCatalogItem).toHaveBeenCalledWith({
+      action: "delete",
+      target: { kind: "skill", skillKey: projectSkill.skill_key },
+      confirmed: true,
+    });
+  });
+
+  it("archives subagent from lifecycle menu", async () => {
+    const subagent = {
+      id: "sub-agent-archive",
+      name: "Agent Archive",
+      description: "Lifecycle test",
+      scope: "global",
+      workspace: null,
+      canonical_source_path: "/tmp/home/.claude/agents/agent-archive.md",
+      target_paths: ["/tmp/home/.claude/agents/agent-archive.md"],
+      exists: true,
+      is_symlink_canonical: false,
+      package_type: "file",
+      subagent_key: "agent-archive",
+      symlink_target: "/tmp/home/.claude/agents/agent-archive.md",
+      model: null,
+      tools: [],
+      codex_tools_ignored: false,
+      status: "active" as const,
+    };
+    const state = buildState([projectSkill]);
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+    vi.mocked(tauriApi.listSubagents).mockResolvedValue([subagent]);
+    vi.mocked(tauriApi.getSubagentDetails).mockResolvedValue({
+      subagent,
+      main_file_path: subagent.canonical_source_path,
+      main_file_exists: true,
+      main_file_body_preview: "# Agent Archive",
+      main_file_body_preview_truncated: false,
+      subagent_dir_tree_preview: "agents/\n`-- agent-archive.md",
+      subagent_dir_tree_preview_truncated: false,
+      last_modified_unix_seconds: 1_700_000_000,
+      target_statuses: [],
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to Subagents" }),
     );
+    await screen.findByRole("heading", { name: "Agent Archive" });
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    expect(tauriApi.mutateCatalogItem).toHaveBeenCalledWith({
+      action: "archive",
+      target: { kind: "subagent", subagentId: subagent.id },
+      confirmed: true,
+    });
+  });
+
+  it("restores and deletes archived mcp server via shared dialog", async () => {
+    const workspace = "/tmp/workspace-a";
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace,
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: true,
+          },
+          targets: [],
+          warnings: [],
+          status: "archived",
+          archived_at: "2026-02-25T09:10:11Z",
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    );
+    await screen.findByRole("heading", { name: "exa" });
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    expect(
+      screen.getByRole("menuitem", { name: "Restore" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+    expect(
+      screen.getByText(
+        'Remove MCP server "exa"? This action moves files to system Trash.',
+      ),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(tauriApi.mutateCatalogItem).toHaveBeenCalledWith({
+      action: "delete",
+      target: {
+        kind: "mcp",
+        serverKey: "exa",
+        scope: "project",
+        workspace,
+      },
+      confirmed: true,
+    });
   });
 
   it("prevents repeated skill mutations while one is in flight", async () => {
@@ -839,7 +952,7 @@ describe("App quiet redesign", () => {
     const pendingMutation = new Promise<SyncState>((resolve) => {
       resolveMutation = resolve;
     });
-    vi.mocked(tauriApi.mutateSkill).mockReturnValue(pendingMutation);
+    vi.mocked(tauriApi.mutateCatalogItem).mockReturnValue(pendingMutation);
 
     const user = userEvent.setup();
     render(<App />);
@@ -847,14 +960,14 @@ describe("App quiet redesign", () => {
 
     await user.click(screen.getByRole("button", { name: "More actions" }));
     await user.click(screen.getByRole("menuitem", { name: "Archive" }));
-    expect(tauriApi.mutateSkill).toHaveBeenCalledTimes(1);
+    expect(tauriApi.mutateCatalogItem).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "More actions" }));
     const archiveAgain = screen.queryByRole("menuitem", { name: "Archive" });
     if (archiveAgain) {
       await user.click(archiveAgain);
     }
-    expect(tauriApi.mutateSkill).toHaveBeenCalledTimes(1);
+    expect(tauriApi.mutateCatalogItem).toHaveBeenCalledTimes(1);
 
     resolveMutation?.(state);
     await waitFor(() => {
@@ -1688,9 +1801,9 @@ describe("App quiet redesign", () => {
     setApiDefaults(state, {
       [projectSkill.skill_key]: buildDetails(projectSkill),
     });
-    vi.mocked(tauriApi.mutateSkill).mockRejectedValueOnce(
+    vi.mocked(tauriApi.mutateCatalogItem).mockRejectedValueOnce(
       new Error(
-        "Filesystem changes are disabled. Enable 'Allow filesystem changes' to run delete_skill.",
+        "Filesystem changes are disabled. Enable 'Allow filesystem changes' to run mutate_catalog_item.",
       ),
     );
 
@@ -1700,7 +1813,6 @@ describe("App quiet redesign", () => {
 
     await user.click(screen.getByRole("button", { name: "More actions" }));
     await user.click(screen.getByRole("menuitem", { name: "Delete" }));
-    await user.type(screen.getByLabelText("Type DELETE to confirm"), "DELETE");
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     expect(

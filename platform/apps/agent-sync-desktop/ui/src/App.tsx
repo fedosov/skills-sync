@@ -17,6 +17,7 @@ import {
   getSubagentDetails,
   listAuditEvents,
   listSubagents,
+  mutateCatalogItem,
   mutateSkill,
   openSubagentPath,
   openSkillPath,
@@ -38,10 +39,13 @@ import type {
   AgentsContextReport,
   AuditEvent,
   AuditEventStatus,
+  CatalogMutationRequest,
+  CatalogMutationTarget,
   FocusKind,
   McpServerRecord,
   MutationCommand,
   RuntimeControls,
+  SkillLifecycleStatus,
   SubagentDetails,
   SubagentRecord,
   SkillDetails,
@@ -49,8 +53,12 @@ import type {
   SyncState,
 } from "./types";
 
-type DeleteDialogState = { skillKey: string; confirmText: string } | null;
+type DeleteDialogState = {
+  request: CatalogMutationRequest;
+  label: string;
+} | null;
 type OpenTargetMenu = "skill" | "subagent" | null;
+type ActionsMenuTarget = "skill" | "subagent" | "mcp" | null;
 type AuditStatusFilter = AuditEventStatus | "all";
 type DotagentsProofStatus = "idle" | "running" | "ok" | "error";
 const CATALOG_FOCUS_STORAGE_KEY = "agent-sync.catalog.focusKind.v1";
@@ -66,6 +74,18 @@ function toTitleCase(value: string): string {
 
 function mcpSelectionKey(server: McpServerRecord): string {
   return `${server.scope}::${server.workspace ?? "global"}::${server.server_key}`;
+}
+
+function subagentStatus(subagent: SubagentRecord): SkillLifecycleStatus {
+  return subagent.status ?? "active";
+}
+
+function mcpStatus(server: McpServerRecord): SkillLifecycleStatus {
+  return server.status ?? "active";
+}
+
+function statusRank(status: SkillLifecycleStatus): number {
+  return status === "active" ? 0 : 1;
 }
 
 function syncStatusVariant(status: SyncHealthStatus | undefined) {
@@ -175,6 +195,15 @@ function ScopeMarker({ scope }: { scope: string }) {
   );
 }
 
+function mcpTarget(server: McpServerRecord): CatalogMutationTarget {
+  return {
+    kind: "mcp",
+    serverKey: server.server_key,
+    scope: server.scope,
+    workspace: server.workspace,
+  };
+}
+
 export function App() {
   const [state, setState] = useState<SyncState | null>(null);
   const [runtimeControls, setRuntimeControls] =
@@ -210,7 +239,8 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openTargetMenu, setOpenTargetMenu] = useState<OpenTargetMenu>(null);
-  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [actionsMenuTarget, setActionsMenuTarget] =
+    useState<ActionsMenuTarget>(null);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>(null);
   const [dotagentsProofStatus, setDotagentsProofStatus] =
     useState<DotagentsProofStatus>("idle");
@@ -456,7 +486,7 @@ export function App() {
         return;
       }
       setOpenTargetMenu(null);
-      setActionsMenuOpen(false);
+      setActionsMenuTarget(null);
       setDeleteDialog(null);
       setClearAuditDialogOpen(false);
       setAuditOpen(false);
@@ -503,8 +533,10 @@ export function App() {
       .slice()
       .sort(
         (lhs, rhs) =>
+          statusRank(subagentStatus(lhs)) - statusRank(subagentStatus(rhs)) ||
           lhs.name.localeCompare(rhs.name) ||
-          lhs.scope.localeCompare(rhs.scope),
+          lhs.scope.localeCompare(rhs.scope) ||
+          (lhs.workspace ?? "").localeCompare(rhs.workspace ?? ""),
       );
     if (!normalizedQuery) {
       return ordered;
@@ -525,6 +557,7 @@ export function App() {
       focusKind === "mcp" ? query.trim().toLowerCase() : "";
     const servers = (state?.mcp_servers ?? []).slice().sort((lhs, rhs) => {
       return (
+        statusRank(mcpStatus(lhs)) - statusRank(mcpStatus(rhs)) ||
         lhs.server_key.localeCompare(rhs.server_key) ||
         lhs.scope.localeCompare(rhs.scope) ||
         (lhs.workspace ?? "").localeCompare(rhs.workspace ?? "")
@@ -606,7 +639,10 @@ export function App() {
       .slice(0, 8);
   }, [selectedAgentEntry]);
 
-  async function executeMutation(command: MutationCommand, skillKey: string) {
+  async function executeSkillMutation(
+    command: MutationCommand,
+    skillKey: string,
+  ) {
     if (busy) {
       return;
     }
@@ -615,6 +651,26 @@ export function App() {
     try {
       const next = await mutateSkill(command, skillKey);
       applyState(next, skillKey);
+    } catch (invokeError) {
+      setError(String(invokeError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function executeCatalogMutation(
+    request: CatalogMutationRequest,
+    preferredSkillKey?: string | null,
+  ) {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await mutateCatalogItem(request);
+      await applySubagents(undefined, next.subagents);
+      applyState(next, preferredSkillKey ?? selectedSkillKey);
     } catch (invokeError) {
       setError(String(invokeError));
     } finally {
@@ -826,7 +882,7 @@ export function App() {
 
   function handleCatalogTabChange(next: FocusKind) {
     setFocusKind(next);
-    setActionsMenuOpen(false);
+    setActionsMenuTarget(null);
     setOpenTargetMenu(null);
   }
 
@@ -834,8 +890,17 @@ export function App() {
     state?.skills.filter((skill) => skill.status === "active").length ?? 0;
   const archivedSkillCount =
     state?.skills.filter((skill) => skill.status === "archived").length ?? 0;
-  const activeSubagentCount = subagents.length;
-  const mcpCount = state?.summary.mcp_count ?? state?.mcp_servers?.length ?? 0;
+  const activeSubagentCount = subagents.filter(
+    (subagent) => subagentStatus(subagent) === "active",
+  ).length;
+  const archivedSubagentCount = subagents.length - activeSubagentCount;
+  const activeMcpCount = (state?.mcp_servers ?? []).filter(
+    (server) => mcpStatus(server) === "active",
+  ).length;
+  const archivedMcpCount = (state?.mcp_servers ?? []).filter(
+    (server) => mcpStatus(server) === "archived",
+  ).length;
+  const mcpCount = state?.mcp_servers?.length ?? state?.summary.mcp_count ?? 0;
   const agentContextCount = agentsReport?.entries.length ?? 0;
   const catalogTabCounts = {
     skills: state?.skills.length ?? 0,
@@ -902,8 +967,9 @@ export function App() {
               </div>
               <p className="text-xs text-muted-foreground">
                 Active {activeSkillCount} · Archived {archivedSkillCount} ·
-                Skills {state?.skills.length ?? 0} · Subagents{" "}
-                {activeSubagentCount} · MCP {mcpCount} · Agents{" "}
+                Skills {state?.skills.length ?? 0} · Subagents A{" "}
+                {activeSubagentCount}/R {archivedSubagentCount} · MCP A{" "}
+                {activeMcpCount}/R {archivedMcpCount} · Agents{" "}
                 {agentContextCount}
               </p>
             </div>
@@ -1147,7 +1213,7 @@ export function App() {
                               )}
                               onClick={() => {
                                 setSelectedSkillKey(skill.skill_key);
-                                setActionsMenuOpen(false);
+                                setActionsMenuTarget(null);
                                 setOpenTargetMenu(null);
                               }}
                             >
@@ -1192,7 +1258,7 @@ export function App() {
                               )}
                               onClick={() => {
                                 setSelectedSubagentId(subagent.id);
-                                setActionsMenuOpen(false);
+                                setActionsMenuTarget(null);
                                 setOpenTargetMenu(null);
                               }}
                             >
@@ -1200,7 +1266,14 @@ export function App() {
                                 <span className="truncate text-sm font-medium">
                                   {subagent.name}
                                 </span>
-                                <ScopeMarker scope={subagent.scope} />
+                                <span className="inline-flex items-center gap-1.5">
+                                  <ScopeMarker scope={subagent.scope} />
+                                  {subagentStatus(subagent) === "archived" ? (
+                                    <span className="text-[10px] text-muted-foreground">
+                                      Archived
+                                    </span>
+                                  ) : null}
+                                </span>
                               </div>
                               <p
                                 aria-hidden="true"
@@ -1244,7 +1317,7 @@ export function App() {
                               )}
                               onClick={() => {
                                 setSelectedMcpKey(key);
-                                setActionsMenuOpen(false);
+                                setActionsMenuTarget(null);
                                 setOpenTargetMenu(null);
                               }}
                             >
@@ -1252,7 +1325,14 @@ export function App() {
                                 <span className="truncate text-sm font-medium">
                                   {server.server_key}
                                 </span>
-                                <ScopeMarker scope={server.scope} />
+                                <span className="inline-flex items-center gap-1.5">
+                                  <ScopeMarker scope={server.scope} />
+                                  {mcpStatus(server) === "archived" ? (
+                                    <span className="text-[10px] text-muted-foreground">
+                                      Archived
+                                    </span>
+                                  ) : null}
+                                </span>
                               </div>
                               <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
                                 <span className="flex min-w-0 items-center gap-1.5">
@@ -1320,7 +1400,7 @@ export function App() {
                               )}
                               onClick={() => {
                                 setSelectedAgentEntryId(entry.id);
-                                setActionsMenuOpen(false);
+                                setActionsMenuTarget(null);
                                 setOpenTargetMenu(null);
                               }}
                             >
@@ -1384,7 +1464,7 @@ export function App() {
                           setOpenTargetMenu((prev) =>
                             prev === "skill" ? null : "skill",
                           );
-                          setActionsMenuOpen(false);
+                          setActionsMenuTarget(null);
                         }}
                       >
                         Open…
@@ -1394,9 +1474,11 @@ export function App() {
                         variant="ghost"
                         aria-label="More actions"
                         disabled={busy}
-                        aria-expanded={actionsMenuOpen}
+                        aria-expanded={actionsMenuTarget === "skill"}
                         onClick={() => {
-                          setActionsMenuOpen((prev) => !prev);
+                          setActionsMenuTarget((prev) =>
+                            prev === "skill" ? null : "skill",
+                          );
                           setOpenTargetMenu(null);
                         }}
                       >
@@ -1438,7 +1520,7 @@ export function App() {
                         </div>
                       ) : null}
 
-                      {actionsMenuOpen ? (
+                      {actionsMenuTarget === "skill" ? (
                         <div
                           role="menu"
                           className="absolute right-0 top-8 z-20 min-w-36 rounded-md border border-border/70 bg-card p-1 shadow-sm"
@@ -1451,9 +1533,16 @@ export function App() {
                                 disabled={busy}
                                 className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                                 onClick={() => {
-                                  setActionsMenuOpen(false);
-                                  void executeMutation(
-                                    "archive_skill",
+                                  setActionsMenuTarget(null);
+                                  void executeCatalogMutation(
+                                    {
+                                      action: "archive",
+                                      target: {
+                                        kind: "skill",
+                                        skillKey: details.skill.skill_key,
+                                      },
+                                      confirmed: true,
+                                    },
                                     details.skill.skill_key,
                                   );
                                 }}
@@ -1467,8 +1556,8 @@ export function App() {
                                   disabled={busy}
                                   className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                                   onClick={() => {
-                                    setActionsMenuOpen(false);
-                                    void executeMutation(
+                                    setActionsMenuTarget(null);
+                                    void executeSkillMutation(
                                       "make_global",
                                       details.skill.skill_key,
                                     );
@@ -1485,9 +1574,16 @@ export function App() {
                               disabled={busy}
                               className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                               onClick={() => {
-                                setActionsMenuOpen(false);
-                                void executeMutation(
-                                  "restore_skill",
+                                setActionsMenuTarget(null);
+                                void executeCatalogMutation(
+                                  {
+                                    action: "restore",
+                                    target: {
+                                      kind: "skill",
+                                      skillKey: details.skill.skill_key,
+                                    },
+                                    confirmed: true,
+                                  },
                                   details.skill.skill_key,
                                 );
                               }}
@@ -1501,10 +1597,17 @@ export function App() {
                             disabled={busy}
                             className="block w-full rounded-sm px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
                             onClick={() => {
-                              setActionsMenuOpen(false);
+                              setActionsMenuTarget(null);
                               setDeleteDialog({
-                                skillKey: details.skill.skill_key,
-                                confirmText: "",
+                                request: {
+                                  action: "delete",
+                                  target: {
+                                    kind: "skill",
+                                    skillKey: details.skill.skill_key,
+                                  },
+                                  confirmed: true,
+                                },
+                                label: `skill "${details.skill.name}"`,
                               });
                             }}
                           >
@@ -1686,11 +1789,93 @@ export function App() {
                         {`${selectedMcpServer.transport.toUpperCase()} · ${toTitleCase(selectedMcpServer.scope)}`}
                       </p>
                     </div>
-                    <div />
+                    <div className="relative">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label="More actions"
+                        disabled={busy}
+                        aria-expanded={actionsMenuTarget === "mcp"}
+                        onClick={() =>
+                          setActionsMenuTarget((prev) =>
+                            prev === "mcp" ? null : "mcp",
+                          )
+                        }
+                      >
+                        ⋯
+                      </Button>
+                      {actionsMenuTarget === "mcp" ? (
+                        <div
+                          role="menu"
+                          className="absolute right-0 top-8 z-20 min-w-36 rounded-md border border-border/70 bg-card p-1 shadow-sm"
+                        >
+                          {mcpStatus(selectedMcpServer) === "active" ? (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={busy}
+                              className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => {
+                                setActionsMenuTarget(null);
+                                void executeCatalogMutation({
+                                  action: "archive",
+                                  target: mcpTarget(selectedMcpServer),
+                                  confirmed: true,
+                                });
+                              }}
+                            >
+                              Archive
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={busy}
+                              className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => {
+                                setActionsMenuTarget(null);
+                                void executeCatalogMutation({
+                                  action: "restore",
+                                  target: mcpTarget(selectedMcpServer),
+                                  confirmed: true,
+                                });
+                              }}
+                            >
+                              Restore
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={busy}
+                            className="block w-full rounded-sm px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => {
+                              setActionsMenuTarget(null);
+                              setDeleteDialog({
+                                request: {
+                                  action: "delete",
+                                  target: mcpTarget(selectedMcpServer),
+                                  confirmed: true,
+                                },
+                                label: `MCP server "${selectedMcpServer.server_key}"`,
+                              });
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
                   <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
+                    <div>
+                      <dt className="text-muted-foreground">Status</dt>
+                      <dd className="mt-0.5 capitalize">
+                        {mcpStatus(selectedMcpServer)}
+                      </dd>
+                    </div>
                     <div>
                       <dt className="text-muted-foreground">Command</dt>
                       <dd className="mt-0.5 break-all font-mono">
@@ -1742,7 +1927,10 @@ export function App() {
                                 role="switch"
                                 aria-label={`${agent} toggle`}
                                 aria-checked={enabled}
-                                disabled={busy}
+                                disabled={
+                                  busy ||
+                                  mcpStatus(selectedMcpServer) === "archived"
+                                }
                                 onClick={() =>
                                   void handleSetMcpEnabled(
                                     selectedMcpServer,
@@ -1770,6 +1958,11 @@ export function App() {
                         },
                       )}
                     </div>
+                    {mcpStatus(selectedMcpServer) === "archived" ? (
+                      <p className="text-xs text-muted-foreground">
+                        Restore this MCP server to change per-agent toggles.
+                      </p>
+                    ) : null}
                   </section>
 
                   <section className="space-y-1.5 border-t border-border/50 pt-3">
@@ -1992,16 +2185,31 @@ export function App() {
                           setOpenTargetMenu((prev) =>
                             prev === "subagent" ? null : "subagent",
                           );
-                          setActionsMenuOpen(false);
+                          setActionsMenuTarget(null);
                         }}
                       >
                         Open…
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label="More actions"
+                        disabled={busy}
+                        aria-expanded={actionsMenuTarget === "subagent"}
+                        onClick={() => {
+                          setActionsMenuTarget((prev) =>
+                            prev === "subagent" ? null : "subagent",
+                          );
+                          setOpenTargetMenu(null);
+                        }}
+                      >
+                        ⋯
                       </Button>
 
                       {openTargetMenu === "subagent" ? (
                         <div
                           role="menu"
-                          className="absolute right-0 top-8 z-20 min-w-36 rounded-md border border-border/70 bg-card p-1 shadow-sm"
+                          className="absolute right-14 top-8 z-20 min-w-36 rounded-md border border-border/70 bg-card p-1 shadow-sm"
                         >
                           <button
                             type="button"
@@ -2032,12 +2240,90 @@ export function App() {
                           </button>
                         </div>
                       ) : null}
+
+                      {actionsMenuTarget === "subagent" ? (
+                        <div
+                          role="menu"
+                          className="absolute right-0 top-8 z-20 min-w-36 rounded-md border border-border/70 bg-card p-1 shadow-sm"
+                        >
+                          {subagentStatus(subagentDetails.subagent) ===
+                          "active" ? (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={busy}
+                              className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => {
+                                setActionsMenuTarget(null);
+                                void executeCatalogMutation({
+                                  action: "archive",
+                                  target: {
+                                    kind: "subagent",
+                                    subagentId: subagentDetails.subagent.id,
+                                  },
+                                  confirmed: true,
+                                });
+                              }}
+                            >
+                              Archive
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={busy}
+                              className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => {
+                                setActionsMenuTarget(null);
+                                void executeCatalogMutation({
+                                  action: "restore",
+                                  target: {
+                                    kind: "subagent",
+                                    subagentId: subagentDetails.subagent.id,
+                                  },
+                                  confirmed: true,
+                                });
+                              }}
+                            >
+                              Restore
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={busy}
+                            className="block w-full rounded-sm px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => {
+                              setActionsMenuTarget(null);
+                              setDeleteDialog({
+                                request: {
+                                  action: "delete",
+                                  target: {
+                                    kind: "subagent",
+                                    subagentId: subagentDetails.subagent.id,
+                                  },
+                                  confirmed: true,
+                                },
+                                label: `subagent "${subagentDetails.subagent.name}"`,
+                              });
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </CardHeader>
 
                 <CardContent className="space-y-3 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
                   <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
+                    <div>
+                      <dt className="text-muted-foreground">Status</dt>
+                      <dd className="mt-0.5 capitalize">
+                        {subagentStatus(subagentDetails.subagent)}
+                      </dd>
+                    </div>
                     <div>
                       <dt className="text-muted-foreground">Workspace</dt>
                       <dd className="mt-0.5 break-all font-mono">
@@ -2281,31 +2567,9 @@ export function App() {
           >
             <h2 className="text-sm font-semibold">Confirm delete</h2>
             <p className="mt-2 text-xs text-muted-foreground">
-              Type DELETE to remove this skill.
+              Remove {deleteDialog.label}? This action moves files to system
+              Trash.
             </p>
-            <label
-              className="mt-3 block text-xs text-muted-foreground"
-              htmlFor="delete-confirm-input"
-            >
-              Type DELETE to confirm
-            </label>
-            <Input
-              id="delete-confirm-input"
-              aria-label="Type DELETE to confirm"
-              value={deleteDialog.confirmText}
-              onChange={(event) => {
-                const nextValue = event.currentTarget.value;
-                setDeleteDialog((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        confirmText: nextValue,
-                      }
-                    : prev,
-                );
-              }}
-              className="mt-1"
-            />
             <div className="mt-3 flex items-center justify-end gap-2">
               <Button
                 size="sm"
@@ -2317,11 +2581,11 @@ export function App() {
               <Button
                 size="sm"
                 variant="destructive"
-                disabled={deleteDialog.confirmText !== "DELETE" || busy}
+                disabled={busy}
                 onClick={() => {
-                  const skillKey = deleteDialog.skillKey;
+                  const request = deleteDialog.request;
                   setDeleteDialog(null);
-                  void executeMutation("delete_skill", skillKey);
+                  void executeCatalogMutation(request);
                 }}
               >
                 Delete

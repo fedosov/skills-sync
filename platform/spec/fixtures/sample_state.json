@@ -67,7 +67,12 @@
       "symlink_target": "/Users/example/.agents/subagents/reviewer.md",
       "model": "gpt-5.3-codex",
       "tools": ["Read", "Grep"],
-      "codex_tools_ignored": true
+      "codex_tools_ignored": true,
+      "status": "active",
+      "archived_at": null,
+      "archived_bundle_path": null,
+      "archived_original_scope": null,
+      "archived_original_workspace": null
     }
   ],
   "mcp_servers": [
@@ -89,7 +94,9 @@
         "/Users/example/.codex/config.toml",
         "/Users/example/.claude/settings.local.json"
       ],
-      "warnings": []
+      "warnings": [],
+      "status": "active",
+      "archived_at": null
     }
   ],
   "top_skills": ["skill-abc123def456"],

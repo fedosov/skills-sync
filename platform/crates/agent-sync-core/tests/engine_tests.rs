@@ -1,7 +1,7 @@
 use agent_sync_core::{
-    AuditEventStatus, DotagentsScope, McpAgent, ScopeFilter, SkillLifecycleStatus, SkillLocator,
-    SyncEngine, SyncEngineEnvironment, SyncPaths, SyncPreferencesStore, SyncStateStore,
-    SyncTrigger,
+    AuditEventStatus, CatalogMutationAction, CatalogMutationTarget, DotagentsScope, McpAgent,
+    ScopeFilter, SkillLifecycleStatus, SkillLocator, SyncEngine, SyncEngineEnvironment, SyncPaths,
+    SyncPreferencesStore, SyncStateStore, SyncTrigger,
 };
 use serde_json::Value as JsonValue;
 use std::ffi::OsString;
@@ -115,6 +115,21 @@ fn find_mcp<'a>(
                 && item.workspace.as_deref() == workspace
         })
         .expect("mcp record exists")
+}
+
+fn find_subagent<'a>(
+    state: &'a agent_sync_core::SyncState,
+    subagent_key: &str,
+    status: Option<SkillLifecycleStatus>,
+) -> &'a agent_sync_core::SubagentRecord {
+    state
+        .subagents
+        .iter()
+        .find(|item| {
+            item.subagent_key == subagent_key
+                && status.map(|value| item.status == value).unwrap_or(true)
+        })
+        .expect("subagent exists")
 }
 
 #[test]
@@ -557,6 +572,7 @@ fn delete_archived_skill_removes_bundle_and_state_entry() {
     let bundle_count = fs::read_dir(&archives)
         .expect("archives dir")
         .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy() != "subagents")
         .count();
     assert_eq!(bundle_count, 0);
 }
@@ -731,6 +747,139 @@ fn run_sync_discovers_global_and_project_subagents() {
     assert_eq!(state.subagent_summary.global_count, 1);
     assert_eq!(state.subagent_summary.project_count, 1);
     assert_eq!(state.subagents.len(), 2);
+}
+
+#[test]
+fn mutate_catalog_item_archives_restores_and_deletes_subagent() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+
+    write_subagent(
+        &engine
+            .environment()
+            .home_directory
+            .join(".agents")
+            .join("subagents"),
+        "reviewer",
+        "---\nname: reviewer\ndescription: Review code\n---\n\nYou are a reviewer.",
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let active = find_subagent(&state, "reviewer", Some(SkillLifecycleStatus::Active));
+
+    let archived_state = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::Archive,
+            CatalogMutationTarget::Subagent {
+                subagent_id: active.id.clone(),
+            },
+            true,
+        )
+        .expect("archive subagent");
+    let archived = find_subagent(
+        &archived_state,
+        "reviewer",
+        Some(SkillLifecycleStatus::Archived),
+    );
+    assert!(archived
+        .canonical_source_path
+        .contains("/runtime/archives/subagents/"));
+    assert!(archived.archived_bundle_path.is_some());
+
+    let restored_state = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::Restore,
+            CatalogMutationTarget::Subagent {
+                subagent_id: archived.id.clone(),
+            },
+            true,
+        )
+        .expect("restore subagent");
+    let restored = find_subagent(
+        &restored_state,
+        "reviewer",
+        Some(SkillLifecycleStatus::Active),
+    );
+    assert_eq!(restored.scope, "global");
+    assert_eq!(restored.workspace, None);
+    assert!(restored
+        .canonical_source_path
+        .contains("/.agents/subagents/reviewer.md"));
+
+    let deleted_state = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::Delete,
+            CatalogMutationTarget::Subagent {
+                subagent_id: restored.id.clone(),
+            },
+            true,
+        )
+        .expect("delete subagent");
+    assert!(deleted_state.subagents.is_empty());
+}
+
+#[test]
+fn restore_subagent_returns_to_original_project_scope_workspace() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_key = workspace.display().to_string();
+
+    write_subagent(
+        &workspace.join(".cursor").join("agents"),
+        "reviewer",
+        "---\nname: reviewer\ndescription: Review code\n---\n\nYou are a reviewer.",
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let active = find_subagent(&state, "reviewer", Some(SkillLifecycleStatus::Active));
+    assert_eq!(active.scope, "project");
+    assert_eq!(active.workspace.as_deref(), Some(workspace_key.as_str()));
+
+    let archived_state = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::Archive,
+            CatalogMutationTarget::Subagent {
+                subagent_id: active.id.clone(),
+            },
+            true,
+        )
+        .expect("archive");
+    let archived = find_subagent(
+        &archived_state,
+        "reviewer",
+        Some(SkillLifecycleStatus::Archived),
+    );
+
+    let restored_state = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::Restore,
+            CatalogMutationTarget::Subagent {
+                subagent_id: archived.id.clone(),
+            },
+            true,
+        )
+        .expect("restore");
+    let restored = find_subagent(
+        &restored_state,
+        "reviewer",
+        Some(SkillLifecycleStatus::Active),
+    );
+    assert_eq!(restored.scope, "project");
+    assert_eq!(restored.workspace.as_deref(), Some(workspace_key.as_str()));
+    assert_eq!(
+        restored.canonical_source_path,
+        workspace
+            .join(".cursor")
+            .join("agents")
+            .join("reviewer.md")
+            .display()
+            .to_string()
+    );
 }
 
 #[test]
@@ -1201,6 +1350,124 @@ fn set_enabled_with_scope_workspace_updates_exact_project_record_only() {
     );
     assert!(!exa_a.enabled_by_agent.claude);
     assert!(exa_b.enabled_by_agent.claude);
+}
+
+#[test]
+fn mutate_catalog_item_updates_exact_project_mcp_locator() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace_a = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_b = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-b");
+    let workspace_a_key = workspace_a.display().to_string();
+    let workspace_b_key = workspace_b.display().to_string();
+
+    write_text(
+        &workspace_a.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://a.exa.ai/mcp"}}}"#,
+    );
+    write_text(
+        &workspace_b.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://b.exa.ai/mcp"}}}"#,
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+
+    let archived_state = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::Archive,
+            CatalogMutationTarget::Mcp {
+                server_key: String::from("exa"),
+                scope: String::from("project"),
+                workspace: Some(workspace_a_key.clone()),
+            },
+            true,
+        )
+        .expect("archive mcp");
+    let exa_a = find_mcp(&archived_state, "exa", "project", Some(&workspace_a_key));
+    let exa_b = find_mcp(&archived_state, "exa", "project", Some(&workspace_b_key));
+    assert_eq!(exa_a.status, SkillLifecycleStatus::Archived);
+    assert_eq!(exa_b.status, SkillLifecycleStatus::Active);
+
+    let restored_state = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::Restore,
+            CatalogMutationTarget::Mcp {
+                server_key: String::from("exa"),
+                scope: String::from("project"),
+                workspace: Some(workspace_a_key.clone()),
+            },
+            true,
+        )
+        .expect("restore mcp");
+    let restored = find_mcp(&restored_state, "exa", "project", Some(&workspace_a_key));
+    assert_eq!(restored.status, SkillLifecycleStatus::Active);
+
+    let deleted_state = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::Delete,
+            CatalogMutationTarget::Mcp {
+                server_key: String::from("exa"),
+                scope: String::from("project"),
+                workspace: Some(workspace_a_key.clone()),
+            },
+            true,
+        )
+        .expect("delete mcp");
+    assert!(deleted_state
+        .mcp_servers
+        .iter()
+        .all(|item| item.workspace.as_deref() != Some(workspace_a_key.as_str())));
+    assert!(deleted_state
+        .mcp_servers
+        .iter()
+        .any(|item| item.workspace.as_deref() == Some(workspace_b_key.as_str())));
+}
+
+#[test]
+fn mutate_catalog_item_errors_on_ambiguous_mcp_locator() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace_a = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_b = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-b");
+
+    write_text(
+        &workspace_a.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://a.exa.ai/mcp"}}}"#,
+    );
+    write_text(
+        &workspace_b.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://b.exa.ai/mcp"}}}"#,
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let error = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::Archive,
+            CatalogMutationTarget::Mcp {
+                server_key: String::from("exa"),
+                scope: String::from("project"),
+                workspace: None,
+            },
+            true,
+        )
+        .expect_err("must fail");
+    assert!(error.to_string().contains("ambiguous"));
 }
 
 #[test]

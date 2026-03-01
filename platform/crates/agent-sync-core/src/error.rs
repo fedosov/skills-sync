@@ -51,6 +51,44 @@ pub enum SyncEngineError {
     RestoreSourceMissing,
     #[error("Restore target already exists")]
     RestoreTargetExists,
+    #[error("archive_subagent requires confirmed=true")]
+    ArchiveSubagentRequiresConfirmation,
+    #[error("archive_subagent is only allowed for active subagents")]
+    ArchiveOnlyForActiveSubagent,
+    #[error("Archive subagent blocked for protected path")]
+    ArchiveSubagentBlockedProtectedPath,
+    #[error("Archive subagent blocked: source outside allowed roots")]
+    ArchiveSubagentOutsideAllowedRoots,
+    #[error("Archive subagent source does not exist")]
+    ArchiveSubagentSourceMissing,
+    #[error("Archive subagent manifest write failed")]
+    ArchiveSubagentManifestWriteFailed,
+
+    #[error("restore_archived_subagent requires confirmed=true")]
+    RestoreSubagentRequiresConfirmation,
+    #[error("restore_archived_subagent is only allowed for archived subagents")]
+    RestoreOnlyForArchivedSubagent,
+    #[error("Archived subagent bundle path is missing")]
+    RestoreSubagentBundleMissing,
+    #[error("Archived subagent manifest is missing or invalid")]
+    RestoreSubagentManifestMissing,
+    #[error("Archived subagent source payload is missing")]
+    RestoreSubagentSourceMissing,
+    #[error("Restore subagent target already exists")]
+    RestoreSubagentTargetExists,
+    #[error("Restore subagent target is outside allowed roots")]
+    RestoreSubagentOutsideAllowedRoots,
+    #[error("Restore subagent blocked for protected path")]
+    RestoreSubagentBlockedProtectedPath,
+
+    #[error("delete_subagent requires confirmed=true")]
+    DeleteSubagentRequiresConfirmation,
+    #[error("Deletion subagent blocked for protected path")]
+    DeletionSubagentBlockedProtectedPath,
+    #[error("Deletion subagent blocked: target outside allowed roots")]
+    DeletionSubagentOutsideAllowedRoots,
+    #[error("Deletion subagent target does not exist")]
+    DeletionSubagentTargetMissing,
 
     #[error("make_global requires confirmed=true")]
     MakeGlobalRequiresConfirmation,
@@ -117,6 +155,21 @@ pub enum SyncEngineError {
 
     #[error("migration required before strict dotagents sync: {0}")]
     MigrationRequired(String),
+
+    #[error("mutate_catalog_item requires confirmed=true")]
+    CatalogMutationRequiresConfirmation,
+    #[error("MCP catalog mutation supports only scope global|project, got '{scope}'")]
+    McpMutationInvalidScope { scope: String },
+    #[error("MCP catalog entry not found for '{server_key}' in scope '{scope}'")]
+    McpCatalogEntryNotFound { server_key: String, scope: String },
+    #[error(
+        "ambiguous MCP catalog locator for '{server_key}' in scope '{scope}', provide workspace"
+    )]
+    McpCatalogEntryAmbiguous { server_key: String, scope: String },
+    #[error("MCP archive is only allowed for active entries")]
+    McpArchiveOnlyForActive,
+    #[error("MCP restore is only allowed for archived entries")]
+    McpRestoreOnlyForArchived,
 
     #[error("Unsupported platform operation: {0}")]
     Unsupported(String),

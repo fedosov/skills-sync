@@ -170,6 +170,10 @@ pub struct McpServerRecord {
     pub targets: Vec<String>,
     #[serde(default)]
     pub warnings: Vec<String>,
+    #[serde(default = "default_skill_status")]
+    pub status: SkillLifecycleStatus,
+    #[serde(default, rename = "archived_at")]
+    pub archived_at: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -251,10 +255,55 @@ pub struct SubagentRecord {
     pub tools: Vec<String>,
     #[serde(default, rename = "codex_tools_ignored")]
     pub codex_tools_ignored: bool,
+    #[serde(default = "default_skill_status")]
+    pub status: SkillLifecycleStatus,
+    #[serde(default, rename = "archived_at")]
+    pub archived_at: Option<String>,
+    #[serde(default, rename = "archived_bundle_path")]
+    pub archived_bundle_path: Option<String>,
+    #[serde(default, rename = "archived_original_scope")]
+    pub archived_original_scope: Option<String>,
+    #[serde(default, rename = "archived_original_workspace")]
+    pub archived_original_workspace: Option<String>,
 }
 
 fn default_skill_status() -> SkillLifecycleStatus {
     SkillLifecycleStatus::Active
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CatalogMutationAction {
+    Archive,
+    Restore,
+    Delete,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CatalogMutationTarget {
+    Skill {
+        #[serde(rename = "skill_key")]
+        skill_key: String,
+    },
+    Subagent {
+        #[serde(rename = "subagent_id")]
+        subagent_id: String,
+    },
+    Mcp {
+        #[serde(rename = "server_key")]
+        server_key: String,
+        scope: String,
+        #[serde(default)]
+        workspace: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CatalogMutationRequest {
+    pub action: CatalogMutationAction,
+    pub target: CatalogMutationTarget,
+    pub confirmed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

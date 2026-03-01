@@ -137,7 +137,12 @@
           "symlink_target": { "type": "string" },
           "model": { "type": ["string", "null"] },
           "tools": { "type": "array", "items": { "type": "string" } },
-          "codex_tools_ignored": { "type": "boolean" }
+          "codex_tools_ignored": { "type": "boolean" },
+          "status": { "type": "string", "enum": ["active", "archived"] },
+          "archived_at": { "type": ["string", "null"], "format": "date-time" },
+          "archived_bundle_path": { "type": ["string", "null"] },
+          "archived_original_scope": { "type": ["string", "null"] },
+          "archived_original_workspace": { "type": ["string", "null"] }
         }
       }
     },
@@ -177,7 +182,9 @@
             }
           },
           "targets": { "type": "array", "items": { "type": "string" } },
-          "warnings": { "type": "array", "items": { "type": "string" } }
+          "warnings": { "type": "array", "items": { "type": "string" } },
+          "status": { "type": "string", "enum": ["active", "archived"] },
+          "archived_at": { "type": ["string", "null"], "format": "date-time" }
         }
       }
     },
