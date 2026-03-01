@@ -22,10 +22,17 @@ Run from repository root:
 make lint
 ```
 
-`make lint` runs the same three lint groups enforced by pre-commit:
+`make lint` runs the full local lint suite:
 - `make lint-workflows`
 - `make lint-rust`
 - `make lint-ui`
+
+Pre-commit runs these lint groups selectively based on staged files:
+- Workflow files (`.github/workflows/*.yml|*.yaml` and `.yamllint.yml`) -> `make lint-workflows`
+- Rust files and Cargo manifests under `platform/` -> `make lint-rust`
+- UI files under `platform/apps/agent-sync-desktop/ui/` -> `make lint-ui`
+- Docs-only changes (`README.md`, anything under `docs/`, or `*.md`) -> skip lint
+- Any other staged file type -> fallback to full lint (`make lint-workflows`, `make lint-rust`, `make lint-ui`)
 
 Autofix formatting/lint issues when possible:
 

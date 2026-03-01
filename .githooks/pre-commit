@@ -4,6 +4,84 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-make lint-workflows
-make lint-rust
-make lint-ui
+mapfile -t staged_files < <(git diff --cached --name-only --diff-filter=ACMRD)
+
+if [[ ${#staged_files[@]} -eq 0 ]]; then
+  echo "[pre-commit] No staged files; skipping lint."
+  exit 0
+fi
+
+run_lint_workflows=false
+run_lint_rust=false
+run_lint_ui=false
+has_unknown_file=false
+all_docs_only=true
+
+for file in "${staged_files[@]}"; do
+  is_docs_file=false
+  if [[ "$file" == "README.md" || "$file" == docs/* || "$file" == *.md ]]; then
+    is_docs_file=true
+  else
+    all_docs_only=false
+  fi
+
+  known_file_type=false
+  if [[ "$is_docs_file" == true ]]; then
+    known_file_type=true
+  fi
+
+  if [[ "$file" == ".yamllint.yml" || "$file" =~ ^\.github/workflows/.*\.(yml|yaml)$ ]]; then
+    run_lint_workflows=true
+    known_file_type=true
+  fi
+
+  if [[ "$file" == "platform/Cargo.lock" || "$file" == "platform/Cargo.toml" || "$file" =~ ^platform/.*/Cargo\.toml$ || "$file" =~ ^platform/.*\.rs$ ]]; then
+    run_lint_rust=true
+    known_file_type=true
+  fi
+
+  if [[ "$file" == platform/apps/agent-sync-desktop/ui/* ]]; then
+    run_lint_ui=true
+    known_file_type=true
+  fi
+
+  if [[ "$known_file_type" == false ]]; then
+    has_unknown_file=true
+  fi
+done
+
+if [[ "$all_docs_only" == true ]]; then
+  echo "[pre-commit] Docs-only changes detected; skipping lint."
+  exit 0
+fi
+
+if [[ "$has_unknown_file" == true ]]; then
+  echo "[pre-commit] Unknown staged files detected; running full lint."
+  run_lint_workflows=true
+  run_lint_rust=true
+  run_lint_ui=true
+else
+  selected_targets=()
+  if [[ "$run_lint_workflows" == true ]]; then
+    selected_targets+=("lint-workflows")
+  fi
+  if [[ "$run_lint_rust" == true ]]; then
+    selected_targets+=("lint-rust")
+  fi
+  if [[ "$run_lint_ui" == true ]]; then
+    selected_targets+=("lint-ui")
+  fi
+  echo "[pre-commit] Selective lint targets: ${selected_targets[*]}"
+fi
+
+if [[ "$run_lint_workflows" == true ]]; then
+  make lint-workflows
+fi
+
+if [[ "$run_lint_rust" == true ]]; then
+  make lint-rust
+fi
+
+if [[ "$run_lint_ui" == true ]]; then
+  make lint-ui
+fi
