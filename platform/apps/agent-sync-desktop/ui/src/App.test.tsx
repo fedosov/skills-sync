@@ -942,6 +942,132 @@ describe("App quiet redesign", () => {
     });
   });
 
+  it("shows make global for active project mcp and sends shared mutation", async () => {
+    const workspace = "/tmp/workspace-a";
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace,
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: true,
+          },
+          targets: [`${workspace}/.mcp.json`],
+          warnings: [],
+          status: "active",
+          archived_at: null,
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    );
+    await screen.findByRole("heading", { name: "exa" });
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    expect(
+      screen.getByRole("menuitem", { name: "Make global" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "Make global" }));
+
+    expect(tauriApi.mutateCatalogItem).toHaveBeenCalledWith({
+      action: "make_global",
+      target: {
+        kind: "mcp",
+        serverKey: "exa",
+        scope: "project",
+        workspace,
+      },
+      confirmed: true,
+    });
+  });
+
+  it("hides make global for global and archived mcp servers", async () => {
+    const workspace = "/tmp/workspace-a";
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa-global",
+          scope: "global",
+          workspace: null,
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: false,
+          },
+          targets: ["/tmp/home/.claude.json"],
+          warnings: [],
+          status: "active",
+          archived_at: null,
+        },
+        {
+          server_key: "exa-archived",
+          scope: "project",
+          workspace,
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: true,
+          },
+          targets: [],
+          warnings: [],
+          status: "archived",
+          archived_at: "2026-02-25T09:10:11Z",
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    );
+    await screen.findByRole("heading", { name: "exa-global" });
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    expect(
+      screen.queryByRole("menuitem", { name: "Make global" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /exa-archived/i }));
+    await screen.findByRole("heading", { name: "exa-archived" });
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    expect(
+      screen.queryByRole("menuitem", { name: "Make global" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("prevents repeated skill mutations while one is in flight", async () => {
     const state = buildState([projectSkill]);
     setApiDefaults(state, {

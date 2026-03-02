@@ -1810,22 +1810,42 @@ export function App() {
                           className="absolute right-0 top-8 z-20 min-w-36 rounded-md border border-border/70 bg-card p-1 shadow-sm"
                         >
                           {mcpStatus(selectedMcpServer) === "active" ? (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              disabled={busy}
-                              className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                              onClick={() => {
-                                setActionsMenuTarget(null);
-                                void executeCatalogMutation({
-                                  action: "archive",
-                                  target: mcpTarget(selectedMcpServer),
-                                  confirmed: true,
-                                });
-                              }}
-                            >
-                              Archive
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                disabled={busy}
+                                className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                                onClick={() => {
+                                  setActionsMenuTarget(null);
+                                  void executeCatalogMutation({
+                                    action: "archive",
+                                    target: mcpTarget(selectedMcpServer),
+                                    confirmed: true,
+                                  });
+                                }}
+                              >
+                                Archive
+                              </button>
+                              {selectedMcpServer.scope === "project" ? (
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  disabled={busy}
+                                  className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                                  onClick={() => {
+                                    setActionsMenuTarget(null);
+                                    void executeCatalogMutation({
+                                      action: "make_global",
+                                      target: mcpTarget(selectedMcpServer),
+                                      confirmed: true,
+                                    });
+                                  }}
+                                >
+                                  Make global
+                                </button>
+                              ) : null}
+                            </>
                           ) : (
                             <button
                               type="button"

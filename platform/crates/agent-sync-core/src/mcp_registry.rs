@@ -671,6 +671,44 @@ impl McpRegistry {
                 entry.status = SkillLifecycleStatus::Active;
                 entry.archived_at = None;
             }
+            CatalogMutationAction::MakeGlobal => {
+                let (entry_server_key, entry_status, entry_scope) = {
+                    let Some(entry) = catalog.get(&catalog_id) else {
+                        return Err(SyncEngineError::McpCatalogEntryNotFound {
+                            server_key: server_key.to_string(),
+                            scope: scope.to_string(),
+                        });
+                    };
+                    (entry.server_key.clone(), entry.status, entry.scope)
+                };
+                if entry_status != SkillLifecycleStatus::Active {
+                    return Err(SyncEngineError::McpMakeGlobalOnlyForActive);
+                }
+                if entry_scope != McpScope::Project {
+                    return Err(SyncEngineError::McpMakeGlobalOnlyForProject);
+                }
+
+                let global_catalog_id =
+                    make_catalog_id(McpScope::Global, None, entry_server_key.as_str());
+                if catalog.contains_key(&global_catalog_id) {
+                    return Err(SyncEngineError::McpMakeGlobalTargetExists {
+                        server_key: entry_server_key,
+                    });
+                }
+
+                let Some(mut entry) = catalog.remove(&catalog_id) else {
+                    return Err(SyncEngineError::McpCatalogEntryNotFound {
+                        server_key: server_key.to_string(),
+                        scope: scope.to_string(),
+                    });
+                };
+                entry.scope = McpScope::Global;
+                entry.workspace = None;
+                entry.catalog_id = global_catalog_id.clone();
+                entry.enabled_by_agent.project = false;
+                entry.archived_at = None;
+                catalog.insert(global_catalog_id, entry);
+            }
         }
 
         self.write_central_catalog(&catalog)
@@ -2658,9 +2696,11 @@ mod tests {
         McpDefinition, McpRegistry, McpScope, ProjectClaudeTarget, CENTRAL_BEGIN, CENTRAL_END,
         CENTRAL_MARKER_PAIRS, CODEX_MARKER_PAIRS,
     };
-    use crate::models::{McpEnabledByAgent, McpTransport, SkillLifecycleStatus};
+    use crate::models::{
+        CatalogMutationAction, McpEnabledByAgent, McpTransport, SkillLifecycleStatus,
+    };
     use std::collections::BTreeMap;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     fn registry_in_temp() -> (tempfile::TempDir, McpRegistry, PathBuf, PathBuf) {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -2670,6 +2710,16 @@ mod tests {
         std::fs::create_dir_all(&runtime).expect("runtime");
         let registry = McpRegistry::new(home.clone(), runtime.clone());
         (temp, registry, home, runtime)
+    }
+
+    fn write_central_catalog(home: &Path, catalog: &BTreeMap<String, CatalogEntry>) {
+        let config_path = home.join(".config").join("ai-agents").join("config.toml");
+        let wrapped = format!(
+            "{CENTRAL_BEGIN}\n{}\n{CENTRAL_END}\n",
+            render_central_block(catalog)
+        );
+        std::fs::create_dir_all(config_path.parent().expect("parent")).expect("mkdir parent");
+        std::fs::write(&config_path, wrapped).expect("write central catalog");
     }
 
     #[test]
@@ -2907,5 +2957,110 @@ API_KEY = "${API_KEY}"
         assert_eq!(active.status, SkillLifecycleStatus::Active);
         assert_eq!(archived.status, SkillLifecycleStatus::Archived);
         assert!(archived.targets.is_empty());
+    }
+
+    #[test]
+    fn mutate_catalog_entry_make_global_moves_project_catalog_id_to_global() {
+        let (_temp, registry, home, _runtime) = registry_in_temp();
+        let workspace = String::from("/tmp/workspace-a");
+        let project_catalog_id = format!("project::{workspace}::exa");
+
+        let mut catalog = BTreeMap::new();
+        catalog.insert(
+            project_catalog_id.clone(),
+            CatalogEntry {
+                catalog_id: project_catalog_id.clone(),
+                server_key: String::from("exa"),
+                scope: McpScope::Project,
+                workspace: Some(workspace.clone()),
+                definition: McpDefinition {
+                    transport: McpTransport::Http,
+                    command: None,
+                    args: vec![],
+                    url: Some(String::from("https://mcp.exa.ai/mcp")),
+                    env: BTreeMap::new(),
+                },
+                enabled_by_agent: McpEnabledByAgent {
+                    codex: false,
+                    claude: true,
+                    project: true,
+                },
+                project_claude_target: ProjectClaudeTarget::WorkspaceMcpJson,
+                status: SkillLifecycleStatus::Active,
+                archived_at: None,
+            },
+        );
+        write_central_catalog(&home, &catalog);
+
+        registry
+            .mutate_catalog_entry(
+                &[],
+                CatalogMutationAction::MakeGlobal,
+                "exa",
+                "project",
+                Some(workspace.as_str()),
+            )
+            .expect("make global");
+
+        let next_catalog = registry
+            .load_central_catalog(&mut Vec::new())
+            .expect("read next catalog");
+        assert!(!next_catalog.contains_key(&project_catalog_id));
+        assert!(next_catalog.contains_key("global::exa"));
+        let promoted = next_catalog.get("global::exa").expect("promoted entry");
+        assert_eq!(promoted.scope, McpScope::Global);
+        assert_eq!(promoted.workspace, None);
+    }
+
+    #[test]
+    fn mutate_catalog_entry_make_global_forces_project_agent_toggle_off() {
+        let (_temp, registry, home, _runtime) = registry_in_temp();
+        let workspace = String::from("/tmp/workspace-a");
+        let project_catalog_id = format!("project::{workspace}::exa");
+
+        let mut catalog = BTreeMap::new();
+        catalog.insert(
+            project_catalog_id,
+            CatalogEntry {
+                catalog_id: format!("project::{workspace}::exa"),
+                server_key: String::from("exa"),
+                scope: McpScope::Project,
+                workspace: Some(workspace.clone()),
+                definition: McpDefinition {
+                    transport: McpTransport::Http,
+                    command: None,
+                    args: vec![],
+                    url: Some(String::from("https://mcp.exa.ai/mcp")),
+                    env: BTreeMap::new(),
+                },
+                enabled_by_agent: McpEnabledByAgent {
+                    codex: true,
+                    claude: false,
+                    project: true,
+                },
+                project_claude_target: ProjectClaudeTarget::WorkspaceMcpJson,
+                status: SkillLifecycleStatus::Active,
+                archived_at: None,
+            },
+        );
+        write_central_catalog(&home, &catalog);
+
+        registry
+            .mutate_catalog_entry(
+                &[],
+                CatalogMutationAction::MakeGlobal,
+                "exa",
+                "project",
+                Some(workspace.as_str()),
+            )
+            .expect("make global");
+
+        let next_catalog = registry
+            .load_central_catalog(&mut Vec::new())
+            .expect("read next catalog");
+        let promoted = next_catalog.get("global::exa").expect("promoted entry");
+        assert!(!promoted.enabled_by_agent.project);
+        assert!(promoted.enabled_by_agent.codex);
+        assert!(!promoted.enabled_by_agent.claude);
     }
 }

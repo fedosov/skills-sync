@@ -104,6 +104,7 @@ enum CatalogMutationActionPayload {
     Archive,
     Restore,
     Delete,
+    MakeGlobal,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -179,6 +180,7 @@ fn to_catalog_mutation_action(value: CatalogMutationActionPayload) -> CatalogMut
         CatalogMutationActionPayload::Archive => CatalogMutationAction::Archive,
         CatalogMutationActionPayload::Restore => CatalogMutationAction::Restore,
         CatalogMutationActionPayload::Delete => CatalogMutationAction::Delete,
+        CatalogMutationActionPayload::MakeGlobal => CatalogMutationAction::MakeGlobal,
     }
 }
 
@@ -1343,12 +1345,13 @@ mod tests {
         build_platform_context, build_subagent_target_status, enable_auto_watch_and_initial_sync,
         ensure_write_allowed, normalize_os_name, read_skill_dir_tree,
         set_allow_filesystem_changes_inner, set_allow_filesystem_changes_inner_with,
-        stop_auto_watch, validate_catalog_mutation_target, CatalogMutationTargetPayload,
+        stop_auto_watch, to_catalog_mutation_action, validate_catalog_mutation_target,
+        CatalogMutationActionPayload, CatalogMutationRequestPayload, CatalogMutationTargetPayload,
         RuntimeState, SubagentTargetKind,
     };
     use agent_sync_core::{
-        AuditEventStatus, SyncEngine, SyncEngineEnvironment, SyncPaths, SyncPreferencesStore,
-        SyncStateStore,
+        AuditEventStatus, CatalogMutationAction, SyncEngine, SyncEngineEnvironment, SyncPaths,
+        SyncPreferencesStore, SyncStateStore,
     };
     use std::fs;
     use std::path::Path;
@@ -1576,6 +1579,32 @@ mod tests {
         };
         assert!(validate_catalog_mutation_target(&valid_skill).is_ok());
         assert!(validate_catalog_mutation_target(&valid_subagent).is_ok());
+    }
+
+    #[test]
+    fn catalog_mutation_payload_supports_make_global_action() {
+        let payload: CatalogMutationRequestPayload = serde_json::from_str(
+            r#"{
+  "action": "make_global",
+  "target": {
+    "kind": "mcp",
+    "serverKey": "exa",
+    "scope": "project",
+    "workspace": "/tmp/workspace-a"
+  },
+  "confirmed": true
+}"#,
+        )
+        .expect("deserialize make_global payload");
+
+        assert!(matches!(
+            payload.action,
+            CatalogMutationActionPayload::MakeGlobal
+        ));
+        assert_eq!(
+            to_catalog_mutation_action(payload.action),
+            CatalogMutationAction::MakeGlobal
+        );
     }
 
     #[test]

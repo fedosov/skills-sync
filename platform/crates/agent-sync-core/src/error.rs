@@ -170,6 +170,12 @@ pub enum SyncEngineError {
     McpArchiveOnlyForActive,
     #[error("MCP restore is only allowed for archived entries")]
     McpRestoreOnlyForArchived,
+    #[error("MCP make_global is only allowed for active entries")]
+    McpMakeGlobalOnlyForActive,
+    #[error("MCP make_global is only allowed for project entries")]
+    McpMakeGlobalOnlyForProject,
+    #[error("MCP make_global target already exists for '{server_key}'")]
+    McpMakeGlobalTargetExists { server_key: String },
 
     #[error("Unsupported platform operation: {0}")]
     Unsupported(String),

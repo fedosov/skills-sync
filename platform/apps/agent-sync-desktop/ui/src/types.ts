@@ -214,7 +214,11 @@ export type MutationCommand =
   | "delete_skill"
   | "make_global";
 
-export type CatalogMutationAction = "archive" | "restore" | "delete";
+export type CatalogMutationAction =
+  | "archive"
+  | "restore"
+  | "delete"
+  | "make_global";
 
 export type CatalogMutationTarget =
   | { kind: "skill"; skillKey: string }

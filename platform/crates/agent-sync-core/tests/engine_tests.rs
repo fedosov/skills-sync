@@ -1432,6 +1432,185 @@ fn mutate_catalog_item_updates_exact_project_mcp_locator() {
 }
 
 #[test]
+fn mutate_catalog_item_make_global_promotes_exact_project_mcp_locator() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace_a = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_b = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-b");
+    let workspace_a_key = workspace_a.display().to_string();
+    let workspace_b_key = workspace_b.display().to_string();
+
+    write_text(
+        &workspace_a.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://a.exa.ai/mcp"}}}"#,
+    );
+    write_text(
+        &workspace_b.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://b.exa.ai/mcp"}}}"#,
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let promoted = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::MakeGlobal,
+            CatalogMutationTarget::Mcp {
+                server_key: String::from("exa"),
+                scope: String::from("project"),
+                workspace: Some(workspace_a_key.clone()),
+            },
+            true,
+        )
+        .expect("make global mcp");
+
+    let promoted_global = find_mcp(&promoted, "exa", "global", None);
+    assert_eq!(promoted_global.status, SkillLifecycleStatus::Active);
+    assert!(!promoted_global.enabled_by_agent.project);
+    assert!(promoted.mcp_servers.iter().all(|item| {
+        !(item.server_key == "exa"
+            && item.scope == "project"
+            && item.workspace.as_deref() == Some(workspace_a_key.as_str()))
+    }));
+    assert!(promoted.mcp_servers.iter().any(|item| {
+        item.server_key == "exa"
+            && item.scope == "project"
+            && item.workspace.as_deref() == Some(workspace_b_key.as_str())
+    }));
+}
+
+#[test]
+fn mutate_catalog_item_make_global_errors_on_ambiguous_mcp_locator() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace_a = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_b = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-b");
+
+    write_text(
+        &workspace_a.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://a.exa.ai/mcp"}}}"#,
+    );
+    write_text(
+        &workspace_b.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://b.exa.ai/mcp"}}}"#,
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let error = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::MakeGlobal,
+            CatalogMutationTarget::Mcp {
+                server_key: String::from("exa"),
+                scope: String::from("project"),
+                workspace: None,
+            },
+            true,
+        )
+        .expect_err("must fail");
+    assert!(error.to_string().contains("ambiguous"));
+}
+
+#[test]
+fn mutate_catalog_item_make_global_rejects_archived_project_entry() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_key = workspace.display().to_string();
+
+    write_text(
+        &workspace.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://a.exa.ai/mcp"}}}"#,
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let _ = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::Archive,
+            CatalogMutationTarget::Mcp {
+                server_key: String::from("exa"),
+                scope: String::from("project"),
+                workspace: Some(workspace_key.clone()),
+            },
+            true,
+        )
+        .expect("archive mcp");
+
+    let error = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::MakeGlobal,
+            CatalogMutationTarget::Mcp {
+                server_key: String::from("exa"),
+                scope: String::from("project"),
+                workspace: Some(workspace_key),
+            },
+            true,
+        )
+        .expect_err("must fail");
+    assert!(error.to_string().contains("active"));
+}
+
+#[test]
+fn mutate_catalog_item_make_global_rejects_existing_global_server_key() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("workspace-a");
+    let workspace_key = workspace.display().to_string();
+
+    write_text(
+        &engine
+            .environment()
+            .home_directory
+            .join(".codex")
+            .join("config.toml"),
+        r#"
+[mcp_servers.exa]
+command = "npx"
+args = ["-y", "mcp-remote@latest", "https://global.exa.ai/mcp"]
+"#,
+    );
+    write_text(
+        &workspace.join(".mcp.json"),
+        r#"{"mcpServers":{"exa":{"type":"http","url":"https://project.exa.ai/mcp"}}}"#,
+    );
+
+    let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let error = engine
+        .mutate_catalog_item(
+            CatalogMutationAction::MakeGlobal,
+            CatalogMutationTarget::Mcp {
+                server_key: String::from("exa"),
+                scope: String::from("project"),
+                workspace: Some(workspace_key),
+            },
+            true,
+        )
+        .expect_err("must fail");
+    assert!(error.to_string().contains("already exists"));
+}
+
+#[test]
 fn mutate_catalog_item_errors_on_ambiguous_mcp_locator() {
     let temp = TempDir::new().expect("tempdir");
     let engine = engine_in_temp(&temp);

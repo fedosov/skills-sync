@@ -89,6 +89,31 @@ describe("tauriApi command payloads", () => {
     });
   });
 
+  it("sends make_global catalog mutation payload for mcp target", async () => {
+    await mutateCatalogItem({
+      action: "make_global",
+      target: {
+        kind: "mcp",
+        serverKey: "exa",
+        scope: "project",
+        workspace: "/tmp/workspace-a",
+      },
+      confirmed: true,
+    });
+    expect(invoke).toHaveBeenCalledWith("mutate_catalog_item", {
+      request: {
+        action: "make_global",
+        target: {
+          kind: "mcp",
+          serverKey: "exa",
+          scope: "project",
+          workspace: "/tmp/workspace-a",
+        },
+        confirmed: true,
+      },
+    });
+  });
+
   it("sends target payload for open_skill_path", async () => {
     await openSkillPath("alpha", "file");
     expect(invoke).toHaveBeenCalledWith("open_skill_path", {

@@ -683,6 +683,9 @@ impl SyncEngine {
                         .ok_or(SyncEngineError::DeletionTargetMissing)?;
                     self.delete(&skill, true)
                 }
+                CatalogMutationAction::MakeGlobal => Err(SyncEngineError::Unsupported(
+                    String::from("catalog mutation make_global is unsupported for skill target"),
+                )),
             },
             CatalogMutationTarget::Subagent { subagent_id } => {
                 let subagent = self
@@ -692,6 +695,11 @@ impl SyncEngine {
                     CatalogMutationAction::Archive => self.archive_subagent(&subagent, true),
                     CatalogMutationAction::Restore => self.restore_subagent(&subagent, true),
                     CatalogMutationAction::Delete => self.delete_subagent(&subagent, true),
+                    CatalogMutationAction::MakeGlobal => {
+                        Err(SyncEngineError::Unsupported(String::from(
+                            "catalog mutation make_global is unsupported for subagent target",
+                        )))
+                    }
                 }
             }
             CatalogMutationTarget::Mcp {
@@ -715,6 +723,7 @@ impl SyncEngine {
                     CatalogMutationAction::Archive => SyncTrigger::Archive,
                     CatalogMutationAction::Restore => SyncTrigger::Restore,
                     CatalogMutationAction::Delete => SyncTrigger::Delete,
+                    CatalogMutationAction::MakeGlobal => SyncTrigger::MakeGlobal,
                 })
             }
         }

@@ -277,6 +277,7 @@ pub enum CatalogMutationAction {
     Archive,
     Restore,
     Delete,
+    MakeGlobal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
