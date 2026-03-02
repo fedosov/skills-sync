@@ -125,18 +125,24 @@ impl CodexSkillsRegistryWriter {
         if entries.is_empty() {
             lines.push("# No managed skill entries".to_string());
         } else {
-            for entry in entries {
-                lines.push("[[skills.config]]".to_string());
-                lines.push(format!("path = \"{}\"", toml_escape(&entry.path)));
-                lines.push(format!(
-                    "enabled = {}",
-                    if entry.enabled { "true" } else { "false" }
-                ));
-                lines.push(String::new());
-            }
-            if lines.last().is_some_and(|line| line.is_empty()) {
-                lines.pop();
-            }
+            let config_array: Vec<toml::Value> = entries
+                .iter()
+                .map(|entry| {
+                    let mut item = toml::Table::new();
+                    item.insert("enabled".into(), toml::Value::Boolean(entry.enabled));
+                    item.insert("path".into(), toml::Value::String(entry.path.clone()));
+                    toml::Value::Table(item)
+                })
+                .collect();
+            let mut skills = toml::Table::new();
+            skills.insert("config".into(), toml::Value::Array(config_array));
+            let mut root = toml::Table::new();
+            root.insert("skills".into(), toml::Value::Table(skills));
+            let body = toml::to_string(&root)
+                .expect("BUG: invalid TOML table")
+                .trim_end()
+                .to_string();
+            lines.push(body);
         }
         lines.push(self.end_marker.to_string());
         lines.join("\n")
@@ -150,10 +156,6 @@ fn preferred_agents_target(skill: &SkillRecord) -> Option<String> {
         .iter()
         .find(|path| path.ends_with(&needle))
         .cloned()
-}
-
-fn toml_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn strip_managed_blocks(current: &str, marker_pairs: &[(&str, &str)]) -> String {

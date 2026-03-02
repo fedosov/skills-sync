@@ -3022,7 +3022,7 @@ enabled = true
 
     let codex_after = fs::read_to_string(&codex_config_path).expect("read codex");
     assert_eq!(
-        count_occurrences(&codex_after, "[mcp_servers.\"jina-mcp-tools\"]"),
+        count_occurrences(&codex_after, "[mcp_servers.jina-mcp-tools]"),
         1
     );
 }

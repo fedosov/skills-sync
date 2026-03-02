@@ -2885,76 +2885,99 @@ fn render_central_block(catalog: &BTreeMap<String, CatalogEntry>) -> String {
         return "# No managed MCP entries".to_string();
     }
 
-    let mut lines = Vec::new();
+    let mut mcp_catalog = toml::Table::new();
     for (catalog_id, entry) in catalog {
-        lines.push(format!("[mcp_catalog.\"{}\"]", toml_escape(catalog_id)));
-        lines.push(format!(
-            "server_key = \"{}\"",
-            toml_escape(&entry.server_key)
-        ));
-        lines.push(format!("scope = \"{}\"", entry.scope.as_str()));
-        lines.push(format!(
-            "status = \"{}\"",
-            match entry.status {
-                SkillLifecycleStatus::Active => "active",
-                SkillLifecycleStatus::Archived => "archived",
-            }
-        ));
+        let mut table = toml::Table::new();
+        table.insert(
+            "server_key".into(),
+            toml::Value::String(entry.server_key.clone()),
+        );
+        table.insert(
+            "scope".into(),
+            toml::Value::String(entry.scope.as_str().to_string()),
+        );
+        table.insert(
+            "status".into(),
+            toml::Value::String(
+                match entry.status {
+                    SkillLifecycleStatus::Active => "active",
+                    SkillLifecycleStatus::Archived => "archived",
+                }
+                .to_string(),
+            ),
+        );
         if let Some(archived_at) = &entry.archived_at {
-            lines.push(format!("archived_at = \"{}\"", toml_escape(archived_at)));
+            table.insert(
+                "archived_at".into(),
+                toml::Value::String(archived_at.clone()),
+            );
         }
         if let Some(workspace) = &entry.workspace {
-            lines.push(format!("workspace = \"{}\"", toml_escape(workspace)));
-            lines.push(format!(
-                "project_claude_target = \"{}\"",
-                entry.project_claude_target.as_str()
-            ));
+            table.insert("workspace".into(), toml::Value::String(workspace.clone()));
+            table.insert(
+                "project_claude_target".into(),
+                toml::Value::String(entry.project_claude_target.as_str().to_string()),
+            );
         }
-        lines.push(format!(
-            "transport = \"{}\"",
-            match entry.definition.transport {
-                McpTransport::Stdio => "stdio",
-                McpTransport::Http => "http",
-            }
-        ));
+        table.insert(
+            "transport".into(),
+            toml::Value::String(
+                match entry.definition.transport {
+                    McpTransport::Stdio => "stdio",
+                    McpTransport::Http => "http",
+                }
+                .to_string(),
+            ),
+        );
         if let Some(command) = &entry.definition.command {
-            lines.push(format!("command = \"{}\"", toml_escape(command)));
+            table.insert("command".into(), toml::Value::String(command.clone()));
         }
         if !entry.definition.args.is_empty() {
-            lines.push(format!(
-                "args = [{}]",
-                entry
-                    .definition
-                    .args
-                    .iter()
-                    .map(|value| format!("\"{}\"", toml_escape(value)))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+            table.insert(
+                "args".into(),
+                toml::Value::Array(
+                    entry
+                        .definition
+                        .args
+                        .iter()
+                        .map(|a| toml::Value::String(a.clone()))
+                        .collect(),
+                ),
+            );
         }
         if let Some(url) = &entry.definition.url {
-            lines.push(format!("url = \"{}\"", toml_escape(url)));
+            table.insert("url".into(), toml::Value::String(url.clone()));
         }
         if !entry.definition.env.is_empty() {
-            lines.push(format!("[mcp_catalog.\"{}\".env]", toml_escape(catalog_id)));
+            let mut env_table = toml::Table::new();
             for (env_key, env_value) in &entry.definition.env {
-                lines.push(format!("{} = \"{}\"", env_key, toml_escape(env_value)));
+                env_table.insert(env_key.clone(), toml::Value::String(env_value.clone()));
             }
+            table.insert("env".into(), toml::Value::Table(env_table));
         }
-        lines.push(format!(
-            "[mcp_catalog.\"{}\".enabled_by_agent]",
-            toml_escape(catalog_id)
-        ));
-        lines.push(format!("codex = {}", entry.enabled_by_agent.codex));
-        lines.push(format!("claude = {}", entry.enabled_by_agent.claude));
-        lines.push(format!("project = {}", entry.enabled_by_agent.project));
-        lines.push(String::new());
-    }
-    while lines.last().is_some_and(|line| line.is_empty()) {
-        lines.pop();
+        let mut enabled_table = toml::Table::new();
+        enabled_table.insert(
+            "codex".into(),
+            toml::Value::Boolean(entry.enabled_by_agent.codex),
+        );
+        enabled_table.insert(
+            "claude".into(),
+            toml::Value::Boolean(entry.enabled_by_agent.claude),
+        );
+        enabled_table.insert(
+            "project".into(),
+            toml::Value::Boolean(entry.enabled_by_agent.project),
+        );
+        table.insert("enabled_by_agent".into(), toml::Value::Table(enabled_table));
+        mcp_catalog.insert(catalog_id.clone(), toml::Value::Table(table));
     }
 
-    lines.join("\n")
+    let mut root = toml::Table::new();
+    root.insert("mcp_catalog".into(), toml::Value::Table(mcp_catalog));
+    toml::to_string(&root)
+        .expect("BUG: invalid TOML table")
+        .trim_end()
+        .to_string()
 }
 
 fn render_codex_block(definitions: &BTreeMap<String, McpDefinition>) -> String {
@@ -2962,40 +2985,44 @@ fn render_codex_block(definitions: &BTreeMap<String, McpDefinition>) -> String {
         return "# No managed MCP entries".to_string();
     }
 
-    let mut lines = Vec::new();
+    let mut servers = toml::Table::new();
     for (key, definition) in definitions {
-        lines.push(format!("[mcp_servers.\"{}\"]", toml_escape(key)));
+        let mut entry = toml::Table::new();
         if let Some(command) = &definition.command {
-            lines.push(format!("command = \"{}\"", toml_escape(command)));
+            entry.insert("command".into(), toml::Value::String(command.clone()));
         }
         if !definition.args.is_empty() {
-            lines.push(format!(
-                "args = [{}]",
-                definition
-                    .args
-                    .iter()
-                    .map(|value| format!("\"{}\"", toml_escape(value)))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+            entry.insert(
+                "args".into(),
+                toml::Value::Array(
+                    definition
+                        .args
+                        .iter()
+                        .map(|a| toml::Value::String(a.clone()))
+                        .collect(),
+                ),
+            );
         }
         if let Some(url) = &definition.url {
-            lines.push(format!("url = \"{}\"", toml_escape(url)));
+            entry.insert("url".into(), toml::Value::String(url.clone()));
         }
-        lines.push(String::from("enabled = true"));
+        entry.insert("enabled".into(), toml::Value::Boolean(true));
         if !definition.env.is_empty() {
-            lines.push(format!("[mcp_servers.\"{}\".env]", toml_escape(key)));
+            let mut env_table = toml::Table::new();
             for (env_key, env_value) in &definition.env {
-                lines.push(format!("{} = \"{}\"", env_key, toml_escape(env_value)));
+                env_table.insert(env_key.clone(), toml::Value::String(env_value.clone()));
             }
+            entry.insert("env".into(), toml::Value::Table(env_table));
         }
-        lines.push(String::new());
-    }
-    while lines.last().is_some_and(|line| line.is_empty()) {
-        lines.pop();
+        servers.insert(key.clone(), toml::Value::Table(entry));
     }
 
-    lines.join("\n")
+    let mut root = toml::Table::new();
+    root.insert("mcp_servers".into(), toml::Value::Table(servers));
+    toml::to_string(&root)
+        .expect("BUG: invalid TOML table")
+        .trim_end()
+        .to_string()
 }
 
 fn detect_inline_secret_warnings(server_key: &str, definition: &McpDefinition) -> Vec<String> {
@@ -3187,10 +3214,6 @@ fn upsert_managed_block(current: &str, begin_marker: &str, end_marker: &str, bod
 
     let trimmed = normalized.trim_matches('\n');
     format!("{trimmed}\n\n{block}\n")
-}
-
-fn toml_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn iso8601_now() -> String {

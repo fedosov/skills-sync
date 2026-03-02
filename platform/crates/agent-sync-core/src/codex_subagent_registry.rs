@@ -96,7 +96,7 @@ impl CodexSubagentRegistryWriter {
             let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
             let unmanaged = strip_managed_blocks(&existing, &SUBAGENT_MANAGED_MARKER_PAIRS);
             let unmanaged_agents = extract_unmanaged_agent_keys(&unmanaged);
-            let mut role_lines = Vec::new();
+            let mut agents_table = toml::Table::new();
             let mut skipped_keys: BTreeSet<String> = BTreeSet::new();
             for item in deduped_group {
                 if unmanaged_agents.contains(&item.subagent_key) {
@@ -107,17 +107,25 @@ impl CodexSubagentRegistryWriter {
                 let cfg_file = agents_dir.join(format!("{}.toml", item.subagent_key));
                 let cfg_rel = format!("agents/{}.toml", item.subagent_key);
                 self.write_subagent_config(&cfg_file, &item)?;
-                role_lines.push(format!("[agents.{}]", item.subagent_key));
-                role_lines.push(format!(
-                    "description = \"{}\"",
-                    toml_escape(&item.description)
-                ));
-                role_lines.push(format!("config_file = \"{}\"", toml_escape(&cfg_rel)));
-                role_lines.push(String::new());
+                let mut agent_entry = toml::Table::new();
+                agent_entry.insert(
+                    "description".into(),
+                    toml::Value::String(item.description.clone()),
+                );
+                agent_entry.insert("config_file".into(), toml::Value::String(cfg_rel));
+                agents_table.insert(item.subagent_key.clone(), toml::Value::Table(agent_entry));
             }
-            if role_lines.last().is_some_and(|line| line.is_empty()) {
-                role_lines.pop();
-            }
+
+            let role_toml = if agents_table.is_empty() {
+                String::new()
+            } else {
+                let mut root = toml::Table::new();
+                root.insert("agents".into(), toml::Value::Table(agents_table));
+                toml::to_string(&root)
+                    .expect("BUG: invalid TOML table")
+                    .trim_end()
+                    .to_string()
+            };
 
             let mut body_lines = Vec::new();
             for key in skipped_keys {
@@ -126,10 +134,12 @@ impl CodexSubagentRegistryWriter {
                     key, key
                 ));
             }
-            if !body_lines.is_empty() && !role_lines.is_empty() {
+            if !body_lines.is_empty() && !role_toml.is_empty() {
                 body_lines.push(String::new());
             }
-            body_lines.extend(role_lines);
+            if !role_toml.is_empty() {
+                body_lines.push(role_toml);
+            }
 
             let updated = self.upsert_managed_block(&unmanaged, &body_lines.join("\n"));
             toml::from_str::<toml::Table>(&updated).map_err(|error| {
@@ -208,16 +218,16 @@ impl CodexSubagentRegistryWriter {
         path: &Path,
         entry: &CodexSubagentConfigEntry,
     ) -> Result<(), CodexSubagentRegistryError> {
-        let mut lines = Vec::new();
-        lines.push(format!(
-            "developer_instructions = \"\"\"{}\"\"\"",
-            escape_multiline_toml(&entry.prompt)
-        ));
+        let mut table = toml::Table::new();
+        table.insert(
+            "developer_instructions".into(),
+            toml::Value::String(entry.prompt.clone()),
+        );
         if let Some(model) = &entry.model {
-            lines.push(format!("model = \"{}\"", toml_escape(model)));
+            table.insert("model".into(), toml::Value::String(model.clone()));
         }
-        lines.push(String::new());
-        std::fs::write(path, lines.join("\n"))
+        let content = toml::to_string(&table).expect("BUG: invalid TOML table");
+        std::fs::write(path, content)
             .map_err(|e| CodexSubagentRegistryError::WriteFailed(e.to_string()))
     }
 
@@ -252,16 +262,6 @@ impl CodexSubagentRegistryWriter {
         let trimmed = normalized.trim_matches('\n');
         format!("{trimmed}\n\n{block}\n")
     }
-}
-
-fn toml_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-fn escape_multiline_toml(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace("\"\"\"", "\\\"\\\"\\\"")
 }
 
 fn has_subagent_managed_block(path: &Path, begin_markers: &[&str]) -> bool {
@@ -523,6 +523,7 @@ config_file = \"agents/legacy.toml\"
         let home = temp.path().join("home");
         std::fs::create_dir_all(&home).expect("home");
 
+        let original_prompt = String::from("Use C:\\temp\\repo and regex \\d+\\.md");
         let writer = CodexSubagentRegistryWriter::new(home.clone());
         writer
             .write_managed_registries(&[CodexSubagentConfigEntry {
@@ -530,15 +531,22 @@ config_file = \"agents/legacy.toml\"
                 workspace: None,
                 subagent_key: String::from("reviewer"),
                 description: String::from("Review code"),
-                prompt: String::from("Use C:\\temp\\repo and regex \\d+\\.md"),
+                prompt: original_prompt.clone(),
                 model: None,
             }])
             .expect("write registries");
 
         let subagent_cfg = home.join(".codex").join("agents").join("reviewer.toml");
-        let raw = std::fs::read_to_string(subagent_cfg).expect("read reviewer config");
-        assert!(raw.contains("C:\\\\temp\\\\repo"));
-        assert!(raw.contains("\\\\d+\\\\.md"));
+        let raw = std::fs::read_to_string(&subagent_cfg).expect("read reviewer config");
+        assert!(raw.contains("C:\\temp\\repo"));
+        assert!(raw.contains("\\d+\\.md"));
+        // Verify TOML roundtrip preserves backslashes
+        let parsed: toml::Table = toml::from_str(&raw).expect("generated TOML must parse");
+        let roundtripped = parsed
+            .get("developer_instructions")
+            .and_then(toml::Value::as_str)
+            .expect("developer_instructions key");
+        assert_eq!(roundtripped, original_prompt);
     }
 
     #[test]
