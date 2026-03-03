@@ -191,12 +191,13 @@ npm run test:coverage
 Validation is part of each sync cycle:
 
 1. Discover `skill` packages and `subagent` markdown configs in global and project roots.
-2. Compare duplicates by `skill_key` and content hash.
-3. Mark conflicts when the same key has different content.
-4. Optionally migrate canonical sources via `auto_migrate_to_canonical_source`.
-5. Rebuild managed symlinks for target agent directories.
-6. Update managed blocks in `~/.codex/config.toml`.
-7. Reconcile managed MCP catalog across shared and runtime-specific targets.
+2. Build project workspace candidates from stable checkout roots (`~/Dev` and configured discovery roots), then ignore any path inside `~/.codex/worktrees`.
+3. Compare duplicates by `skill_key` and content hash.
+4. Mark conflicts when the same key has different content.
+5. Optionally migrate canonical sources via `auto_migrate_to_canonical_source`.
+6. Rebuild managed symlinks for target agent directories.
+7. Update managed blocks in `~/.codex/config.toml`.
+8. Reconcile managed MCP catalog across shared and runtime-specific targets.
 
 ## UI Cleanup Workflow
 

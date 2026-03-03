@@ -4,6 +4,8 @@
 
 Agent Sync strict mode requires `agents.toml` contracts for both user and project scopes before `sync` can run.
 
+Project scope discovery is based on stable workspace roots (`~/Dev` and configured discovery roots). Paths under `~/.codex/worktrees` are intentionally ignored.
+
 ## Migration
 
 1. Backup current skill roots (`~/.claude/skills`, `~/.agents/skills`, workspace `.agents/skills`).

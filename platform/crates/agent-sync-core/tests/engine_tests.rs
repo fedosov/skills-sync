@@ -187,6 +187,141 @@ fn run_sync_builds_and_persists_state() {
 }
 
 #[test]
+fn workspace_candidates_ignore_codex_worktrees_paths() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let stable_workspace = engine
+        .environment()
+        .home_directory
+        .join("Dev")
+        .join("repo-a");
+    let worktree_workspace = engine
+        .environment()
+        .home_directory
+        .join(".codex")
+        .join("worktrees")
+        .join("owner")
+        .join("repo-a");
+
+    write_skill(
+        &stable_workspace.join(".claude").join("skills"),
+        "stable-skill",
+        "# Stable",
+    );
+    write_subagent(
+        &stable_workspace.join(".agents").join("subagents"),
+        "stable-agent",
+        "---\nname: stable-agent\ndescription: Stable agent\n---\n\nStable.",
+    );
+    write_text(
+        &stable_workspace.join(".mcp.json"),
+        r#"{
+  "mcpServers": {
+    "stable-exa": {
+      "type": "http",
+      "url": "https://mcp.exa.ai/mcp"
+    }
+  }
+}
+"#,
+    );
+
+    write_skill(
+        &worktree_workspace.join(".claude").join("skills"),
+        "worktree-skill",
+        "# Worktree",
+    );
+    write_subagent(
+        &worktree_workspace.join(".agents").join("subagents"),
+        "worktree-agent",
+        "---\nname: worktree-agent\ndescription: Worktree agent\n---\n\nWorktree.",
+    );
+    write_text(
+        &worktree_workspace.join(".mcp.json"),
+        r#"{
+  "mcpServers": {
+    "worktree-exa": {
+      "type": "http",
+      "url": "https://worktree.example/mcp"
+    }
+  }
+}
+"#,
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    let worktrees_root = engine.environment().worktrees_root.clone();
+
+    assert!(state
+        .skills
+        .iter()
+        .any(|skill| skill.skill_key == "stable-skill"));
+    assert!(!state
+        .skills
+        .iter()
+        .any(|skill| skill.skill_key == "worktree-skill"));
+    assert!(state
+        .subagents
+        .iter()
+        .any(|subagent| subagent.subagent_key == "stable-agent"));
+    assert!(!state
+        .subagents
+        .iter()
+        .any(|subagent| subagent.subagent_key == "worktree-agent"));
+    assert!(state
+        .mcp_servers
+        .iter()
+        .any(|server| server.server_key == "stable-exa"));
+    assert!(!state
+        .mcp_servers
+        .iter()
+        .any(|server| server.server_key == "worktree-exa"));
+
+    assert!(state.skills.iter().all(|skill| {
+        skill
+            .workspace
+            .as_deref()
+            .map(Path::new)
+            .map(|workspace| !workspace.starts_with(&worktrees_root))
+            .unwrap_or(true)
+    }));
+    assert!(state.skills.iter().all(|skill| {
+        skill
+            .target_paths
+            .iter()
+            .all(|target| !Path::new(target).starts_with(&worktrees_root))
+    }));
+    assert!(state.subagents.iter().all(|subagent| {
+        subagent
+            .workspace
+            .as_deref()
+            .map(Path::new)
+            .map(|workspace| !workspace.starts_with(&worktrees_root))
+            .unwrap_or(true)
+    }));
+    assert!(state.subagents.iter().all(|subagent| {
+        subagent
+            .target_paths
+            .iter()
+            .all(|target| !Path::new(target).starts_with(&worktrees_root))
+    }));
+    assert!(state.mcp_servers.iter().all(|server| {
+        server
+            .workspace
+            .as_deref()
+            .map(Path::new)
+            .map(|workspace| !workspace.starts_with(&worktrees_root))
+            .unwrap_or(true)
+    }));
+    assert!(state.mcp_servers.iter().all(|server| {
+        server
+            .targets
+            .iter()
+            .all(|target| !Path::new(target).starts_with(&worktrees_root))
+    }));
+}
+
+#[test]
 fn run_sync_records_success_audit_event() {
     let temp = TempDir::new().expect("tempdir");
     let engine = engine_in_temp(&temp);
@@ -2554,6 +2689,58 @@ fn strict_dotagents_project_scope_allows_empty_workspace_set() {
     let mcp = engine
         .list_dotagents_mcp(DotagentsScope::Project)
         .expect("project mcp scope without discovered workspaces should be empty");
+    assert!(mcp.is_empty());
+}
+
+#[test]
+#[cfg(unix)]
+fn strict_dotagents_project_scope_ignores_worktree_only_workspace() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let workspace = engine
+        .environment()
+        .home_directory
+        .join(".codex")
+        .join("worktrees")
+        .join("owner")
+        .join("workspace-only-in-worktree");
+    write_text(&workspace.join("agents.toml"), "[skills]\n");
+
+    let script_path = temp.path().join("dotagents");
+    write_text(
+        &script_path,
+        r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "dotagents 0.10.0"
+  exit 0
+fi
+if [ "$1" = "list" ] && [ "$2" = "--json" ]; then
+  echo '[{"skill_key":"from-worktree","name":"From worktree"}]'
+  exit 0
+fi
+if [ "$1" = "mcp" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
+  echo '[{"server_key":"from-worktree","transport":"http","url":"https://worktree.example/mcp"}]'
+  exit 0
+fi
+echo "unexpected args: $*" >&2
+exit 9
+"#,
+    );
+    let mut perms = fs::metadata(&script_path).expect("metadata").permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&script_path, perms).expect("chmod");
+
+    let _lock = dotagents_env_lock().lock().expect("lock env");
+    let _env_guard = set_env_var_with_restore("AGENT_SYNC_DOTAGENTS_BIN", &script_path);
+
+    let skills = engine
+        .list_dotagents_skills(DotagentsScope::Project)
+        .expect("project scope should not include worktree-only workspace");
+    let mcp = engine
+        .list_dotagents_mcp(DotagentsScope::Project)
+        .expect("project scope should not include worktree-only workspace");
+
+    assert!(skills.is_empty());
     assert!(mcp.is_empty());
 }
 

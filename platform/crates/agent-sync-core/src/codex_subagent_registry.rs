@@ -163,11 +163,6 @@ impl CodexSubagentRegistryWriter {
         }
 
         self.collect_workspace_managed_configs(&self.home_directory.join("Dev"), 2, &mut configs);
-        self.collect_workspace_managed_configs(
-            &self.home_directory.join(".codex").join("worktrees"),
-            3,
-            &mut configs,
-        );
         configs.into_iter().collect()
     }
 
@@ -515,6 +510,45 @@ config_file = \"agents/legacy.toml\"
         assert!(current.contains("# agent-sync:subagents:begin"));
         assert!(current.contains("# No managed subagent entries"));
         assert!(current.contains("# agent-sync:subagents:end"));
+    }
+
+    #[test]
+    fn write_managed_registries_ignores_worktree_codex_config() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let home = temp.path().join("home");
+        std::fs::create_dir_all(&home).expect("home");
+
+        let worktree_cfg = home
+            .join(".codex")
+            .join("worktrees")
+            .join("owner")
+            .join("repo-a")
+            .join(".codex")
+            .join("config.toml");
+        std::fs::create_dir_all(
+            worktree_cfg
+                .parent()
+                .expect("parent dir for worktree codex config"),
+        )
+        .expect("create worktree config dir");
+        let original = "\
+custom = true
+
+# agent-sync:subagents:begin
+[agents.legacy]
+description = \"Legacy\"
+config_file = \"agents/legacy.toml\"
+# agent-sync:subagents:end
+";
+        std::fs::write(&worktree_cfg, original).expect("write worktree config");
+
+        let writer = CodexSubagentRegistryWriter::new(home);
+        writer
+            .write_managed_registries(&[])
+            .expect("write registries");
+
+        let current = std::fs::read_to_string(&worktree_cfg).expect("read worktree config");
+        assert_eq!(current, original);
     }
 
     #[test]

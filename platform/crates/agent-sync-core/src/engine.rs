@@ -2244,25 +2244,17 @@ impl SyncEngine {
             }
         }
 
-        if let Ok(owners) = fs::read_dir(&self.environment.worktrees_root) {
-            for owner in owners.filter_map(Result::ok) {
-                if let Ok(repos) = fs::read_dir(owner.path()) {
-                    for repo in repos.filter_map(Result::ok) {
-                        let path = repo.path();
-                        if self.has_workspace_sync_roots(&path) {
-                            candidates.push(path);
-                        }
-                    }
-                }
-            }
-        }
-
         for root in self.custom_workspace_discovery_roots() {
             candidates.extend(self.discover_workspaces(&root, 0, 3));
         }
 
+        let canonical_worktrees_root =
+            canonicalize_for_starts_with(&self.environment.worktrees_root);
         let mut unique = HashMap::new();
         for path in candidates {
+            if is_within_canonical_root(&path, canonical_worktrees_root.as_deref()) {
+                continue;
+            }
             unique.insert(standardized_path(&path), path);
         }
 
@@ -3309,6 +3301,30 @@ fn standardized_path(path: &Path) -> String {
         }
     }
     path.to_string_lossy().to_string()
+}
+
+fn canonicalize_for_starts_with(path: &Path) -> Option<PathBuf> {
+    if let Ok(canonical) = fs::canonicalize(path) {
+        return Some(canonical);
+    }
+
+    let parent = path.parent()?;
+    let canonical_parent = fs::canonicalize(parent).ok()?;
+    if let Some(file_name) = path.file_name() {
+        Some(canonical_parent.join(file_name))
+    } else {
+        Some(canonical_parent)
+    }
+}
+
+fn is_within_canonical_root(path: &Path, canonical_root: Option<&Path>) -> bool {
+    let Some(root) = canonical_root else {
+        return false;
+    };
+    let Some(canonical_path) = canonicalize_for_starts_with(path) else {
+        return false;
+    };
+    canonical_path.starts_with(root)
 }
 
 fn iso8601(value: chrono::DateTime<Utc>) -> String {
