@@ -11,12 +11,8 @@ export function useEntityDetails<T>(
   useEffect(() => {
     if (!selectedKey) {
       requestRef.current += 1;
-      const resetTimer = window.setTimeout(() => {
-        setDetails(null);
-      }, 0);
-      return () => {
-        window.clearTimeout(resetTimer);
-      };
+      queueMicrotask(() => setDetails(null));
+      return;
     }
 
     const requestId = ++requestRef.current;

@@ -3,9 +3,8 @@ import type { McpEnabledByAgent } from "../types";
 import { getVisibleMcpAgents, splitMcpAgentsByEnabled } from "./mcpAgents";
 
 describe("mcpAgents helpers", () => {
-  it("returns codex and claude for both scopes", () => {
-    expect(getVisibleMcpAgents("global")).toEqual(["codex", "claude"]);
-    expect(getVisibleMcpAgents("project")).toEqual(["codex", "claude"]);
+  it("returns codex and claude", () => {
+    expect(getVisibleMcpAgents()).toEqual(["codex", "claude"]);
   });
 
   it("splits agents into enabled and disabled groups", () => {
@@ -15,22 +14,22 @@ describe("mcpAgents helpers", () => {
       project: true,
     };
 
-    expect(splitMcpAgentsByEnabled("project", enabledByAgent)).toEqual({
+    expect(splitMcpAgentsByEnabled(enabledByAgent)).toEqual({
       enabledAgents: ["codex"],
       disabledAgents: ["claude"],
     });
   });
 
-  it("handles global scope the same as project scope", () => {
+  it("handles all disabled", () => {
     const enabledByAgent: McpEnabledByAgent = {
       codex: false,
-      claude: true,
+      claude: false,
       project: true,
     };
 
-    expect(splitMcpAgentsByEnabled("global", enabledByAgent)).toEqual({
-      enabledAgents: ["claude"],
-      disabledAgents: ["codex"],
+    expect(splitMcpAgentsByEnabled(enabledByAgent)).toEqual({
+      enabledAgents: [],
+      disabledAgents: ["codex", "claude"],
     });
   });
 });

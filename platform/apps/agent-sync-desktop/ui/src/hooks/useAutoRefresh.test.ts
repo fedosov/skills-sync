@@ -50,7 +50,7 @@ describe("useAutoRefresh", () => {
     vi.useRealTimers();
   });
 
-  it("clears next run when auto refresh is disabled", () => {
+  it("clears next run when auto refresh is disabled", async () => {
     vi.useFakeTimers();
     const onRefresh = vi.fn();
 
@@ -82,9 +82,7 @@ describe("useAutoRefresh", () => {
       enabled: false,
       intervalMinutes: 5,
     });
-    act(() => {
-      vi.advanceTimersByTime(0);
-    });
+    await act(async () => {});
 
     expect(result.current.nextRunAt).toBeNull();
     vi.useRealTimers();

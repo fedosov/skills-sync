@@ -1,24 +1,18 @@
-import type { McpEnabledByAgent, McpServerRecord } from "../types";
+import type { McpEnabledByAgent } from "../types";
 
 export type McpAgentId = "codex" | "claude";
 
 const VISIBLE_MCP_AGENTS: McpAgentId[] = ["codex", "claude"];
 
-export function getVisibleMcpAgents(
-  scope: McpServerRecord["scope"],
-): McpAgentId[] {
-  void scope;
+export function getVisibleMcpAgents(): McpAgentId[] {
   return VISIBLE_MCP_AGENTS;
 }
 
-export function splitMcpAgentsByEnabled(
-  scope: McpServerRecord["scope"],
-  enabledByAgent: McpEnabledByAgent,
-): {
+export function splitMcpAgentsByEnabled(enabledByAgent: McpEnabledByAgent): {
   enabledAgents: McpAgentId[];
   disabledAgents: McpAgentId[];
 } {
-  const visibleAgents = getVisibleMcpAgents(scope);
+  const visibleAgents = getVisibleMcpAgents();
   const enabledAgents = visibleAgents.filter((agent) => enabledByAgent[agent]);
   const disabledAgents = visibleAgents.filter(
     (agent) => !enabledByAgent[agent],

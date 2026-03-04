@@ -3,10 +3,9 @@ import { describe, expect, it } from "vitest";
 import { McpAgentStatusStrip } from "./McpAgentStatusStrip";
 
 describe("McpAgentStatusStrip", () => {
-  it("renders per-agent status chips for project scope", () => {
+  it("renders per-agent status chips", () => {
     render(
       <McpAgentStatusStrip
-        scope="project"
         enabledByAgent={{
           codex: true,
           claude: false,
@@ -28,10 +27,9 @@ describe("McpAgentStatusStrip", () => {
     expect(screen.getAllByText("OFF")).toHaveLength(1);
   });
 
-  it("does not render project agent for global scope", () => {
+  it("does not render project agent", () => {
     render(
       <McpAgentStatusStrip
-        scope="global"
         enabledByAgent={{
           codex: false,
           claude: true,
@@ -54,7 +52,6 @@ describe("McpAgentStatusStrip", () => {
   it("renders OFF mini-label for every disabled agent", () => {
     render(
       <McpAgentStatusStrip
-        scope="project"
         enabledByAgent={{
           codex: false,
           claude: false,

@@ -132,7 +132,7 @@ export function McpDetailsPanel({
             Enable by agent
           </h3>
           <div className="flex flex-wrap gap-3">
-            {getVisibleMcpAgents(server.scope).map((agent) => {
+            {getVisibleMcpAgents().map((agent) => {
               const enabled = server.enabled_by_agent[agent];
               return (
                 <div

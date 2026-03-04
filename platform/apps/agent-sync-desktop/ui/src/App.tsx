@@ -573,45 +573,36 @@ export function App() {
     mcp: mcpCount,
     agents: agentContextCount,
   };
-  const activeCatalogTitle =
-    focusKind === "skills"
-      ? "Skills"
-      : focusKind === "subagents"
-        ? "Subagents"
-        : focusKind === "mcp"
-          ? "MCP"
-          : "Agents.md";
-  const activeCatalogCount =
-    focusKind === "skills"
-      ? filteredSkills.length
-      : focusKind === "subagents"
-        ? filteredSubagents.length
-        : focusKind === "mcp"
-          ? filteredMcpServers.length
-          : filteredAgentEntries.length;
+  const CATALOG_META: Record<FocusKind, { title: string; emptyText: string }> =
+    {
+      skills: { title: "Skills", emptyText: "No skills found." },
+      subagents: { title: "Subagents", emptyText: "No subagents found." },
+      mcp: { title: "MCP", emptyText: "No MCP servers found." },
+      agents: { title: "Agents.md", emptyText: "No AGENTS.md entries found." },
+    };
+  const activeCatalogTitle = CATALOG_META[focusKind].title;
+  const activeCatalogEmptyText = CATALOG_META[focusKind].emptyText;
+  const catalogFilteredCounts: Record<FocusKind, number> = {
+    skills: filteredSkills.length,
+    subagents: filteredSubagents.length,
+    mcp: filteredMcpServers.length,
+    agents: filteredAgentEntries.length,
+  };
+  const activeCatalogCount = catalogFilteredCounts[focusKind];
   const activeCatalogTotal = catalogTabCounts[focusKind];
-  const activeCatalogEmptyText =
-    focusKind === "skills"
-      ? "No skills found."
-      : focusKind === "subagents"
-        ? "No subagents found."
-        : focusKind === "mcp"
-          ? "No MCP servers found."
-          : "No AGENTS.md entries found.";
 
   const showSkill = focusKind === "skills" && details;
   const showSubagent = focusKind === "subagents" && subagentDetails;
   const showMcp = focusKind === "mcp" && selectedMcpServer;
   const showAgents = focusKind === "agents" && selectedAgentEntry;
+  const dotagentsIndicatorColors: Record<string, string> = {
+    ok: "bg-emerald-400",
+    running: "bg-amber-400",
+    error: "bg-red-400",
+  };
   const dotagentsIndicatorClass = cn(
     "inline-block h-2 w-2 rounded-full",
-    dotagentsProofStatus === "ok"
-      ? "bg-emerald-400"
-      : dotagentsProofStatus === "running"
-        ? "bg-amber-400"
-        : dotagentsProofStatus === "error"
-          ? "bg-red-400"
-          : "bg-muted-foreground/40",
+    dotagentsIndicatorColors[dotagentsProofStatus] ?? "bg-muted-foreground/40",
   );
   const agentsTotals = agentsReport?.totals;
   const agentsIndicatorClass = severityDotClass(agentsTotals?.severity ?? "ok");
@@ -920,7 +911,7 @@ export function App() {
                       {filteredMcpServers.map((server) => {
                         const key = mcpSelectionKey(server);
                         const selected = key === selectedMcpKey;
-                        const rowAgents = getVisibleMcpAgents(server.scope).map(
+                        const rowAgents = getVisibleMcpAgents().map(
                           (agent) => ({
                             agent,
                             enabled: server.enabled_by_agent[agent],

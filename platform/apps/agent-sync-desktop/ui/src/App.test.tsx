@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { CATALOG_FOCUS_STORAGE_KEY } from "./lib/catalogUtils";
 import * as tauriApi from "./tauriApi";
 import type {
   AgentsContextReport,
@@ -39,7 +40,6 @@ vi.mock("./tauriApi", () => ({
 }));
 
 let clipboardWriteSpy: ReturnType<typeof vi.fn>;
-const CATALOG_FOCUS_STORAGE_KEY = "agent-sync.catalog.focusKind.v1";
 
 function createLocalStorageMock(): Storage {
   const values = new Map<string, string>();

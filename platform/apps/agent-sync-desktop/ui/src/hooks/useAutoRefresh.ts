@@ -16,13 +16,8 @@ function toMilliseconds(intervalMinutes: RefreshIntervalMinutes): number {
   return intervalMinutes * 60 * 1000;
 }
 
-function hasCatch(
-  value: void | Promise<void>,
-): value is Promise<void> & { catch: (handler: () => void) => unknown } {
-  if (!value) {
-    return false;
-  }
-  return typeof (value as { catch?: unknown }).catch === "function";
+function hasCatch(value: void | Promise<void>): value is Promise<void> {
+  return !!value && typeof (value as { catch?: unknown }).catch === "function";
 }
 
 export function useAutoRefresh({
@@ -41,17 +36,11 @@ export function useAutoRefresh({
 
   useEffect(() => {
     if (!enabled || intervalMs <= 0) {
-      const resetTimer = window.setTimeout(() => {
-        setNextRunAt(null);
-      }, 0);
-      return () => {
-        window.clearTimeout(resetTimer);
-      };
+      queueMicrotask(() => setNextRunAt(null));
+      return;
     }
 
-    const bootstrapTimer = window.setTimeout(() => {
-      setNextRunAt(Date.now() + intervalMs);
-    }, 0);
+    queueMicrotask(() => setNextRunAt(Date.now() + intervalMs));
 
     const timer = window.setInterval(() => {
       try {
@@ -68,7 +57,6 @@ export function useAutoRefresh({
     }, intervalMs);
 
     return () => {
-      window.clearTimeout(bootstrapTimer);
       window.clearInterval(timer);
     };
   }, [enabled, intervalMs, onRefresh, resetSignal]);

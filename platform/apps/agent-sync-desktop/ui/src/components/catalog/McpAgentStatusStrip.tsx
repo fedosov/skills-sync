@@ -1,10 +1,9 @@
 import { splitMcpAgentsByEnabled, type McpAgentId } from "../../lib/mcpAgents";
 import { cn } from "../../lib/utils";
-import type { McpEnabledByAgent, McpServerRecord } from "../../types";
+import type { McpEnabledByAgent } from "../../types";
 import { AgentLogoIcon } from "./AgentLogoIcon";
 
 type McpAgentStatusStripProps = {
-  scope: McpServerRecord["scope"];
   enabledByAgent: McpEnabledByAgent;
   className?: string;
 };
@@ -36,14 +35,11 @@ function AgentStatus({
 }
 
 export function McpAgentStatusStrip({
-  scope,
   enabledByAgent,
   className,
 }: McpAgentStatusStripProps) {
-  const { enabledAgents, disabledAgents } = splitMcpAgentsByEnabled(
-    scope,
-    enabledByAgent,
-  );
+  const { enabledAgents, disabledAgents } =
+    splitMcpAgentsByEnabled(enabledByAgent);
   const agents = [
     ...enabledAgents.map((agent) => ({ agent, enabled: true })),
     ...disabledAgents.map((agent) => ({ agent, enabled: false })),
