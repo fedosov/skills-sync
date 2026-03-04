@@ -1241,51 +1241,18 @@ impl McpRegistry {
         };
 
         let unmanaged = strip_managed_blocks(&existing, &CODEX_MARKER_PAIRS);
-        let mut table = if unmanaged.trim().is_empty() {
-            toml::Table::new()
-        } else {
-            toml::from_str::<toml::Table>(&unmanaged).map_err(|error| {
-                SyncEngineError::Unsupported(format!(
-                    "invalid unmanaged codex MCP block in {}: {error}",
-                    path.display()
-                ))
-            })?
-        };
-
-        let removed = table
-            .get_mut("mcp_servers")
-            .and_then(toml::Value::as_table_mut)
-            .map(|servers| servers.remove(server_key).is_some())
-            .unwrap_or(false);
-        if !removed {
+        if !text_contains_codex_server(&unmanaged, server_key) {
             return Ok(false);
         }
 
-        if table
-            .get("mcp_servers")
-            .and_then(toml::Value::as_table)
-            .is_some_and(|servers| servers.is_empty())
-        {
-            table.remove("mcp_servers");
-        }
-
-        let unmanaged_rendered = if table.is_empty() {
-            String::new()
-        } else {
-            toml::to_string(&table).map_err(|error| {
-                SyncEngineError::Unsupported(format!(
-                    "failed to render unmanaged codex MCP block for {}: {error}",
-                    path.display()
-                ))
-            })?
-        };
+        let unmanaged_text = text_remove_codex_server_section(&unmanaged, server_key);
 
         let updated = if let Some(body) =
             extract_managed_block_from_markers(&existing, &CODEX_MARKER_PAIRS)
         {
-            upsert_managed_block(&unmanaged_rendered, CODEX_BEGIN, CODEX_END, body.trim())
+            upsert_managed_block(&unmanaged_text, CODEX_BEGIN, CODEX_END, body.trim())
         } else {
-            unmanaged_rendered
+            unmanaged_text
         };
 
         if updated != existing {
@@ -2010,23 +1977,17 @@ impl McpRegistry {
             }
         };
 
-        let unmanaged = strip_managed_blocks(&existing, &CODEX_MARKER_PAIRS);
-        let mut unmanaged_table = parse_unmanaged_codex_table(&unmanaged, path, warnings);
-        let mut unmanaged_changed = false;
+        let mut unmanaged_text = strip_managed_blocks(&existing, &CODEX_MARKER_PAIRS);
+        let unmanaged_table = parse_unmanaged_codex_table(&unmanaged_text, path, warnings);
         let mut filtered = BTreeMap::new();
         for (key, entry) in entries {
             let has_unmanaged_duplicate = unmanaged_table
                 .as_ref()
                 .map(|table| unmanaged_codex_contains_server(table, key))
-                .unwrap_or(false);
+                .unwrap_or_else(|| text_contains_codex_server(&unmanaged_text, key));
             if !entry.enabled {
-                if has_unmanaged_duplicate
-                    && unmanaged_table
-                        .as_mut()
-                        .map(|table| unmanaged_codex_remove_server(table, key))
-                        .unwrap_or(false)
-                {
-                    unmanaged_changed = true;
+                if has_unmanaged_duplicate {
+                    unmanaged_text = text_remove_codex_server_section(&unmanaged_text, key);
                     warnings.push(format!(
                         "Auto-cleaned unmanaged Codex MCP '{}' because managed entry is disabled in {}",
                         key,
@@ -2054,18 +2015,8 @@ impl McpRegistry {
             }
         }
 
-        let unmanaged_for_merge = if unmanaged_changed {
-            render_unmanaged_codex_table(
-                unmanaged_table
-                    .as_ref()
-                    .expect("unmanaged table is present"),
-                path,
-            )?
-        } else {
-            unmanaged
-        };
         let block = render_codex_block(&filtered);
-        let updated = upsert_managed_block(&unmanaged_for_merge, CODEX_BEGIN, CODEX_END, &block);
+        let updated = upsert_managed_block(&unmanaged_text, CODEX_BEGIN, CODEX_END, &block);
         if updated != existing {
             fs::write(path, updated).map_err(|error| SyncEngineError::io(path, error))?;
         }
@@ -3078,6 +3029,92 @@ fn read_toml_servers_from_str(raw: &str) -> Result<Vec<(String, McpDefinition, b
     Ok(result)
 }
 
+/// Returns all text forms of a TOML section header for `[mcp_servers.{key}]`,
+/// including both quoted and unquoted variants.
+fn codex_server_headers(key: &str) -> Vec<String> {
+    vec![
+        format!("[mcp_servers.{}]", key),
+        format!("[mcp_servers.\"{}\"]", key),
+        format!("[mcp_servers.'{}']", key),
+    ]
+}
+
+/// Returns all text prefixes for sub-sections of `[mcp_servers.{key}.*]`.
+fn codex_server_sub_prefixes(key: &str) -> Vec<String> {
+    vec![
+        format!("[mcp_servers.{}.", key),
+        format!("[mcp_servers.\"{}\".", key),
+        format!("[mcp_servers.'{}\'.", key),
+    ]
+}
+
+/// Checks if `[mcp_servers.{key}]` header exists in raw TOML text.
+/// Used as a fallback when structured TOML parsing fails.
+fn text_contains_codex_server(text: &str, key: &str) -> bool {
+    let headers = codex_server_headers(key);
+    text.lines()
+        .any(|line| headers.iter().any(|h| line.trim() == *h))
+}
+
+/// Removes `[mcp_servers.{key}]` section (and its sub-sections like `.env`)
+/// from raw TOML text, preserving all comments and other content.
+fn text_remove_codex_server_section(text: &str, key: &str) -> String {
+    let headers = codex_server_headers(key);
+    let sub_prefixes = codex_server_sub_prefixes(key);
+    let mut result = Vec::new();
+    let mut skipping = false;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if skipping {
+            // Check if this line is a new section header that is NOT a sub-section
+            if trimmed.starts_with('[')
+                && !sub_prefixes.iter().any(|p| trimmed.starts_with(p.as_str()))
+            {
+                skipping = false;
+                result.push(line);
+            }
+            // else: skip this line (part of removed section or sub-section)
+        } else if headers.iter().any(|h| trimmed == *h)
+            || sub_prefixes.iter().any(|p| trimmed.starts_with(p.as_str()))
+        {
+            skipping = true;
+            // skip this line
+        } else {
+            result.push(line);
+        }
+    }
+
+    // Collapse runs of >2 blank lines into at most 1 blank line
+    let mut collapsed = Vec::new();
+    let mut blank_run = 0;
+    for line in &result {
+        if line.trim().is_empty() {
+            blank_run += 1;
+            if blank_run <= 1 {
+                collapsed.push(*line);
+            }
+        } else {
+            blank_run = 0;
+            collapsed.push(*line);
+        }
+    }
+
+    // Trim leading/trailing blank lines
+    while collapsed.first().is_some_and(|l| l.trim().is_empty()) {
+        collapsed.remove(0);
+    }
+    while collapsed.last().is_some_and(|l| l.trim().is_empty()) {
+        collapsed.pop();
+    }
+
+    let mut out = collapsed.join("\n");
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out
+}
+
 fn parse_unmanaged_codex_table(
     unmanaged: &str,
     path: &Path,
@@ -3104,39 +3141,6 @@ fn unmanaged_codex_contains_server(table: &toml::Table, server_key: &str) -> boo
         .and_then(toml::Value::as_table)
         .and_then(|servers| servers.get(server_key))
         .is_some()
-}
-
-fn unmanaged_codex_remove_server(table: &mut toml::Table, server_key: &str) -> bool {
-    let removed = table
-        .get_mut("mcp_servers")
-        .and_then(toml::Value::as_table_mut)
-        .map(|servers| servers.remove(server_key).is_some())
-        .unwrap_or(false);
-    if table
-        .get("mcp_servers")
-        .and_then(toml::Value::as_table)
-        .is_some_and(|servers| servers.is_empty())
-    {
-        table.remove("mcp_servers");
-    }
-    removed
-}
-
-fn render_unmanaged_codex_table(
-    table: &toml::Table,
-    path: &Path,
-) -> Result<String, SyncEngineError> {
-    if table.is_empty() {
-        return Ok(String::new());
-    }
-    toml::to_string(table)
-        .map_err(|error| {
-            SyncEngineError::Unsupported(format!(
-                "failed to render unmanaged codex MCP block for {}: {error}",
-                path.display()
-            ))
-        })
-        .map(|value| value.trim_end().to_string())
 }
 
 fn definition_from_toml_table(table: &toml::value::Table) -> McpDefinition {
@@ -3551,7 +3555,8 @@ fn iso8601_now() -> String {
 mod tests {
     use super::{
         extract_managed_block_from_markers, is_secret_like_key, read_json_servers,
-        read_toml_servers_from_str, render_central_block, render_codex_block, CatalogEntry,
+        read_toml_servers_from_str, render_central_block, render_codex_block,
+        text_contains_codex_server, text_remove_codex_server_section, CatalogEntry,
         CodexCatalogEntry, McpDefinition, McpRegistry, McpScope, ProjectClaudeTarget,
         CENTRAL_BEGIN, CENTRAL_END, CENTRAL_MARKER_PAIRS, CODEX_MARKER_PAIRS,
     };
@@ -3695,12 +3700,13 @@ API_KEY = "${API_KEY}"
         std::fs::create_dir_all(codex_path.parent().expect("parent")).expect("mkdir parent");
         std::fs::write(
             &codex_path,
-            r#"
-[mcp_servers.exa]
-command = "npx"
-args = ["-y", "mcp-remote@latest", "https://mcp.exa.ai/mcp"]
-enabled = true
-"#,
+            "# My custom comment\n\n\
+             [mcp_servers.exa]\n\
+             command = \"npx\"\n\
+             args = [\"-y\", \"mcp-remote@latest\", \"https://mcp.exa.ai/mcp\"]\n\
+             enabled = true\n\n\
+             [mcp_servers.other]\n\
+             command = \"other-cmd\"\n",
         )
         .expect("write codex");
 
@@ -3735,6 +3741,107 @@ enabled = true
         let codex_raw = std::fs::read_to_string(&codex_path).expect("read codex");
         assert_eq!(count_occurrences(&codex_raw, "[mcp_servers.exa]"), 1);
         assert!(codex_raw.contains("enabled = false"));
+        // Comments and other unmanaged entries must be preserved
+        assert!(
+            codex_raw.contains("# My custom comment"),
+            "comments should be preserved"
+        );
+        assert!(
+            codex_raw.contains("[mcp_servers.other]"),
+            "other unmanaged entries should be preserved"
+        );
+    }
+
+    #[test]
+    fn apply_codex_catalog_path_text_fallback_detects_duplicate_on_parse_failure() {
+        let (_temp, registry, home, _runtime) = registry_in_temp();
+        let codex_path = home.join(".codex").join("config.toml");
+        std::fs::create_dir_all(codex_path.parent().expect("parent")).expect("mkdir parent");
+        // Write intentionally unparseable TOML with a duplicate server key
+        std::fs::write(
+            &codex_path,
+            "!!! invalid toml syntax !!!\n\n\
+             [mcp_servers.exa]\n\
+             command = \"npx\"\n\
+             args = [\"-y\", \"mcp-remote@latest\"]\n",
+        )
+        .expect("write codex");
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            String::from("exa"),
+            CodexCatalogEntry {
+                definition: McpDefinition {
+                    transport: McpTransport::Stdio,
+                    command: Some(String::from("npx")),
+                    args: vec![String::from("-y"), String::from("mcp-remote@latest")],
+                    url: None,
+                    env: BTreeMap::new(),
+                },
+                enabled: true,
+            },
+        );
+
+        let mut warnings = Vec::new();
+        registry
+            .apply_codex_catalog_path(&codex_path, &entries, true, &mut warnings)
+            .expect("apply codex");
+
+        // Text fallback should detect the duplicate and skip managed entry
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("Skipped managed Codex MCP 'exa'")),
+            "should skip duplicate via text fallback: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn text_remove_codex_server_section_removes_with_subtables() {
+        let input = "\
+[mcp_servers.foo]\n\
+command = \"foo-cmd\"\n\
+\n\
+[mcp_servers.foo.env]\n\
+API_KEY = \"secret\"\n\
+\n\
+[mcp_servers.bar]\n\
+command = \"bar-cmd\"\n";
+
+        let result = text_remove_codex_server_section(input, "foo");
+        assert!(
+            !result.contains("[mcp_servers.foo]"),
+            "foo section should be removed"
+        );
+        assert!(
+            !result.contains("[mcp_servers.foo.env]"),
+            "foo.env sub-section should be removed"
+        );
+        assert!(
+            result.contains("[mcp_servers.bar]"),
+            "bar section should be preserved"
+        );
+        assert!(
+            result.contains("bar-cmd"),
+            "bar content should be preserved"
+        );
+    }
+
+    #[test]
+    fn text_contains_codex_server_matches_correctly() {
+        let text = "\
+[mcp_servers.exa]\n\
+command = \"npx\"\n\
+\n\
+[mcp_servers.other]\n\
+command = \"other\"\n";
+
+        assert!(text_contains_codex_server(text, "exa"));
+        assert!(text_contains_codex_server(text, "other"));
+        assert!(!text_contains_codex_server(text, "missing"));
+        // Should not match partial key names
+        assert!(!text_contains_codex_server(text, "ex"));
+        assert!(!text_contains_codex_server(text, "exa_extended"));
     }
 
     #[test]
