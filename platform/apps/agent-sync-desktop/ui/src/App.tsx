@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgentLogoIcon } from "./components/catalog/AgentLogoIcon";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
@@ -313,6 +313,7 @@ export function App() {
   const [fixingSyncWarning, setFixingSyncWarning] = useState<string | null>(
     null,
   );
+  const refreshTokenRef = useRef(0);
 
   const applyState = useCallback(
     (next: SyncState, preferredKey?: string | null) => {
@@ -372,6 +373,7 @@ export function App() {
       syncFirst = false,
       withBusy = true,
     ) => {
+      const requestId = ++refreshTokenRef.current;
       if (withBusy) {
         setBusy(true);
       }
@@ -382,10 +384,16 @@ export function App() {
           listSubagents("all"),
           getAgentsContextReport(),
         ]);
+        if (requestId !== refreshTokenRef.current) {
+          return;
+        }
         await applySubagents(preferredKey, nextSubagents);
         applyAgentsReport(nextAgentsReport);
         applyState(next, preferredKey);
       } catch (invokeError) {
+        if (requestId !== refreshTokenRef.current) {
+          return;
+        }
         setError(String(invokeError));
         try {
           const [fallbackState, fallbackSubagents, fallbackAgentsReport] =
@@ -394,10 +402,16 @@ export function App() {
               listSubagents("all"),
               getAgentsContextReport(),
             ]);
+          if (requestId !== refreshTokenRef.current) {
+            return;
+          }
           await applySubagents(preferredKey, fallbackSubagents);
           applyAgentsReport(fallbackAgentsReport);
           applyState(fallbackState, preferredKey);
         } catch (fallbackError) {
+          if (requestId !== refreshTokenRef.current) {
+            return;
+          }
           setError(
             `${String(invokeError)}\nFallback failed: ${String(fallbackError)}`,
           );

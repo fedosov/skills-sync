@@ -16,8 +16,8 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 use tauri::Manager;
 
-const MAX_MAIN_FILE_PREVIEW_CHARS: usize = usize::MAX;
-const MAX_TREE_ENTRIES: usize = usize::MAX;
+const MAX_MAIN_FILE_PREVIEW_CHARS: usize = 50_000;
+const MAX_TREE_ENTRIES: usize = 500;
 const AUTO_WATCH_DEBOUNCE_MS: u64 = 800;
 
 #[derive(Debug, Clone, Serialize)]

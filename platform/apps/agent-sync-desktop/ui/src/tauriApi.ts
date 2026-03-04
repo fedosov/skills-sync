@@ -30,15 +30,25 @@ export async function getStarredSkillIds(): Promise<string[]> {
 }
 
 export async function loadDashboardSnapshot(): Promise<DashboardSnapshot> {
-  const [state, starredSkillIds, subagents] = await Promise.all([
-    getState(),
-    getStarredSkillIds(),
-    listSubagents("all"),
-  ]);
+  const [stateResult, starredResult, subagentsResult] =
+    await Promise.allSettled([
+      getState(),
+      getStarredSkillIds(),
+      listSubagents("all"),
+    ]);
+
+  if (stateResult.status === "rejected") {
+    throw stateResult.reason;
+  }
+  if (subagentsResult.status === "rejected") {
+    throw subagentsResult.reason;
+  }
+
   return {
-    state,
-    starredSkillIds,
-    subagents,
+    state: stateResult.value,
+    starredSkillIds:
+      starredResult.status === "fulfilled" ? starredResult.value : [],
+    subagents: subagentsResult.value,
   };
 }
 

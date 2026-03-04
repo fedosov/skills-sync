@@ -83,12 +83,13 @@ impl DotagentsAdapter {
         #[cfg(windows)]
         {
             if is_windows_shell_script(&binary.path) {
+                let shell = std::env::var("COMSPEC").unwrap_or_else(|_| String::from("cmd.exe"));
                 rendered_command = vec![
-                    String::from("cmd.exe"),
+                    shell.clone(),
                     String::from("/C"),
                     binary.path.display().to_string(),
                 ];
-                command = Command::new("cmd.exe");
+                command = Command::new(&shell);
                 command.arg("/C");
                 command.arg(&binary.path);
             } else {
