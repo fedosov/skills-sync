@@ -400,7 +400,7 @@ export function App() {
 
   async function handleSetMcpEnabled(
     server: McpServerRecord,
-    agent: "codex" | "claude" | "project",
+    agent: "codex" | "claude",
     enabled: boolean,
   ) {
     await withErrorGuard(async () => {

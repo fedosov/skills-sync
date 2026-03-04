@@ -203,14 +203,14 @@ export async function getMcpServers(): Promise<McpServerRecord[]> {
 
 export async function setMcpServerEnabled(
   serverKey: string,
-  agent: "codex" | "claude" | "project",
+  agent: "codex" | "claude",
   enabled: boolean,
   scope?: "global" | "project",
   workspace?: string | null,
 ): Promise<SyncState> {
   const payload: {
     serverKey: string;
-    agent: "codex" | "claude" | "project";
+    agent: "codex" | "claude";
     enabled: boolean;
     scope?: "global" | "project";
     workspace?: string;

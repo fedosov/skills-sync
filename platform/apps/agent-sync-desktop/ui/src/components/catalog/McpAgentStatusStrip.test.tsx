@@ -19,12 +19,12 @@ describe("McpAgentStatusStrip", () => {
       screen.getByRole("img", { name: "codex enabled" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("img", { name: "project enabled" }),
-    ).toBeInTheDocument();
-    expect(
       screen.getByRole("img", { name: "claude disabled" }),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("ON")).toHaveLength(2);
+    expect(
+      screen.queryByRole("img", { name: /project (enabled|disabled)/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByText("ON")).toHaveLength(1);
     expect(screen.getAllByText("OFF")).toHaveLength(1);
   });
 
@@ -64,7 +64,7 @@ describe("McpAgentStatusStrip", () => {
     );
 
     expect(screen.queryByText("ON")).not.toBeInTheDocument();
-    expect(screen.getAllByText("OFF")).toHaveLength(3);
+    expect(screen.getAllByText("OFF")).toHaveLength(2);
     expect(
       screen.getByRole("img", { name: "codex disabled" }),
     ).toBeInTheDocument();
@@ -72,7 +72,7 @@ describe("McpAgentStatusStrip", () => {
       screen.getByRole("img", { name: "claude disabled" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("img", { name: "project disabled" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("img", { name: /project/i }),
+    ).not.toBeInTheDocument();
   });
 });

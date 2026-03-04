@@ -33,19 +33,5 @@ export function AgentLogoIcon({ agent, className }: AgentLogoIconProps) {
     );
   }
 
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 16 16"
-      className={cn("h-3 w-3", className)}
-      fill="none"
-    >
-      <path
-        d="M3 2.5H13V13.5H3V2.5ZM5.5 5.5H10.5V10.5H5.5V5.5Z"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+  return null;
 }

@@ -12,10 +12,7 @@ type McpDetailsPanelProps = {
   busy: boolean;
   actionsMenuOpen: boolean;
   onToggleActionsMenu: () => void;
-  onSetEnabled: (
-    agent: "codex" | "claude" | "project",
-    enabled: boolean,
-  ) => void;
+  onSetEnabled: (agent: "codex" | "claude", enabled: boolean) => void;
   onArchive: () => void;
   onMakeGlobal: () => void;
   onRestore: () => void;

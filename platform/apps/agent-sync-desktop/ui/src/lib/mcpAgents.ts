@@ -1,10 +1,10 @@
 import type { McpEnabledByAgent, McpServerRecord } from "../types";
 
-export type McpAgentId = "codex" | "claude" | "project";
+export type McpAgentId = "codex" | "claude";
 
 const MCP_AGENTS_BY_SCOPE: Record<McpServerRecord["scope"], McpAgentId[]> = {
   global: ["codex", "claude"],
-  project: ["codex", "claude", "project"],
+  project: ["codex", "claude"],
 };
 
 export function getVisibleMcpAgents(

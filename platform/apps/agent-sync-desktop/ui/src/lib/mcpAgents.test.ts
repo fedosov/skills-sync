@@ -3,16 +3,12 @@ import type { McpEnabledByAgent } from "../types";
 import { getVisibleMcpAgents, splitMcpAgentsByEnabled } from "./mcpAgents";
 
 describe("mcpAgents helpers", () => {
-  it("returns visible agents by scope", () => {
+  it("returns codex and claude for both scopes", () => {
     expect(getVisibleMcpAgents("global")).toEqual(["codex", "claude"]);
-    expect(getVisibleMcpAgents("project")).toEqual([
-      "codex",
-      "claude",
-      "project",
-    ]);
+    expect(getVisibleMcpAgents("project")).toEqual(["codex", "claude"]);
   });
 
-  it("splits project scope agents into enabled and disabled groups", () => {
+  it("splits agents into enabled and disabled groups", () => {
     const enabledByAgent: McpEnabledByAgent = {
       codex: true,
       claude: false,
@@ -20,12 +16,12 @@ describe("mcpAgents helpers", () => {
     };
 
     expect(splitMcpAgentsByEnabled("project", enabledByAgent)).toEqual({
-      enabledAgents: ["codex", "project"],
+      enabledAgents: ["codex"],
       disabledAgents: ["claude"],
     });
   });
 
-  it("ignores project agent for global scope", () => {
+  it("handles global scope the same as project scope", () => {
     const enabledByAgent: McpEnabledByAgent = {
       codex: false,
       claude: true,

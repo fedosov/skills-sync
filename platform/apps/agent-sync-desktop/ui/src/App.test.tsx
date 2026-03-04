@@ -1196,12 +1196,12 @@ describe("App quiet redesign", () => {
       screen.getByRole("button", { name: "Switch catalog to MCP" }),
     );
     await user.click(screen.getByRole("button", { name: /exa/i }));
-    await user.click(screen.getByRole("switch", { name: "project toggle" }));
+    await user.click(screen.getByRole("switch", { name: "codex toggle" }));
 
     await waitFor(() => {
       expect(tauriApi.setMcpServerEnabled).toHaveBeenCalledWith(
         "exa",
-        "project",
+        "codex",
         false,
         "project",
         workspace,
@@ -1257,15 +1257,13 @@ describe("App quiet redesign", () => {
     const claudeIcon = within(section).getByRole("img", {
       name: "claude agent",
     });
-    const projectIcon = within(section).getByRole("img", {
-      name: "project agent",
-    });
     expect(codexIcon).toBeInTheDocument();
     expect(claudeIcon).toBeInTheDocument();
-    expect(projectIcon).toBeInTheDocument();
+    expect(
+      within(section).queryByRole("img", { name: "project agent" }),
+    ).not.toBeInTheDocument();
     expect(codexIcon).toHaveClass("text-emerald-500");
     expect(claudeIcon).toHaveClass("text-emerald-500");
-    expect(projectIcon).toHaveClass("text-muted-foreground/70", "opacity-60");
   });
 
   it("renders sync warning banner with expandable warning list", async () => {
@@ -1557,8 +1555,8 @@ describe("App quiet redesign", () => {
       within(row).getByRole("img", { name: "codex connected" }),
     ).toBeInTheDocument();
     expect(
-      within(row).getByRole("img", { name: "project connected" }),
-    ).toBeInTheDocument();
+      within(row).queryByRole("img", { name: "project connected" }),
+    ).not.toBeInTheDocument();
     expect(
       within(row).getByRole("img", { name: "claude disabled" }),
     ).toBeInTheDocument();
