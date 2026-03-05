@@ -6,7 +6,7 @@ APP_DIR := $(PLATFORM_DIR)/apps/agent-sync-desktop
 UI_DIR := $(PLATFORM_DIR)/apps/agent-sync-desktop/ui
 TAURI_DIR := $(PLATFORM_DIR)/apps/agent-sync-desktop/src-tauri
 
-.PHONY: all build run app lint lint-fix prepare-dotagents-runtime ensure-ui-dist lint-rust lint-fix-rust lint-ui lint-fix-ui lint-workflows test test-rust typecheck-ts check-rust hooks-install release check-arch
+.PHONY: all build run app lint lint-fix prepare-dotagents-runtime ensure-ui-dist lint-rust lint-fix-rust lint-ui lint-fix-ui lint-workflows test test-rust typecheck-ts check-rust hooks-install release check-arch test-e2e
 
 all: app
 
@@ -77,6 +77,9 @@ typecheck-ts:
 
 check-rust: prepare-dotagents-runtime ensure-ui-dist
 	cd "$(PLATFORM_DIR)" && cargo check --workspace
+
+test-e2e:
+	cd "$(UI_DIR)" && npx playwright test
 
 check-arch:
 	"$(ROOT_DIR)/scripts/check-architecture.sh"

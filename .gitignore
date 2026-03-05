@@ -4,6 +4,8 @@ platform/node_modules/
 platform/apps/agent-sync-desktop/ui/node_modules/
 platform/apps/agent-sync-desktop/ui/dist/
 platform/apps/agent-sync-desktop/ui/coverage/
+platform/apps/agent-sync-desktop/ui/test-results/
+platform/apps/agent-sync-desktop/ui/playwright-report/
 platform/apps/agent-sync-desktop/src-tauri/bin/dotagents/*
 !platform/apps/agent-sync-desktop/src-tauri/bin/dotagents/.gitkeep
 output/

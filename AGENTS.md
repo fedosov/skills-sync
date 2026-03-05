@@ -2,6 +2,18 @@
 
 Agent Sync is a strict dotagents sync platform with a Tauri desktop app and Rust CLI.
 
+## Quick Start
+
+Three commands to validate any change:
+
+```sh
+make test        # Rust tests (includes architecture guards)
+make lint        # Rust clippy + fmt + UI eslint/oxlint/prettier
+./scripts/run-tauri-gui.sh   # Launch desktop app locally
+```
+
+For UI-only changes: `cd platform/apps/agent-sync-desktop/ui && npm run test`
+
 ## Scope and Precedence
 
 - This file is the repository-local operating contract for AI agents in this project.
@@ -59,6 +71,7 @@ Prefer Makefile targets over raw commands.
 | Run desktop app | `./scripts/run-tauri-gui.sh` |
 | UI tests | `cd platform/apps/agent-sync-desktop/ui && npm run test` |
 | UI test coverage | `cd platform/apps/agent-sync-desktop/ui && npm run test:coverage` |
+| UI e2e tests | `make test-e2e` |
 | Arch guard | `make check-arch` |
 
 ## Strict CLI Surface
