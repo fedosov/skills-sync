@@ -1,29 +1,50 @@
 import { Badge } from "../ui/badge";
+import { StarIcon } from "../ui/StarIcon";
 import { CardContent, CardHeader, CardTitle } from "../ui/card";
 import type { AgentContextEntry, AgentContextSegment } from "../../types";
 
 type AgentsDetailsPanelProps = {
   entry: AgentContextEntry;
   topSegments: AgentContextSegment[];
+  isFavorite: boolean;
+  onToggleFavorite: () => void;
 };
 
 export function AgentsDetailsPanel({
   entry,
   topSegments,
+  isFavorite,
+  onToggleFavorite,
 }: AgentsDetailsPanelProps) {
   return (
     <>
       <CardHeader className="border-b border-border/60 pb-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <CardTitle className="text-lg leading-tight">
-              {entry.scope === "global"
-                ? "Global AGENTS.md"
-                : "Project AGENTS.md"}
-            </CardTitle>
-            <p className="mt-1 truncate text-xs text-muted-foreground">
-              {entry.root_path}
-            </p>
+          <div className="flex items-start gap-1.5">
+            <button
+              type="button"
+              aria-label={
+                isFavorite ? "Unstar agent entry" : "Star agent entry"
+              }
+              className={
+                isFavorite
+                  ? "mt-0.5 text-amber-400 hover:text-amber-500"
+                  : "mt-0.5 text-muted-foreground/50 hover:text-amber-400"
+              }
+              onClick={onToggleFavorite}
+            >
+              <StarIcon filled={isFavorite} className="h-4 w-4" />
+            </button>
+            <div className="min-w-0">
+              <CardTitle className="text-lg leading-tight">
+                {entry.scope === "global"
+                  ? "Global AGENTS.md"
+                  : "Project AGENTS.md"}
+              </CardTitle>
+              <p className="mt-1 truncate text-xs text-muted-foreground">
+                {entry.root_path}
+              </p>
+            </div>
           </div>
           <Badge
             variant={

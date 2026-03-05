@@ -1,10 +1,12 @@
 import { cn } from "../../lib/utils";
 import type { SubagentRecord } from "../../types";
 import { ScopeMarker } from "./ScopeMarker";
+import { StarIcon } from "../ui/StarIcon";
 
 type SubagentListPanelProps = {
   subagents: SubagentRecord[];
   selectedSubagentId: string | null;
+  favorites: Set<string>;
   emptyText: string;
   onSelect: (subagentId: string) => void;
   onCloseMenus: () => void;
@@ -13,6 +15,7 @@ type SubagentListPanelProps = {
 export function SubagentListPanel({
   subagents,
   selectedSubagentId,
+  favorites,
   emptyText,
   onSelect,
   onCloseMenus,
@@ -45,8 +48,16 @@ export function SubagentListPanel({
               }}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium">
-                  {subagent.name}
+                <span className="flex min-w-0 items-center gap-1">
+                  {favorites.has(subagent.id) ? (
+                    <StarIcon
+                      filled
+                      className="h-3 w-3 shrink-0 text-amber-400"
+                    />
+                  ) : null}
+                  <span className="truncate text-sm font-medium">
+                    {subagent.name}
+                  </span>
                 </span>
                 <ScopeMarker scope={subagent.scope} />
               </div>

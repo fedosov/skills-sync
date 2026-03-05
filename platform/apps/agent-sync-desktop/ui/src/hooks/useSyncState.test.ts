@@ -8,6 +8,7 @@ vi.mock("../tauriApi", () => ({
   getRuntimeControls: vi.fn(),
   loadDashboardSnapshot: vi.fn(),
   getAgentsContextReport: vi.fn(),
+  getStarredSkillIds: vi.fn(),
   runSync: vi.fn(),
   getState: vi.fn(),
   listSubagents: vi.fn(),

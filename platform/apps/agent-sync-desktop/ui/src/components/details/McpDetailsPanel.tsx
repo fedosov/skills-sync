@@ -1,5 +1,6 @@
 import { AgentLogoIcon } from "../catalog/AgentLogoIcon";
 import { Button } from "../ui/button";
+import { StarIcon } from "../ui/StarIcon";
 import { CardContent, CardHeader, CardTitle } from "../ui/card";
 import { getVisibleMcpAgents } from "../../lib/mcpAgents";
 import { mcpStatus, toTitleCase } from "../../lib/catalogUtils";
@@ -10,6 +11,8 @@ type McpDetailsPanelProps = {
   server: McpServerRecord;
   warnings: string[];
   busy: boolean;
+  isFavorite: boolean;
+  onToggleFavorite: () => void;
   actionsMenuOpen: boolean;
   onToggleActionsMenu: () => void;
   onSetEnabled: (agent: "codex" | "claude", enabled: boolean) => void;
@@ -23,6 +26,8 @@ export function McpDetailsPanel({
   server,
   warnings,
   busy,
+  isFavorite,
+  onToggleFavorite,
   actionsMenuOpen,
   onToggleActionsMenu,
   onSetEnabled,
@@ -37,13 +42,27 @@ export function McpDetailsPanel({
     <>
       <CardHeader className="border-b border-border/60 pb-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <CardTitle className="text-lg leading-tight">
-              {server.server_key}
-            </CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {`${server.transport.toUpperCase()} · ${toTitleCase(server.scope)}`}
-            </p>
+          <div className="flex items-start gap-1.5">
+            <button
+              type="button"
+              aria-label={isFavorite ? "Unstar MCP server" : "Star MCP server"}
+              className={
+                isFavorite
+                  ? "mt-0.5 text-amber-400 hover:text-amber-500"
+                  : "mt-0.5 text-muted-foreground/50 hover:text-amber-400"
+              }
+              onClick={onToggleFavorite}
+            >
+              <StarIcon filled={isFavorite} className="h-4 w-4" />
+            </button>
+            <div>
+              <CardTitle className="text-lg leading-tight">
+                {server.server_key}
+              </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {`${server.transport.toUpperCase()} · ${toTitleCase(server.scope)}`}
+              </p>
+            </div>
           </div>
           <div className="relative">
             <Button

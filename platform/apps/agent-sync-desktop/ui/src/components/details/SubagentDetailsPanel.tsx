@@ -1,4 +1,5 @@
 import { Button } from "../ui/button";
+import { StarIcon } from "../ui/StarIcon";
 import { CardContent, CardHeader, CardTitle } from "../ui/card";
 import { compactPath } from "../../lib/formatting";
 import { formatUnixTime } from "../../skillUtils";
@@ -8,6 +9,8 @@ import type { SubagentDetails } from "../../types";
 type SubagentDetailsPanelProps = {
   subagentDetails: SubagentDetails;
   busy: boolean;
+  isFavorite: boolean;
+  onToggleFavorite: () => void;
   openTargetMenu: boolean;
   actionsMenuOpen: boolean;
   onToggleOpenTargetMenu: () => void;
@@ -21,6 +24,8 @@ type SubagentDetailsPanelProps = {
 export function SubagentDetailsPanel({
   subagentDetails,
   busy,
+  isFavorite,
+  onToggleFavorite,
   openTargetMenu,
   actionsMenuOpen,
   onToggleOpenTargetMenu,
@@ -34,13 +39,27 @@ export function SubagentDetailsPanel({
     <>
       <CardHeader className="border-b border-border/60 pb-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <CardTitle className="text-lg leading-tight">
-              {subagentDetails.subagent.name}
-            </CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {subagentDetails.subagent.subagent_key}
-            </p>
+          <div className="flex items-start gap-1.5">
+            <button
+              type="button"
+              aria-label={isFavorite ? "Unstar subagent" : "Star subagent"}
+              className={
+                isFavorite
+                  ? "mt-0.5 text-amber-400 hover:text-amber-500"
+                  : "mt-0.5 text-muted-foreground/50 hover:text-amber-400"
+              }
+              onClick={onToggleFavorite}
+            >
+              <StarIcon filled={isFavorite} className="h-4 w-4" />
+            </button>
+            <div>
+              <CardTitle className="text-lg leading-tight">
+                {subagentDetails.subagent.name}
+              </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {subagentDetails.subagent.subagent_key}
+              </p>
+            </div>
           </div>
           <div className="relative flex items-center gap-1.5">
             <Button

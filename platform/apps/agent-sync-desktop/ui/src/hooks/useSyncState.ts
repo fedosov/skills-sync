@@ -9,6 +9,7 @@ import {
 import {
   getAgentsContextReport,
   getRuntimeControls,
+  getStarredSkillIds,
   getState,
   listSubagents,
   loadDashboardSnapshot,
@@ -37,6 +38,7 @@ type UseSyncStateResult = {
   runtimeControls: RuntimeControls | null;
   subagents: SubagentRecord[];
   agentsReport: AgentsContextReport | null;
+  starredSkillIds: string[];
   selectedSkillKey: string | null;
   selectedSubagentId: string | null;
   selectedMcpKey: string | null;
@@ -49,6 +51,7 @@ type UseSyncStateResult = {
   setSelectedMcpKey: Dispatch<SetStateAction<string | null>>;
   setSelectedAgentEntryId: Dispatch<SetStateAction<string | null>>;
   setRuntimeControls: Dispatch<SetStateAction<RuntimeControls | null>>;
+  setStarredSkillIds: Dispatch<SetStateAction<string[]>>;
   setBusy: Dispatch<SetStateAction<boolean>>;
   loadRuntimeControls: () => Promise<RuntimeControls | null>;
   refreshState: (options?: RefreshOptions) => Promise<SyncState | null>;
@@ -92,6 +95,7 @@ export function useSyncState(): UseSyncStateResult {
   const [agentsReport, setAgentsReport] = useState<AgentsContextReport | null>(
     null,
   );
+  const [starredSkillIds, setStarredSkillIds] = useState<string[]>([]);
   const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
   const [selectedSubagentId, setSelectedSubagentId] = useState<string | null>(
     null,
@@ -177,26 +181,32 @@ export function useSyncState(): UseSyncStateResult {
         let nextState: SyncState;
         let nextSubagents: SubagentRecord[];
         let nextAgentsReport: AgentsContextReport | null;
+        let nextStarred: string[];
 
         if (syncFirst) {
           nextState = await runSync();
-          const [subagentsResult, reportResult] = await Promise.all([
-            listSubagents("all"),
-            getAgentsContextReport(),
-          ]);
+          const [subagentsResult, reportResult, starredResult] =
+            await Promise.all([
+              listSubagents("all"),
+              getAgentsContextReport(),
+              getStarredSkillIds().catch(() => [] as string[]),
+            ]);
           nextSubagents = subagentsResult;
           nextAgentsReport = reportResult;
+          nextStarred = starredResult;
         } else {
           const snapshot = await loadDashboardSnapshot();
           nextState = snapshot.state;
           nextSubagents = snapshot.subagents;
           nextAgentsReport = snapshot.agentsReport;
+          nextStarred = snapshot.starredSkillIds;
         }
 
         if (requestId !== refreshTokenRef.current) {
           return null;
         }
 
+        setStarredSkillIds(nextStarred);
         applySubagents(nextSubagents, preferredSubagentId);
         applyAgentsReport(nextAgentsReport);
         applyState(nextState, preferredSkillKey);
@@ -268,6 +278,7 @@ export function useSyncState(): UseSyncStateResult {
     runtimeControls,
     subagents,
     agentsReport,
+    starredSkillIds,
     selectedSkillKey,
     selectedSubagentId,
     selectedMcpKey,
@@ -280,6 +291,7 @@ export function useSyncState(): UseSyncStateResult {
     setSelectedMcpKey,
     setSelectedAgentEntryId,
     setRuntimeControls,
+    setStarredSkillIds,
     setBusy,
     loadRuntimeControls,
     refreshState,

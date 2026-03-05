@@ -1,10 +1,12 @@
 import { cn } from "../../lib/utils";
 import type { SkillRecord } from "../../types";
 import { ScopeMarker } from "./ScopeMarker";
+import { StarIcon } from "../ui/StarIcon";
 
 type SkillListPanelProps = {
   skills: SkillRecord[];
   selectedSkillKey: string | null;
+  favorites: Set<string>;
   emptyText: string;
   onSelect: (skillKey: string) => void;
   onCloseMenus: () => void;
@@ -13,6 +15,7 @@ type SkillListPanelProps = {
 export function SkillListPanel({
   skills,
   selectedSkillKey,
+  favorites,
   emptyText,
   onSelect,
   onCloseMenus,
@@ -45,8 +48,16 @@ export function SkillListPanel({
               }}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium">
-                  {skill.name}
+                <span className="flex min-w-0 items-center gap-1">
+                  {favorites.has(skill.id) ? (
+                    <StarIcon
+                      filled
+                      className="h-3 w-3 shrink-0 text-amber-400"
+                    />
+                  ) : null}
+                  <span className="truncate text-sm font-medium">
+                    {skill.name}
+                  </span>
                 </span>
                 <ScopeMarker scope={skill.scope} />
               </div>

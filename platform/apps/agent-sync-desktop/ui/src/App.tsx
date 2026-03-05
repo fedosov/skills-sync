@@ -13,9 +13,11 @@ import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { useSkillDetails } from "./hooks/useSkillDetails";
-import { getSubagentDetails } from "./tauriApi";
+import { getSubagentDetails, setSkillStarred } from "./tauriApi";
 import { useEntityDetails } from "./hooks/useEntityDetails";
+import { useFavorites } from "./hooks/useFavorites";
 import { useSyncState, mcpSelectionKey } from "./hooks/useSyncState";
+import { StarIcon } from "./components/ui/StarIcon";
 import {
   toTitleCase,
   subagentStatus,
@@ -94,6 +96,7 @@ export function App() {
     runtimeControls,
     subagents,
     agentsReport,
+    starredSkillIds,
     selectedSkillKey,
     selectedSubagentId,
     selectedMcpKey,
@@ -106,12 +109,30 @@ export function App() {
     setSelectedMcpKey,
     setSelectedAgentEntryId,
     setRuntimeControls,
+    setStarredSkillIds,
     setBusy,
     loadRuntimeControls,
     refreshState,
     applyState,
     applySubagents,
   } = useSyncState();
+
+  const { favorites, toggleFavorite } = useFavorites();
+
+  const starredSkillSet = useMemo(
+    () => new Set(starredSkillIds),
+    [starredSkillIds],
+  );
+
+  async function handleToggleSkillStar(skillId: string) {
+    const isCurrentlyStarred = starredSkillSet.has(skillId);
+    try {
+      const next = await setSkillStarred(skillId, !isCurrentlyStarred);
+      setStarredSkillIds(next);
+    } catch (invokeError) {
+      setError(String(invokeError));
+    }
+  }
 
   const { details, renameDraft, setRenameDraft } = useSkillDetails({
     selectedSkillKey,
@@ -211,17 +232,20 @@ export function App() {
   const filteredSkills = useMemo(() => {
     if (!state) return [];
     const activeQuery = focusKind === "skills" ? query : "";
-    return sortAndFilterSkills(state.skills, activeQuery, []);
-  }, [focusKind, query, state]);
+    return sortAndFilterSkills(state.skills, activeQuery, starredSkillIds);
+  }, [focusKind, query, starredSkillIds, state]);
 
   const filteredSubagents = useMemo(() => {
     const normalizedQuery =
       focusKind === "subagents" ? query.trim().toLowerCase() : "";
+    const favSet = favorites.subagents;
+    const favRank = (id: string) => (favSet.has(id) ? 0 : 1);
     const ordered = subagents
       .slice()
       .sort(
         (lhs, rhs) =>
           statusRank(subagentStatus(lhs)) - statusRank(subagentStatus(rhs)) ||
+          favRank(lhs.id) - favRank(rhs.id) ||
           lhs.name.localeCompare(rhs.name) ||
           lhs.scope.localeCompare(rhs.scope) ||
           (lhs.workspace ?? "").localeCompare(rhs.workspace ?? ""),
@@ -238,14 +262,18 @@ export function App() {
         item.description.toLowerCase().includes(normalizedQuery)
       );
     });
-  }, [focusKind, query, subagents]);
+  }, [favorites.subagents, focusKind, query, subagents]);
 
   const filteredMcpServers = useMemo(() => {
     const normalizedQuery =
       focusKind === "mcp" ? query.trim().toLowerCase() : "";
+    const mcpFavSet = favorites.mcp;
+    const mcpFavRank = (server: McpServerRecord) =>
+      mcpFavSet.has(mcpSelectionKey(server)) ? 0 : 1;
     const servers = (state?.mcp_servers ?? []).slice().sort((lhs, rhs) => {
       return (
         statusRank(mcpStatus(lhs)) - statusRank(mcpStatus(rhs)) ||
+        mcpFavRank(lhs) - mcpFavRank(rhs) ||
         lhs.server_key.localeCompare(rhs.server_key) ||
         lhs.scope.localeCompare(rhs.scope) ||
         (lhs.workspace ?? "").localeCompare(rhs.workspace ?? "")
@@ -264,14 +292,17 @@ export function App() {
         (item.url ?? "").toLowerCase().includes(normalizedQuery)
       );
     });
-  }, [focusKind, query, state]);
+  }, [favorites.mcp, focusKind, query, state]);
 
   const filteredAgentEntries = useMemo(() => {
     const normalizedQuery =
       focusKind === "agents" ? query.trim().toLowerCase() : "";
+    const agentFavSet = favorites.agents;
+    const agentFavRank = (id: string) => (agentFavSet.has(id) ? 0 : 1);
     const entries = (agentsReport?.entries ?? []).slice().sort((lhs, rhs) => {
       return (
         severityRank(rhs.severity) - severityRank(lhs.severity) ||
+        agentFavRank(lhs.id) - agentFavRank(rhs.id) ||
         lhs.scope.localeCompare(rhs.scope) ||
         (lhs.workspace ?? "").localeCompare(rhs.workspace ?? "") ||
         lhs.root_path.localeCompare(rhs.root_path)
@@ -288,7 +319,7 @@ export function App() {
         entry.severity.toLowerCase().includes(normalizedQuery)
       );
     });
-  }, [agentsReport, focusKind, query]);
+  }, [agentsReport, favorites.agents, focusKind, query]);
 
   const selectedMcpServer =
     state?.mcp_servers?.find(
@@ -879,6 +910,7 @@ export function App() {
                   <SkillListPanel
                     skills={filteredSkills}
                     selectedSkillKey={selectedSkillKey}
+                    favorites={starredSkillSet}
                     emptyText={activeCatalogEmptyText}
                     onSelect={(skillKey) => {
                       setSelectedSkillKey(skillKey);
@@ -892,6 +924,7 @@ export function App() {
                   <SubagentListPanel
                     subagents={filteredSubagents}
                     selectedSubagentId={selectedSubagentId}
+                    favorites={favorites.subagents}
                     emptyText={activeCatalogEmptyText}
                     onSelect={(subagentId) => {
                       setSelectedSubagentId(subagentId);
@@ -933,8 +966,16 @@ export function App() {
                               }}
                             >
                               <div className="flex items-start justify-between gap-2">
-                                <span className="truncate text-sm font-medium">
-                                  {server.server_key}
+                                <span className="flex min-w-0 items-center gap-1">
+                                  {favorites.mcp.has(key) ? (
+                                    <StarIcon
+                                      filled
+                                      className="h-3 w-3 shrink-0 text-amber-400"
+                                    />
+                                  ) : null}
+                                  <span className="truncate text-sm font-medium">
+                                    {server.server_key}
+                                  </span>
                                 </span>
                                 <span className="inline-flex items-center gap-1.5">
                                   <ScopeMarker scope={server.scope} />
@@ -1016,6 +1057,12 @@ export function App() {
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span className="flex min-w-0 items-center gap-1.5">
+                                  {favorites.agents.has(entry.id) ? (
+                                    <StarIcon
+                                      filled
+                                      className="h-3 w-3 shrink-0 text-amber-400"
+                                    />
+                                  ) : null}
                                   <span
                                     aria-hidden="true"
                                     className={severityDotClass(entry.severity)}
@@ -1057,6 +1104,10 @@ export function App() {
               <SkillDetailsPanel
                 details={details}
                 busy={busy}
+                isFavorite={starredSkillSet.has(details.skill.id)}
+                onToggleFavorite={() =>
+                  void handleToggleSkillStar(details.skill.id)
+                }
                 renameDraft={renameDraft}
                 openTargetMenu={openTargetMenu === "skill"}
                 actionsMenuOpen={actionsMenuTarget === "skill"}
@@ -1139,6 +1190,8 @@ export function App() {
                 server={selectedMcpServer}
                 warnings={selectedMcpWarnings}
                 busy={busy}
+                isFavorite={favorites.mcp.has(selectedMcpKey!)}
+                onToggleFavorite={() => toggleFavorite("mcp", selectedMcpKey!)}
                 actionsMenuOpen={actionsMenuTarget === "mcp"}
                 onToggleActionsMenu={() => {
                   setActionsMenuTarget((prev) =>
@@ -1191,6 +1244,10 @@ export function App() {
               <AgentsDetailsPanel
                 entry={selectedAgentEntry}
                 topSegments={selectedAgentTopSegments}
+                isFavorite={favorites.agents.has(selectedAgentEntry.id)}
+                onToggleFavorite={() =>
+                  toggleFavorite("agents", selectedAgentEntry.id)
+                }
               />
             ) : null}
 
@@ -1198,6 +1255,12 @@ export function App() {
               <SubagentDetailsPanel
                 subagentDetails={subagentDetails}
                 busy={busy}
+                isFavorite={favorites.subagents.has(
+                  subagentDetails.subagent.id,
+                )}
+                onToggleFavorite={() =>
+                  toggleFavorite("subagents", subagentDetails.subagent.id)
+                }
                 openTargetMenu={openTargetMenu === "subagent"}
                 actionsMenuOpen={actionsMenuTarget === "subagent"}
                 onToggleOpenTargetMenu={() => {
