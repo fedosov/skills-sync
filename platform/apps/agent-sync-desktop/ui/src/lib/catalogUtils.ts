@@ -103,13 +103,7 @@ export function isFixableSyncWarning(warning: string): boolean {
   return syncWarningFixSummary(warning) !== null;
 }
 
-export function formatIsoTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString();
-}
+export { formatIsoTime } from "./formatting";
 
 export type AuditStatusFilter = AuditEventStatus | "all";
 

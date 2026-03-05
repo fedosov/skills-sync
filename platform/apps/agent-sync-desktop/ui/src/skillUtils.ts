@@ -1,3 +1,4 @@
+import { pickPreferred } from "./lib/utils";
 import type { SkillRecord } from "./types";
 
 export function normalizeSkillKey(title: string): string {
@@ -23,28 +24,14 @@ export function normalizeSkillKey(title: string): string {
   return normalized.replace(/^-+|-+$/g, "");
 }
 
-export function formatUnixTime(value: number | null): string {
-  if (value == null || Number.isNaN(value)) return "-";
-  const date = new Date(value * 1000);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString();
-}
+export { formatUnixTime } from "./lib/formatting";
 
 export function pickSelectedSkillKey(
   skills: SkillRecord[],
   preferredKey?: string | null,
   previousKey?: string | null,
 ): string | null {
-  if (
-    preferredKey &&
-    skills.some((skill) => skill.skill_key === preferredKey)
-  ) {
-    return preferredKey;
-  }
-  if (previousKey && skills.some((skill) => skill.skill_key === previousKey)) {
-    return previousKey;
-  }
-  return skills[0]?.skill_key ?? null;
+  return pickPreferred(skills, preferredKey, previousKey, (s) => s.skill_key);
 }
 
 export function sortAndFilterSkills(

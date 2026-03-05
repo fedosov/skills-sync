@@ -14,6 +14,7 @@ import {
   loadDashboardSnapshot,
   runSync,
 } from "../tauriApi";
+import { pickPreferred } from "../lib/utils";
 import { pickSelectedSkillKey } from "../skillUtils";
 import type {
   AgentsContextReport,
@@ -67,19 +68,12 @@ function pickSubagentId(
   preferredSubagentId: string | null | undefined,
   previousSubagentId: string | null,
 ): string | null {
-  if (
-    preferredSubagentId &&
-    subagents.some((item) => item.id === preferredSubagentId)
-  ) {
-    return preferredSubagentId;
-  }
-  if (
-    previousSubagentId &&
-    subagents.some((item) => item.id === previousSubagentId)
-  ) {
-    return previousSubagentId;
-  }
-  return subagents[0]?.id ?? null;
+  return pickPreferred(
+    subagents,
+    preferredSubagentId,
+    previousSubagentId,
+    (s) => s.id,
+  );
 }
 
 function pickAgentEntryId(
@@ -87,13 +81,7 @@ function pickAgentEntryId(
   preferredId: string | null | undefined,
   previousId: string | null,
 ): string | null {
-  if (preferredId && entries.some((item) => item.id === preferredId)) {
-    return preferredId;
-  }
-  if (previousId && entries.some((item) => item.id === previousId)) {
-    return previousId;
-  }
-  return entries[0]?.id ?? null;
+  return pickPreferred(entries, preferredId, previousId, (e) => e.id);
 }
 
 export function useSyncState(): UseSyncStateResult {

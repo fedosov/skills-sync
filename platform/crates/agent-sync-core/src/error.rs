@@ -193,3 +193,19 @@ impl SyncEngineError {
         }
     }
 }
+
+/// Serialize to pretty-printed JSON with a trailing newline.
+pub fn render_json_pretty(value: &impl serde::Serialize) -> Result<Vec<u8>, serde_json::Error> {
+    let mut data = serde_json::to_vec_pretty(value)?;
+    data.push(b'\n');
+    Ok(data)
+}
+
+/// Serialize to pretty-printed JSON with a trailing newline and write to `path`.
+pub fn write_json_pretty(
+    path: &std::path::Path,
+    value: &impl serde::Serialize,
+) -> Result<(), SyncEngineError> {
+    let data = render_json_pretty(value).map_err(SyncEngineError::Json)?;
+    std::fs::write(path, data).map_err(|e| SyncEngineError::io(path, e))
+}

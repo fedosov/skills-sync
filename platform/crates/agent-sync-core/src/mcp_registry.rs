@@ -1,4 +1,4 @@
-use crate::error::SyncEngineError;
+use crate::error::{render_json_pretty, write_json_pretty, SyncEngineError};
 use crate::managed_block::{strip_managed_blocks, upsert_managed_block};
 use crate::models::{
     CatalogMutationAction, McpEnabledByAgent, McpServerRecord, McpTransport, SkillLifecycleStatus,
@@ -2146,8 +2146,7 @@ impl McpRegistry {
             fs::create_dir_all(parent).map_err(|error| SyncEngineError::io(parent, error))?;
         }
 
-        let mut rendered = serde_json::to_vec_pretty(&root)?;
-        rendered.push(b'\n');
+        let rendered = render_json_pretty(&root).map_err(SyncEngineError::Json)?;
         let next_raw = String::from_utf8_lossy(&rendered).to_string();
         if next_raw != existing_raw {
             fs::write(path, rendered).map_err(|error| SyncEngineError::io(path, error))?;
@@ -2169,9 +2168,7 @@ impl McpRegistry {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|error| SyncEngineError::io(parent, error))?;
         }
-        let mut data = serde_json::to_vec_pretty(manifest)?;
-        data.push(b'\n');
-        fs::write(&path, data).map_err(|error| SyncEngineError::io(path, error))
+        write_json_pretty(&path, manifest)
     }
 
     fn remove_claude_json_server_keys(
@@ -2276,9 +2273,7 @@ impl McpRegistry {
             fs::create_dir_all(parent).map_err(|error| SyncEngineError::io(parent, error))?;
         }
 
-        let mut rendered = serde_json::to_vec_pretty(&root)?;
-        rendered.push(b'\n');
-        fs::write(path, rendered).map_err(|error| SyncEngineError::io(path, error))?;
+        write_json_pretty(path, &root)?;
 
         Ok(removed_from_target)
     }

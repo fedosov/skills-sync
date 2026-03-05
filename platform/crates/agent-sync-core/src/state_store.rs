@@ -1,4 +1,4 @@
-use crate::error::SyncEngineError;
+use crate::error::{write_json_pretty, SyncEngineError};
 use crate::models::SyncState;
 use crate::paths::SyncPaths;
 
@@ -25,17 +25,20 @@ impl SyncStateStore {
             return SyncState::default();
         };
 
-        serde_json::from_slice(&data).unwrap_or_else(|_| SyncState::default())
+        serde_json::from_slice(&data).unwrap_or_else(|error| {
+            eprintln!(
+                "warning: corrupt state file {:?}: {error}",
+                self.paths.state_path
+            );
+            SyncState::default()
+        })
     }
 
     pub fn save_state(&self, state: &SyncState) -> Result<(), SyncEngineError> {
         self.paths
             .ensure_runtime_dir()
             .map_err(|e| SyncEngineError::io(&self.paths.runtime_directory, e))?;
-        let mut payload = serde_json::to_vec_pretty(state)?;
-        payload.push(b'\n');
-        std::fs::write(&self.paths.state_path, payload)
-            .map_err(|e| SyncEngineError::io(&self.paths.state_path, e))
+        write_json_pretty(&self.paths.state_path, state)
     }
 
     pub fn paths(&self) -> &SyncPaths {

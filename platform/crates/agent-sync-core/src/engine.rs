@@ -4,7 +4,7 @@ use crate::codex_registry::CodexSkillsRegistryWriter;
 use crate::codex_subagent_registry::{CodexSubagentConfigEntry, CodexSubagentRegistryWriter};
 use crate::dotagents_adapter::DotagentsAdapter;
 use crate::dotagents_runtime::DotagentsRuntimeManager;
-use crate::error::SyncEngineError;
+use crate::error::{render_json_pretty, write_json_pretty, SyncEngineError};
 use crate::mcp_registry::{McpAgent, McpRegistry, McpSyncOutcome, UnmanagedClaudeMcpFixReport};
 use crate::models::{
     AuditEvent, AuditEventStatus, CatalogMutationAction, CatalogMutationTarget, McpServerRecord,
@@ -2520,9 +2520,7 @@ impl SyncEngine {
             },
         };
 
-        let mut data = serde_json::to_vec_pretty(&payload)?;
-        data.push(b'\n');
-        fs::write(&path, data).map_err(|e| SyncEngineError::io(&path, e))
+        write_json_pretty(&path, &payload)
     }
 
     fn save_subagent_managed_links_manifest(
@@ -2552,9 +2550,7 @@ impl SyncEngine {
                 links
             },
         };
-        let mut data = serde_json::to_vec_pretty(&payload)?;
-        data.push(b'\n');
-        fs::write(&path, data).map_err(|e| SyncEngineError::io(&path, e))
+        write_json_pretty(&path, &payload)
     }
 
     fn move_to_trash(&self, path: &Path) -> Result<PathBuf, SyncEngineError> {
@@ -2603,8 +2599,7 @@ impl SyncEngine {
         make_write_error: fn() -> SyncEngineError,
     ) -> Result<(), SyncEngineError> {
         let path = bundle.join("manifest.json");
-        let mut data = serde_json::to_vec_pretty(manifest)?;
-        data.push(b'\n');
+        let data = render_json_pretty(manifest).map_err(SyncEngineError::Json)?;
         fs::write(&path, data).map_err(|_| make_write_error())
     }
 

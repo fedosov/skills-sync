@@ -1,4 +1,4 @@
-use crate::error::SyncEngineError;
+use crate::error::{write_json_pretty, SyncEngineError};
 use crate::paths::SyncPaths;
 use serde::{Deserialize, Serialize};
 
@@ -89,7 +89,13 @@ impl SyncPreferencesStore {
             return SyncAppSettings::default();
         };
 
-        serde_json::from_slice(&data).unwrap_or_else(|_| SyncAppSettings::default())
+        serde_json::from_slice(&data).unwrap_or_else(|error| {
+            eprintln!(
+                "warning: corrupt settings file {:?}: {error}",
+                self.paths.app_settings_path
+            );
+            SyncAppSettings::default()
+        })
     }
 
     pub fn save_settings(&self, settings: &SyncAppSettings) -> Result<(), SyncEngineError> {
@@ -102,10 +108,7 @@ impl SyncPreferencesStore {
             ..settings.clone()
         };
 
-        let mut payload = serde_json::to_vec_pretty(&normalized)?;
-        payload.push(b'\n');
-        std::fs::write(&self.paths.app_settings_path, payload)
-            .map_err(|e| SyncEngineError::io(&self.paths.app_settings_path, e))
+        write_json_pretty(&self.paths.app_settings_path, &normalized)
     }
 
     pub fn paths(&self) -> &SyncPaths {

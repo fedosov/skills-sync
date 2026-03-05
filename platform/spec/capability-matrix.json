@@ -5,12 +5,14 @@
       "sync",
       "list",
       "list-subagents",
+      "watch"
+    ],
+    "desktop_only": [
       "delete",
       "archive",
       "restore",
       "make_global",
-      "rename",
-      "watch"
+      "rename"
     ]
   },
   "tier2_companion": {

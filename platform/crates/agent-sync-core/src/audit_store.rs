@@ -1,4 +1,4 @@
-use crate::error::SyncEngineError;
+use crate::error::{write_json_pretty, SyncEngineError};
 use crate::models::{AuditEvent, AuditEventStatus};
 use crate::paths::SyncPaths;
 use serde::{Deserialize, Serialize};
@@ -37,7 +37,13 @@ impl SyncAuditStore {
 
         serde_json::from_slice::<AuditLogPayload>(&data)
             .map(|payload| payload.events)
-            .unwrap_or_default()
+            .unwrap_or_else(|error| {
+                eprintln!(
+                    "warning: corrupt audit log {:?}: {error}",
+                    self.paths.audit_log_path
+                );
+                Vec::new()
+            })
     }
 
     pub fn append_event(
@@ -98,10 +104,7 @@ impl SyncAuditStore {
             version: 1,
             events: events.to_vec(),
         };
-        let mut data = serde_json::to_vec_pretty(&payload)?;
-        data.push(b'\n');
-        std::fs::write(&self.paths.audit_log_path, data)
-            .map_err(|error| SyncEngineError::io(&self.paths.audit_log_path, error))
+        write_json_pretty(&self.paths.audit_log_path, &payload)
     }
 }
 

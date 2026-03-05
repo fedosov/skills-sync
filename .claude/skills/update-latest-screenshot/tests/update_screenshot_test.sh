@@ -74,11 +74,11 @@ mkdir -p "$HOME_FIXTURE/Screenshots" "$REPO_FIXTURE/docs/images"
 
 cat >"$REPO_FIXTURE/README.md" <<'EOF'
 # SkillsSync
-![SkillsSync screenshot](docs/images/skillssync-latest-screenshot.png?v=20260221-123317)
+![SkillsSync screenshot](docs/images/agent-sync-latest-screenshot.png?v=20260221-123317)
 EOF
 
 # Keep a legacy file so cleanup behavior is asserted.
-decode_b64 "$REPO_FIXTURE/docs/images/skillssync-latest-screenshot.png" \
+decode_b64 "$REPO_FIXTURE/docs/images/agent-sync-latest-screenshot.png" \
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg=="
 
 decode_b64 "$HOME_FIXTURE/Screenshots/old.png" \
@@ -93,10 +93,10 @@ HASH1="$(get_kv "$OUT1" "image_hash")"
 UPDATED1="$(get_kv "$OUT1" "readme_updated")"
 assert_eq "true" "$UPDATED1" "legacy README should be updated"
 assert_file_exists "$TARGET1"
-assert_contains "docs/images/skillssync-screenshot-$HASH1.png" "$REPO_FIXTURE/README.md"
+assert_contains "docs/images/agent-sync-screenshot-$HASH1.png" "$REPO_FIXTURE/README.md"
 assert_not_contains "?v=" "$REPO_FIXTURE/README.md"
-assert_file_not_exists "$REPO_FIXTURE/docs/images/skillssync-latest-screenshot.png"
-assert_eq "1" "$(find "$REPO_FIXTURE/docs/images" -maxdepth 1 -type f -name 'skillssync-screenshot-*.png' | wc -l | tr -d ' ')" "one managed hash file after first run"
+assert_file_not_exists "$REPO_FIXTURE/docs/images/agent-sync-latest-screenshot.png"
+assert_eq "1" "$(find "$REPO_FIXTURE/docs/images" -maxdepth 1 -type f -name 'agent-sync-screenshot-*.png' | wc -l | tr -d ' ')" "one managed hash file after first run"
 
 OUT2="$TMP_ROOT/out2.txt"
 HOME="$HOME_FIXTURE" "$SCRIPT" "$REPO_FIXTURE" >"$OUT2"
@@ -104,7 +104,7 @@ TARGET2="$(get_kv "$OUT2" "target")"
 HASH2="$(get_kv "$OUT2" "image_hash")"
 assert_eq "$TARGET1" "$TARGET2" "same input should keep same hashed target"
 assert_eq "$HASH1" "$HASH2" "same input should keep same hash"
-assert_eq "1" "$(find "$REPO_FIXTURE/docs/images" -maxdepth 1 -type f -name 'skillssync-screenshot-*.png' | wc -l | tr -d ' ')" "still one managed hash file after second run"
+assert_eq "1" "$(find "$REPO_FIXTURE/docs/images" -maxdepth 1 -type f -name 'agent-sync-screenshot-*.png' | wc -l | tr -d ' ')" "still one managed hash file after second run"
 
 sips -z 2 1 "$HOME_FIXTURE/Screenshots/old.png" --out "$HOME_FIXTURE/Screenshots/new.png" >/dev/null
 touch -t 202602210101 "$HOME_FIXTURE/Screenshots/new.png"
@@ -118,14 +118,14 @@ if [[ "$TARGET3" == "$TARGET1" ]]; then
   exit 1
 fi
 assert_file_not_exists "$TARGET1"
-assert_eq "1" "$(find "$REPO_FIXTURE/docs/images" -maxdepth 1 -type f -name 'skillssync-screenshot-*.png' | wc -l | tr -d ' ')" "old managed hash file should be cleaned up"
+assert_eq "1" "$(find "$REPO_FIXTURE/docs/images" -maxdepth 1 -type f -name 'agent-sync-screenshot-*.png' | wc -l | tr -d ' ')" "old managed hash file should be cleaned up"
 
 HOME_NO_PNG="$TMP_ROOT/home-no-png"
 REPO_NO_PNG="$TMP_ROOT/repo-no-png"
 mkdir -p "$HOME_NO_PNG/Screenshots" "$REPO_NO_PNG/docs/images"
 cat >"$REPO_NO_PNG/README.md" <<'EOF'
 # SkillsSync
-![SkillsSync screenshot](docs/images/skillssync-latest-screenshot.png?v=20260221-123317)
+![SkillsSync screenshot](docs/images/agent-sync-latest-screenshot.png?v=20260221-123317)
 EOF
 
 if HOME="$HOME_NO_PNG" "$SCRIPT" "$REPO_NO_PNG" >"$TMP_ROOT/out-no-png.txt" 2>"$TMP_ROOT/err-no-png.txt"; then

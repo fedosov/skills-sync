@@ -199,9 +199,9 @@ Validation is part of each sync cycle:
 7. Update managed blocks in `~/.codex/config.toml`.
 8. Reconcile managed MCP catalog across shared and runtime-specific targets.
 
-## UI Cleanup Workflow
+## UI Cleanup Workflow (Desktop Only)
 
-Desktop actions (confirmation required for destructive operations):
+These mutations are available only through the desktop app UI, not the strict CLI:
 
 - `Archive`: move active skill into runtime archives.
 - `Restore`: bring archived skill back as active global skill.

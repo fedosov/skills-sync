@@ -9,9 +9,9 @@ fi
 REPO_ROOT="$(cd "$1" && pwd -P)"
 SCREENSHOT_DIR="$HOME/Screenshots"
 IMAGES_DIR="$REPO_ROOT/docs/images"
-LEGACY_TARGET="$IMAGES_DIR/skillssync-latest-screenshot.png"
+LEGACY_TARGET="$IMAGES_DIR/agent-sync-latest-screenshot.png"
 README_FILE="$REPO_ROOT/README.md"
-TMP_TARGET="$IMAGES_DIR/.skillssync-screenshot-tmp-$$.png"
+TMP_TARGET="$IMAGES_DIR/.agent-sync-screenshot-tmp-$$.png"
 
 cleanup_tmp() {
   if [[ -f "$TMP_TARGET" ]]; then
@@ -60,7 +60,7 @@ mkdir -p "$IMAGES_DIR"
 
 previous_target_size=0
 shopt -s nullglob
-for existing in "$IMAGES_DIR"/skillssync-screenshot-*.png "$LEGACY_TARGET"; do
+for existing in "$IMAGES_DIR"/agent-sync-screenshot-*.png "$LEGACY_TARGET"; do
   if [[ -f "$existing" ]]; then
     previous_target_size=$(stat -f%z "$existing")
     break
@@ -82,16 +82,16 @@ fi
 full_hash="$(file_hash "$TMP_TARGET")"
 
 image_hash="${full_hash:0:12}"
-TARGET="$IMAGES_DIR/skillssync-screenshot-${image_hash}.png"
+TARGET="$IMAGES_DIR/agent-sync-screenshot-${image_hash}.png"
 mv -f "$TMP_TARGET" "$TARGET"
 after_size=$(stat -f%z "$TARGET")
 readme_updated=false
 
 if [[ -f "$README_FILE" ]]; then
-  if rg -q 'docs/images/(skillssync-latest-screenshot\.png(\?v=[0-9]{8}-[0-9]{6})?|skillssync-screenshot-[0-9a-f]{12}\.png)' "$README_FILE"; then
+  if rg -q 'docs/images/(agent-sync-latest-screenshot\.png(\?v=[0-9]{8}-[0-9]{6})?|agent-sync-screenshot-[0-9a-f]{12}\.png)' "$README_FILE"; then
     before_readme_hash="$(file_hash "$README_FILE")"
     sed -E -i '' \
-      "s#docs/images/(skillssync-latest-screenshot\.png(\\?v=[0-9]{8}-[0-9]{6})?|skillssync-screenshot-[0-9a-f]{12}\\.png)#docs/images/skillssync-screenshot-${image_hash}.png#g" \
+      "s#docs/images/(agent-sync-latest-screenshot\.png(\\?v=[0-9]{8}-[0-9]{6})?|agent-sync-screenshot-[0-9a-f]{12}\\.png)#docs/images/agent-sync-screenshot-${image_hash}.png#g" \
       "$README_FILE"
     after_readme_hash="$(file_hash "$README_FILE")"
     if [[ "$before_readme_hash" != "$after_readme_hash" ]]; then
@@ -102,7 +102,7 @@ fi
 
 deleted_old_files=0
 shopt -s nullglob
-for candidate in "$IMAGES_DIR"/skillssync-screenshot-*.png; do
+for candidate in "$IMAGES_DIR"/agent-sync-screenshot-*.png; do
   if [[ "$candidate" != "$TARGET" ]]; then
     rm -f "$candidate"
     deleted_old_files=$((deleted_old_files + 1))

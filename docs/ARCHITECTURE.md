@@ -15,7 +15,7 @@ across multiple AI coding agents (Claude, Codex) with scope-based resolution (gl
 | **MCP Registry** | MCP server catalog across agents | `mcp_registry.rs` |
 | **dotagents Adapter** | Migration and runtime bridge to dotagents | `dotagents_adapter.rs`, `dotagents_runtime.rs` |
 | **State & Audit** | Persistent sync state and audit log | `state_store.rs`, `audit_store.rs` |
-| **Catalog Mutations** | Archive, restore, delete, rename, make-global | `engine.rs` (mutation methods) |
+| **Catalog Mutations** | Archive, restore, delete, rename, make-global (desktop UI only, not in strict CLI) | `engine.rs` (mutation methods) |
 | **Watch** | Filesystem-triggered continuous sync | `watch.rs` |
 
 ## Layer Ordering
