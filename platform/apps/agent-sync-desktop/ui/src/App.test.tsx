@@ -1782,7 +1782,7 @@ describe("App quiet redesign", () => {
       reportCallsBeforeSync,
     );
 
-    resolveRunSync?.(state);
+    resolveRunSync!(state);
     await waitFor(() => {
       expect(vi.mocked(tauriApi.listSubagents).mock.calls.length).toBe(
         subagentCallsBeforeSync + 1,

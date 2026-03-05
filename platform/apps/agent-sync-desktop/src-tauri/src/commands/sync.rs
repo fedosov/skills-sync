@@ -1,6 +1,6 @@
 use agent_sync_core::{
-    AgentsContextReport, McpAgent, McpServerRecord, SkillRecord, SubagentRecord, SyncEngine,
-    SyncState, SyncTrigger,
+    AgentsContextReport, McpAgent, McpServerRecord, SubagentRecord, SyncEngine, SyncState,
+    SyncTrigger,
 };
 
 use crate::{ensure_write_allowed, parse_scope_filter, run_sync_with_lock, RuntimeState};
@@ -48,13 +48,6 @@ pub fn set_skill_starred(skill_id: String, starred: bool) -> Result<Vec<String>,
     engine
         .set_skill_starred(&skill_id, starred)
         .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub fn list_skills(scope: Option<String>) -> Result<Vec<SkillRecord>, String> {
-    let engine = SyncEngine::current();
-    let scope_filter = parse_scope_filter(scope.as_deref())?;
-    Ok(engine.list_skills(scope_filter))
 }
 
 #[tauri::command]

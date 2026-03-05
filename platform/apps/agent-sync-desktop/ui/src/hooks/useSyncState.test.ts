@@ -84,7 +84,7 @@ describe("useSyncState", () => {
       expect(tauriApi.loadDashboardSnapshot).toHaveBeenCalledTimes(2);
     });
 
-    resolveFirst?.(snapshot("stale"));
+    resolveFirst!(snapshot("stale"));
     await secondRefresh;
 
     await waitFor(() => {

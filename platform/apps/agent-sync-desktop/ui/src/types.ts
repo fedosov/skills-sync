@@ -56,11 +56,6 @@ export type RuntimeControls = {
 export type RefreshIntervalMinutes = 0 | 5 | 15 | 30;
 export type FocusKind = "skills" | "subagents" | "mcp" | "agents";
 
-export type UiSettings = {
-  refreshIntervalMinutes: RefreshIntervalMinutes;
-  lastActiveTab: FocusKind;
-};
-
 export type AuditEventStatus = "success" | "failed" | "blocked";
 
 export type AuditEvent = {

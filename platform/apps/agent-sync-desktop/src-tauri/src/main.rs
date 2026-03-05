@@ -809,7 +809,6 @@ fn main() {
             get_agents_context_report,
             get_starred_skill_ids,
             set_skill_starred,
-            list_skills,
             list_subagents,
             run_dotagents_sync,
             list_dotagents_skills,

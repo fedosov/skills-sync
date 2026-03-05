@@ -1,4 +1,4 @@
-use agent_sync_core::{DotagentsScope, SyncEngine};
+use agent_sync_core::{DotagentsScope, McpTransport, SyncEngine};
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
@@ -114,7 +114,7 @@ fn main() -> Result<()> {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&serde_json::json!({
-                        "scope": format!("{scope:?}").to_lowercase(),
+                        "scope": scope_label(scope),
                         "skills": skills,
                         "mcp_servers": mcp,
                     }))?
@@ -122,7 +122,7 @@ fn main() -> Result<()> {
             } else {
                 println!(
                     "strict-sync ok scope={} skills={} mcp={}",
-                    format!("{scope:?}").to_lowercase(),
+                    scope_label(scope),
                     skills.len(),
                     mcp.len()
                 );
@@ -136,7 +136,7 @@ fn main() -> Result<()> {
             let interval = Duration::from_secs(interval_seconds.max(1));
             println!(
                 "watching strict dotagents sync, scope={}, interval={}s",
-                format!("{scope:?}").to_lowercase(),
+                scope_label(scope),
                 interval.as_secs()
             );
             loop {
@@ -144,7 +144,7 @@ fn main() -> Result<()> {
                     Ok((skills, mcp)) => {
                         println!(
                             "strict-sync ok scope={} skills={} mcp={}",
-                            format!("{scope:?}").to_lowercase(),
+                            scope_label(scope),
                             skills,
                             mcp
                         );
@@ -215,7 +215,7 @@ fn main() -> Result<()> {
                             server.server_key,
                             server.scope,
                             server.workspace.unwrap_or_else(|| String::from("-")),
-                            format!("{:?}", server.transport).to_lowercase()
+                            transport_label(server.transport)
                         );
                     }
                 }
@@ -325,6 +325,13 @@ fn scope_label(scope: DotagentsScope) -> &'static str {
         DotagentsScope::All => "all",
         DotagentsScope::User => "user",
         DotagentsScope::Project => "project",
+    }
+}
+
+fn transport_label(transport: McpTransport) -> &'static str {
+    match transport {
+        McpTransport::Stdio => "stdio",
+        McpTransport::Http => "http",
     }
 }
 
