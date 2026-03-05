@@ -15,7 +15,7 @@ import {
   loadDashboardSnapshot,
   runSync,
 } from "../tauriApi";
-import { pickPreferred } from "../lib/utils";
+import { errorMessage, pickPreferred } from "../lib/utils";
 import { pickSelectedSkillKey } from "../skillUtils";
 import type {
   AgentsContextReport,
@@ -158,7 +158,7 @@ export function useSyncState(): UseSyncStateResult {
       setRuntimeControls(next);
       return next;
     } catch (invokeError) {
-      setError(String(invokeError));
+      setError(errorMessage(invokeError));
       return null;
     }
   }, []);
@@ -215,7 +215,7 @@ export function useSyncState(): UseSyncStateResult {
         if (requestId !== refreshTokenRef.current) {
           return null;
         }
-        setError(String(invokeError));
+        setError(errorMessage(invokeError));
 
         try {
           const [fallbackState, fallbackSubagents, fallbackReport] =
@@ -247,7 +247,7 @@ export function useSyncState(): UseSyncStateResult {
             return null;
           }
           setError(
-            `${String(invokeError)}\nFallback failed: ${String(fallbackError)}`,
+            `${errorMessage(invokeError)}\nFallback failed: ${errorMessage(fallbackError)}`,
           );
           return null;
         }

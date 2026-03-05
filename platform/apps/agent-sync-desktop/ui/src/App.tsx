@@ -36,7 +36,7 @@ import {
 } from "./lib/catalogUtils";
 import { getVisibleMcpAgents } from "./lib/mcpAgents";
 import { compactPath } from "./lib/formatting";
-import { cn } from "./lib/utils";
+import { cn, errorMessage } from "./lib/utils";
 import {
   listDotagentsMcp,
   listDotagentsSkills,
@@ -130,7 +130,7 @@ export function App() {
       const next = await setSkillStarred(skillId, !isCurrentlyStarred);
       setStarredSkillIds(next);
     } catch (invokeError) {
-      setError(String(invokeError));
+      setError(errorMessage(invokeError));
     }
   }
 
@@ -174,7 +174,7 @@ export function App() {
         setRuntimeControls(next);
         await refreshState({ preferredSkillKey: selectedSkillKey });
       } catch (invokeError) {
-        setError(String(invokeError));
+        setError(errorMessage(invokeError));
         await loadRuntimeControls();
       } finally {
         setBusy(false);
@@ -362,7 +362,7 @@ export function App() {
     try {
       await fn();
     } catch (invokeError) {
-      setError(String(invokeError));
+      setError(errorMessage(invokeError));
     } finally {
       setBusy(false);
     }
@@ -487,7 +487,7 @@ export function App() {
         syncFirst: true,
       });
     } catch (invokeError) {
-      setError(String(invokeError));
+      setError(errorMessage(invokeError));
     } finally {
       setFixingSyncWarning(null);
     }
@@ -518,7 +518,7 @@ export function App() {
         withBusy: false,
       });
     } catch (invokeError) {
-      const message = String(invokeError);
+      const message = errorMessage(invokeError);
       const migrationRequired = message
         .toLowerCase()
         .includes(DOTAGENTS_MIGRATION_REQUIRED);
@@ -562,7 +562,7 @@ export function App() {
       setDotagentsNeedsMigration(false);
       await verifyDotagents(false);
     } catch (invokeError) {
-      const message = String(invokeError);
+      const message = errorMessage(invokeError);
       setDotagentsProofStatus("error");
       setDotagentsProofSummary(`Dotagents initialization failed: ${message}`);
       setError(message);

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { errorMessage } from "../lib/utils";
 
 export function useEntityDetails<T>(
   selectedKey: string | null,
@@ -28,7 +29,7 @@ export function useEntityDetails<T>(
         if (requestId !== requestRef.current) {
           return;
         }
-        onError(String(error));
+        onError(errorMessage(error));
       }
     })();
   }, [onError, selectedKey, fetcher]);

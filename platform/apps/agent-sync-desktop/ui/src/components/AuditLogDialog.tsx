@@ -9,6 +9,7 @@ import {
 } from "../lib/catalogUtils";
 import { clearAuditEvents, listAuditEvents } from "../tauriApi";
 import type { AuditEvent } from "../types";
+import { errorMessage } from "../lib/utils";
 
 type AuditLogDialogProps = {
   onClose: () => void;
@@ -34,7 +35,7 @@ export function AuditLogDialog({ onClose, onError }: AuditLogDialogProps) {
       });
       setAuditEvents(next);
     } catch (invokeError) {
-      onError(String(invokeError));
+      onError(errorMessage(invokeError));
     } finally {
       setAuditBusy(false);
     }
@@ -51,7 +52,7 @@ export function AuditLogDialog({ onClose, onError }: AuditLogDialogProps) {
       await loadAudit();
       setClearDialogOpen(false);
     } catch (invokeError) {
-      onError(String(invokeError));
+      onError(errorMessage(invokeError));
     } finally {
       setClearBusy(false);
     }
