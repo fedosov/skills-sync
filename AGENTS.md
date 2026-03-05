@@ -18,6 +18,14 @@ Agent Sync is a strict dotagents sync platform with a Tauri desktop app and Rust
 - `platform/spec/` — API contracts and schema (`cli-contract.json`, `state.schema.json`, `capability-matrix.json`).
 - `scripts/` — development helpers (`run-tauri-gui.sh`, hook installer).
 
+## Deep Documentation
+
+- Architecture, layers, dependency rules: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Design decisions catalog: [`docs/design-docs/index.md`](docs/design-docs/index.md)
+- Setup and operations: [`docs/SETUP.md`](docs/SETUP.md)
+- macOS signing: [`docs/macos-signing.md`](docs/macos-signing.md)
+- dotagents migration: [`docs/dotagents-migration.md`](docs/dotagents-migration.md)
+
 ## Source of Truth
 
 - Prefer executable sources over prose docs when they conflict:
