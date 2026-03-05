@@ -2015,10 +2015,59 @@ impl McpRegistry {
             }
         }
 
+        // Defensive deduplication: remove from managed block any key that still
+        // exists in unmanaged text (catches edge cases the primary check may miss).
+        let filtered = {
+            let mut safe = filtered;
+            let keys_to_check: Vec<_> = safe
+                .keys()
+                .filter(|k| safe.get(*k).is_some_and(|e| e.enabled))
+                .cloned()
+                .collect();
+            for key in keys_to_check {
+                let still_in_unmanaged = unmanaged_table
+                    .as_ref()
+                    .map(|table| unmanaged_codex_contains_server(table, &key))
+                    .unwrap_or_else(|| text_contains_codex_server(&unmanaged_text, &key));
+                if still_in_unmanaged {
+                    safe.remove(&key);
+                    warnings.push(format!(
+                        "Defensive dedup: removed managed Codex MCP '{}' that duplicates unmanaged entry in {}",
+                        key,
+                        path.display()
+                    ));
+                }
+            }
+            safe
+        };
+
         let block = render_codex_block(&filtered);
-        let updated = upsert_managed_block(&unmanaged_text, CODEX_BEGIN, CODEX_END, &block);
+        let mut updated = upsert_managed_block(&unmanaged_text, CODEX_BEGIN, CODEX_END, &block);
+
+        // Post-write TOML validation: if the combined output has duplicate keys,
+        // strip duplicates from the managed block to produce valid TOML.
+        if toml::from_str::<toml::Table>(&updated).is_err() {
+            let managed_only_keys: Vec<_> = filtered.keys().cloned().collect();
+            let mut safe_filtered = filtered.clone();
+            for key in &managed_only_keys {
+                if text_contains_codex_server(&unmanaged_text, key) {
+                    safe_filtered.remove(key);
+                    warnings.push(format!(
+                        "TOML validation fix: removed duplicate managed MCP '{}' in {}",
+                        key,
+                        path.display()
+                    ));
+                }
+            }
+            if safe_filtered.len() != filtered.len() {
+                let safe_block = render_codex_block(&safe_filtered);
+                updated =
+                    upsert_managed_block(&unmanaged_text, CODEX_BEGIN, CODEX_END, &safe_block);
+            }
+        }
+
         if updated != existing {
-            fs::write(path, updated).map_err(|error| SyncEngineError::io(path, error))?;
+            fs::write(path, &updated).map_err(|error| SyncEngineError::io(path, error))?;
         }
 
         Ok(filtered.keys().cloned().collect())
@@ -4470,5 +4519,178 @@ command = \"other\"\n";
         assert!(!is_secret_like_key("NODE_ENV"));
         assert!(!is_secret_like_key("DEBUG"));
         assert!(!is_secret_like_key("PORT"));
+    }
+
+    #[test]
+    fn apply_codex_catalog_path_no_duplicate_when_unmanaged_and_managed_both_exist() {
+        let (_temp, registry, home, _runtime) = registry_in_temp();
+        let codex_path = home.join(".codex").join("config.toml");
+        std::fs::create_dir_all(codex_path.parent().expect("parent")).expect("mkdir parent");
+
+        // File already has manual exa/sentry AND a managed block with exa/sentry
+        std::fs::write(
+            &codex_path,
+            "\
+[mcp_servers.exa]\n\
+command = \"npx\"\n\
+args = [\"-y\", \"mcp-remote@latest\", \"https://mcp.exa.ai/mcp\"]\n\
+\n\
+[mcp_servers.sentry]\n\
+command = \"npx\"\n\
+args = [\"-y\", \"@sentry/mcp-server@latest\"]\n\
+\n\
+# agent-sync:mcp:codex:begin\n\
+[mcp_servers.exa]\n\
+command = \"npx\"\n\
+args = [\"-y\", \"mcp-remote@latest\", \"https://mcp.exa.ai/mcp\"]\n\
+enabled = true\n\
+\n\
+[mcp_servers.sentry]\n\
+command = \"npx\"\n\
+args = [\"-y\", \"@sentry/mcp-server@latest\"]\n\
+enabled = true\n\
+# agent-sync:mcp:codex:end\n",
+        )
+        .expect("write codex");
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            String::from("exa"),
+            CodexCatalogEntry {
+                definition: McpDefinition {
+                    transport: McpTransport::Stdio,
+                    command: Some(String::from("npx")),
+                    args: vec![
+                        String::from("-y"),
+                        String::from("mcp-remote@latest"),
+                        String::from("https://mcp.exa.ai/mcp"),
+                    ],
+                    url: None,
+                    env: BTreeMap::new(),
+                },
+                enabled: true,
+            },
+        );
+        entries.insert(
+            String::from("sentry"),
+            CodexCatalogEntry {
+                definition: McpDefinition {
+                    transport: McpTransport::Stdio,
+                    command: Some(String::from("npx")),
+                    args: vec![
+                        String::from("-y"),
+                        String::from("@sentry/mcp-server@latest"),
+                    ],
+                    url: None,
+                    env: BTreeMap::new(),
+                },
+                enabled: false,
+            },
+        );
+
+        let mut warnings = Vec::new();
+        registry
+            .apply_codex_catalog_path(&codex_path, &entries, true, &mut warnings)
+            .expect("apply codex");
+
+        let codex_raw = std::fs::read_to_string(&codex_path).expect("read codex");
+
+        // exa is enabled → unmanaged entry wins, so it appears exactly once (unmanaged only)
+        assert_eq!(
+            count_occurrences(&codex_raw, "[mcp_servers.exa]"),
+            1,
+            "exa should appear exactly once; got:\n{codex_raw}"
+        );
+        // sentry is disabled → unmanaged is cleaned, managed block has disabled copy
+        assert_eq!(
+            count_occurrences(&codex_raw, "[mcp_servers.sentry]"),
+            1,
+            "sentry should appear exactly once; got:\n{codex_raw}"
+        );
+        // Output must be valid TOML
+        assert!(
+            toml::from_str::<toml::Table>(&codex_raw).is_ok(),
+            "output must be valid TOML; got:\n{codex_raw}"
+        );
+    }
+
+    #[test]
+    fn apply_codex_catalog_path_no_duplicate_when_skills_block_between_mcp_entries() {
+        let (_temp, registry, home, _runtime) = registry_in_temp();
+        let codex_path = home.join(".codex").join("config.toml");
+        std::fs::create_dir_all(codex_path.parent().expect("parent")).expect("mkdir parent");
+
+        // File has manual exa, a skills block, and a managed MCP block with exa
+        std::fs::write(
+            &codex_path,
+            "\
+[mcp_servers.exa]\n\
+command = \"npx\"\n\
+args = [\"-y\", \"mcp-remote@latest\", \"https://mcp.exa.ai/mcp\"]\n\
+\n\
+# agent-sync:begin\n\
+[[skills.config]]\n\
+enabled = true\n\
+path = \"/Users/test/.agents/skills/alpha\"\n\
+\n\
+[[skills.config]]\n\
+enabled = true\n\
+path = \"/Users/test/.agents/skills/beta\"\n\
+# agent-sync:end\n\
+\n\
+# agent-sync:mcp:codex:begin\n\
+[mcp_servers.exa]\n\
+command = \"npx\"\n\
+args = [\"-y\", \"mcp-remote@latest\", \"https://mcp.exa.ai/mcp\"]\n\
+enabled = true\n\
+# agent-sync:mcp:codex:end\n",
+        )
+        .expect("write codex");
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            String::from("exa"),
+            CodexCatalogEntry {
+                definition: McpDefinition {
+                    transport: McpTransport::Stdio,
+                    command: Some(String::from("npx")),
+                    args: vec![
+                        String::from("-y"),
+                        String::from("mcp-remote@latest"),
+                        String::from("https://mcp.exa.ai/mcp"),
+                    ],
+                    url: None,
+                    env: BTreeMap::new(),
+                },
+                enabled: true,
+            },
+        );
+
+        let mut warnings = Vec::new();
+        registry
+            .apply_codex_catalog_path(&codex_path, &entries, true, &mut warnings)
+            .expect("apply codex");
+
+        let codex_raw = std::fs::read_to_string(&codex_path).expect("read codex");
+
+        assert_eq!(
+            count_occurrences(&codex_raw, "[mcp_servers.exa]"),
+            1,
+            "exa should appear exactly once; got:\n{codex_raw}"
+        );
+        // Skills block must be preserved
+        assert!(
+            codex_raw.contains("[[skills.config]]"),
+            "skills block should be preserved; got:\n{codex_raw}"
+        );
+        assert!(
+            codex_raw.contains("/Users/test/.agents/skills/alpha"),
+            "skills entries should be preserved"
+        );
+        // Output must be valid TOML
+        assert!(
+            toml::from_str::<toml::Table>(&codex_raw).is_ok(),
+            "output must be valid TOML; got:\n{codex_raw}"
+        );
     }
 }

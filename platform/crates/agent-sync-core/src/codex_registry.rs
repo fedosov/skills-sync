@@ -54,6 +54,8 @@ impl CodexSkillsRegistryWriter {
         }
         let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
         let unmanaged = strip_managed_blocks(&existing, &SKILLS_MANAGED_MARKER_PAIRS);
+        let unmanaged = clean_orphaned_end_markers(&unmanaged, AGENT_SYNC_END);
+        let unmanaged = clean_orphaned_end_markers(&unmanaged, SKILLS_SYNC_END);
         let updated = self.upsert_managed_registry(&unmanaged, &entries);
         std::fs::write(&config_path, updated)
             .map_err(|e| CodexRegistryError::WriteFailed(e.to_string()))
@@ -122,6 +124,54 @@ impl CodexSkillsRegistryWriter {
             .trim_end()
             .to_string()
     }
+}
+
+/// Removes orphaned end markers that have no matching begin marker.
+fn clean_orphaned_end_markers(text: &str, end_marker: &str) -> String {
+    // Derive the begin marker from the end marker (e.g., "# agent-sync:end" → "# agent-sync:begin")
+    let begin_marker = end_marker.replace(":end", ":begin");
+    let mut result = Vec::new();
+    let mut begin_count: usize = 0;
+    let mut end_count: usize = 0;
+
+    // First pass: count begin/end markers
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed == begin_marker {
+            begin_count += 1;
+        } else if trimmed == end_marker {
+            end_count += 1;
+        }
+    }
+
+    // If there are more end markers than begin markers, there are orphans
+    if end_count <= begin_count {
+        return text.to_string();
+    }
+
+    // Second pass: skip orphaned end markers (those without a preceding begin)
+    let mut pending_begins: usize = 0;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed == begin_marker {
+            pending_begins += 1;
+            result.push(line);
+        } else if trimmed == end_marker {
+            if pending_begins > 0 {
+                pending_begins -= 1;
+                result.push(line);
+            }
+            // else: orphaned end marker — skip it
+        } else {
+            result.push(line);
+        }
+    }
+
+    let mut out = result.join("\n");
+    if text.ends_with('\n') && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out
 }
 
 fn preferred_agents_target(skill: &SkillRecord) -> Option<String> {

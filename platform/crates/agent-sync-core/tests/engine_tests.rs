@@ -3715,3 +3715,99 @@ exit 9
         .expect_err("unknown mcp command should fail instead of falling back to skills list");
     assert!(error.to_string().contains("unknown command"));
 }
+
+#[test]
+fn run_sync_does_not_duplicate_mcp_across_skills_and_mcp_writers() {
+    let temp = TempDir::new().expect("tempdir");
+    let engine = engine_in_temp(&temp);
+    let home = engine.environment().home_directory.clone();
+
+    // Central catalog with exa and sentry, both codex-enabled
+    write_text(
+        &home.join(".config").join("ai-agents").join("config.toml"),
+        r#"
+# agent-sync:mcp:begin
+[mcp_catalog."global::exa"]
+scope = "global"
+server_key = "exa"
+status = "active"
+transport = "http"
+url = "https://mcp.exa.ai/mcp"
+[mcp_catalog."global::exa".enabled_by_agent]
+codex = true
+claude = false
+project = false
+
+[mcp_catalog."global::sentry"]
+scope = "global"
+server_key = "sentry"
+status = "active"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@sentry/mcp-server@latest"]
+[mcp_catalog."global::sentry".enabled_by_agent]
+codex = true
+claude = false
+project = false
+# agent-sync:mcp:end
+"#,
+    );
+
+    // Write a skill so the skills writer has something to write
+    write_skill(&home.join(".agents").join("skills"), "alpha", "# Alpha");
+
+    // Pre-seed codex config.toml with manual exa entry + orphaned end marker + skills block
+    let codex_path = home.join(".codex").join("config.toml");
+    write_text(
+        &codex_path,
+        "\
+[mcp_servers.exa]\n\
+command = \"npx\"\n\
+args = [\"-y\", \"mcp-remote@latest\", \"https://mcp.exa.ai/mcp\"]\n\
+\n\
+# agent-sync:end\n\
+\n\
+# agent-sync:begin\n\
+[[skills.config]]\n\
+enabled = true\n\
+path = \"/old/skill/path\"\n\
+# agent-sync:end\n",
+    );
+
+    let state = engine.run_sync(SyncTrigger::Manual).expect("sync");
+    assert_eq!(state.sync.status, agent_sync_core::SyncHealthStatus::Ok);
+
+    let codex_raw = fs::read_to_string(&codex_path).expect("read codex");
+
+    // Each mcp_servers key must appear at most once
+    assert_eq!(
+        count_occurrences(&codex_raw, "[mcp_servers.exa]"),
+        1,
+        "exa should appear exactly once; got:\n{codex_raw}"
+    );
+    assert_eq!(
+        count_occurrences(&codex_raw, "[mcp_servers.sentry]"),
+        1,
+        "sentry should appear exactly once; got:\n{codex_raw}"
+    );
+
+    // Output must be valid TOML
+    assert!(
+        toml::from_str::<toml::Table>(&codex_raw).is_ok(),
+        "output must be valid TOML; got:\n{codex_raw}"
+    );
+
+    // Orphaned end marker should be cleaned up
+    let orphan_count = codex_raw
+        .lines()
+        .filter(|line| line.trim() == "# agent-sync:end")
+        .count();
+    let begin_count = codex_raw
+        .lines()
+        .filter(|line| line.trim() == "# agent-sync:begin")
+        .count();
+    assert!(
+        orphan_count <= begin_count,
+        "no orphaned # agent-sync:end markers should remain; begins={begin_count}, ends={orphan_count}"
+    );
+}
