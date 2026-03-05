@@ -119,10 +119,6 @@ function parsePrepareMode(argv) {
   return mode;
 }
 
-function npmCommand() {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
-}
-
 function ensureDirectory(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
@@ -214,7 +210,7 @@ function installRuntimeDependencies(cacheInstallDir, target) {
   }
 
   execFileSync(
-    npmCommand(),
+    "npm",
     [
       "install",
       "--no-save",
@@ -227,6 +223,7 @@ function installRuntimeDependencies(cacheInstallDir, target) {
     {
       cwd: cacheInstallDir,
       stdio: "inherit",
+      shell: true,
       env: {
         ...process.env,
         npm_config_update_notifier: "false",
