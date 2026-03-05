@@ -1,8 +1,8 @@
 use agent_sync_core::{AuditEvent, SyncEngine};
 
 use crate::{
-    parse_audit_status, runtime_controls, set_allow_filesystem_changes_inner, RuntimeControls,
-    RuntimeState,
+    parse_audit_status, runtime_controls, set_allow_filesystem_changes_inner, IntoTauriResult,
+    RuntimeControls, RuntimeState,
 };
 
 #[tauri::command]
@@ -34,7 +34,5 @@ pub fn list_audit_events(
 pub fn clear_audit_events(runtime: tauri::State<RuntimeState>) -> Result<(), String> {
     let engine = SyncEngine::current();
     let _guard = runtime.acquire_sync_lock()?;
-    engine
-        .clear_audit_events()
-        .map_err(|error| error.to_string())
+    engine.clear_audit_events().to_tauri()
 }

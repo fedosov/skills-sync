@@ -23,6 +23,7 @@ import {
   subagentStatus,
   mcpStatus,
   statusRank,
+  sortAndFilter,
   syncStatusVariant,
   warningMentionsServer,
   syncWarningFixSummary,
@@ -236,89 +237,73 @@ export function App() {
   }, [focusKind, query, starredSkillIds, state]);
 
   const filteredSubagents = useMemo(() => {
-    const normalizedQuery =
-      focusKind === "subagents" ? query.trim().toLowerCase() : "";
+    const q = focusKind === "subagents" ? query : "";
     const favSet = favorites.subagents;
     const favRank = (id: string) => (favSet.has(id) ? 0 : 1);
-    const ordered = subagents
-      .slice()
-      .sort(
-        (lhs, rhs) =>
-          statusRank(subagentStatus(lhs)) - statusRank(subagentStatus(rhs)) ||
-          favRank(lhs.id) - favRank(rhs.id) ||
-          lhs.name.localeCompare(rhs.name) ||
-          lhs.scope.localeCompare(rhs.scope) ||
-          (lhs.workspace ?? "").localeCompare(rhs.workspace ?? ""),
-      );
-    if (!normalizedQuery) {
-      return ordered;
-    }
-    return ordered.filter((item) => {
-      return (
-        item.name.toLowerCase().includes(normalizedQuery) ||
-        item.subagent_key.toLowerCase().includes(normalizedQuery) ||
-        item.scope.toLowerCase().includes(normalizedQuery) ||
-        (item.workspace ?? "").toLowerCase().includes(normalizedQuery) ||
-        item.description.toLowerCase().includes(normalizedQuery)
-      );
-    });
+    return sortAndFilter(
+      subagents,
+      q,
+      (lhs, rhs) =>
+        statusRank(subagentStatus(lhs)) - statusRank(subagentStatus(rhs)) ||
+        favRank(lhs.id) - favRank(rhs.id) ||
+        lhs.name.localeCompare(rhs.name) ||
+        lhs.scope.localeCompare(rhs.scope) ||
+        (lhs.workspace ?? "").localeCompare(rhs.workspace ?? ""),
+      (item) => [
+        item.name,
+        item.subagent_key,
+        item.scope,
+        item.workspace ?? "",
+        item.description,
+      ],
+    );
   }, [favorites.subagents, focusKind, query, subagents]);
 
   const filteredMcpServers = useMemo(() => {
-    const normalizedQuery =
-      focusKind === "mcp" ? query.trim().toLowerCase() : "";
+    const q = focusKind === "mcp" ? query : "";
     const mcpFavSet = favorites.mcp;
     const mcpFavRank = (server: McpServerRecord) =>
       mcpFavSet.has(mcpSelectionKey(server)) ? 0 : 1;
-    const servers = (state?.mcp_servers ?? []).slice().sort((lhs, rhs) => {
-      return (
+    return sortAndFilter(
+      state?.mcp_servers ?? [],
+      q,
+      (lhs, rhs) =>
         statusRank(mcpStatus(lhs)) - statusRank(mcpStatus(rhs)) ||
         mcpFavRank(lhs) - mcpFavRank(rhs) ||
         lhs.server_key.localeCompare(rhs.server_key) ||
         lhs.scope.localeCompare(rhs.scope) ||
-        (lhs.workspace ?? "").localeCompare(rhs.workspace ?? "")
-      );
-    });
-    if (!normalizedQuery) {
-      return servers;
-    }
-    return servers.filter((item) => {
-      return (
-        item.server_key.toLowerCase().includes(normalizedQuery) ||
-        item.scope.toLowerCase().includes(normalizedQuery) ||
-        (item.workspace ?? "").toLowerCase().includes(normalizedQuery) ||
-        item.transport.toLowerCase().includes(normalizedQuery) ||
-        (item.command ?? "").toLowerCase().includes(normalizedQuery) ||
-        (item.url ?? "").toLowerCase().includes(normalizedQuery)
-      );
-    });
+        (lhs.workspace ?? "").localeCompare(rhs.workspace ?? ""),
+      (item) => [
+        item.server_key,
+        item.scope,
+        item.workspace ?? "",
+        item.transport,
+        item.command ?? "",
+        item.url ?? "",
+      ],
+    );
   }, [favorites.mcp, focusKind, query, state]);
 
   const filteredAgentEntries = useMemo(() => {
-    const normalizedQuery =
-      focusKind === "agents" ? query.trim().toLowerCase() : "";
+    const q = focusKind === "agents" ? query : "";
     const agentFavSet = favorites.agents;
     const agentFavRank = (id: string) => (agentFavSet.has(id) ? 0 : 1);
-    const entries = (agentsReport?.entries ?? []).slice().sort((lhs, rhs) => {
-      return (
+    return sortAndFilter(
+      agentsReport?.entries ?? [],
+      q,
+      (lhs, rhs) =>
         severityRank(rhs.severity) - severityRank(lhs.severity) ||
         agentFavRank(lhs.id) - agentFavRank(rhs.id) ||
         lhs.scope.localeCompare(rhs.scope) ||
         (lhs.workspace ?? "").localeCompare(rhs.workspace ?? "") ||
-        lhs.root_path.localeCompare(rhs.root_path)
-      );
-    });
-    if (!normalizedQuery) {
-      return entries;
-    }
-    return entries.filter((entry) => {
-      return (
-        entry.root_path.toLowerCase().includes(normalizedQuery) ||
-        entry.scope.toLowerCase().includes(normalizedQuery) ||
-        (entry.workspace ?? "").toLowerCase().includes(normalizedQuery) ||
-        entry.severity.toLowerCase().includes(normalizedQuery)
-      );
-    });
+        lhs.root_path.localeCompare(rhs.root_path),
+      (entry) => [
+        entry.root_path,
+        entry.scope,
+        entry.workspace ?? "",
+        entry.severity,
+      ],
+    );
   }, [agentsReport, favorites.agents, focusKind, query]);
 
   const selectedMcpServer =

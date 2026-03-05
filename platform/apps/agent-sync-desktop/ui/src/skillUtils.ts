@@ -1,4 +1,4 @@
-import { statusRank } from "./lib/catalogUtils";
+import { sortAndFilter, statusRank } from "./lib/catalogUtils";
 import { pickPreferred } from "./lib/utils";
 import type { SkillRecord } from "./types";
 
@@ -33,41 +33,35 @@ export function pickSelectedSkillKey(
   return pickPreferred(skills, preferredKey, previousKey, (s) => s.skill_key);
 }
 
-export function sortAndFilterSkills(
-  skills: SkillRecord[],
-  query: string,
-  starredSkillIds: string[] = [],
-): SkillRecord[] {
-  const normalizedQuery = query.trim().toLowerCase();
+function skillComparator(starredSkillIds: string[]) {
   const starred = new Set(starredSkillIds);
   const starredRank = (id: string) => (starred.has(id) ? 0 : 1);
   const scopeRank = (scope: SkillRecord["scope"]) =>
     scope === "global" ? 0 : 1;
 
-  const ordered = skills.slice().sort((lhs, rhs) => {
-    const byStatus = statusRank(lhs.status) - statusRank(rhs.status);
-    if (byStatus !== 0) {
-      return byStatus;
-    }
-    const byStarred = starredRank(lhs.id) - starredRank(rhs.id);
-    if (byStarred !== 0) {
-      return byStarred;
-    }
-    const byScope = scopeRank(lhs.scope) - scopeRank(rhs.scope);
-    if (byScope !== 0) {
-      return byScope;
-    }
-    return lhs.name.localeCompare(rhs.name);
-  });
+  return (lhs: SkillRecord, rhs: SkillRecord) =>
+    statusRank(lhs.status) - statusRank(rhs.status) ||
+    starredRank(lhs.id) - starredRank(rhs.id) ||
+    scopeRank(lhs.scope) - scopeRank(rhs.scope) ||
+    lhs.name.localeCompare(rhs.name);
+}
 
-  if (!normalizedQuery) return ordered;
+const skillSearchFields = (skill: SkillRecord) => [
+  skill.name,
+  skill.skill_key,
+  skill.scope,
+  skill.workspace ?? "",
+];
 
-  return ordered.filter((skill) => {
-    return (
-      skill.name.toLowerCase().includes(normalizedQuery) ||
-      skill.skill_key.toLowerCase().includes(normalizedQuery) ||
-      skill.scope.toLowerCase().includes(normalizedQuery) ||
-      (skill.workspace ?? "").toLowerCase().includes(normalizedQuery)
-    );
-  });
+export function sortAndFilterSkills(
+  skills: SkillRecord[],
+  query: string,
+  starredSkillIds: string[] = [],
+): SkillRecord[] {
+  return sortAndFilter(
+    skills,
+    query,
+    skillComparator(starredSkillIds),
+    skillSearchFields,
+  );
 }

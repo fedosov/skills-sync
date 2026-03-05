@@ -3,7 +3,9 @@ use agent_sync_core::{
     SyncTrigger,
 };
 
-use crate::{ensure_write_allowed, parse_scope_filter, run_sync_with_lock, RuntimeState};
+use crate::{
+    ensure_write_allowed, parse_scope_filter, run_sync_with_lock, IntoTauriResult, RuntimeState,
+};
 
 #[tauri::command]
 pub fn run_sync(
@@ -16,7 +18,7 @@ pub fn run_sync(
         .as_deref()
         .map(SyncTrigger::try_from)
         .transpose()
-        .map_err(|error| error.to_string())?
+        .to_tauri()?
         .unwrap_or(SyncTrigger::Manual);
 
     run_sync_with_lock(&engine, &runtime, parsed)
@@ -45,9 +47,7 @@ pub fn set_skill_starred(skill_id: String, starred: bool) -> Result<Vec<String>,
         return Err(format!("skill id not found: {skill_id}"));
     }
 
-    engine
-        .set_skill_starred(&skill_id, starred)
-        .map_err(|error| error.to_string())
+    engine.set_skill_starred(&skill_id, starred).to_tauri()
 }
 
 #[tauri::command]
@@ -73,9 +73,7 @@ pub fn set_mcp_server_enabled(
 ) -> Result<SyncState, String> {
     let engine = SyncEngine::current();
     ensure_write_allowed(&engine, "set_mcp_server_enabled")?;
-    let parsed = agent
-        .parse::<McpAgent>()
-        .map_err(|error| error.to_string())?;
+    let parsed = agent.parse::<McpAgent>().to_tauri()?;
     let _guard = runtime.acquire_sync_lock()?;
     engine
         .set_mcp_server_enabled(
@@ -85,7 +83,7 @@ pub fn set_mcp_server_enabled(
             scope.as_deref(),
             workspace.as_deref(),
         )
-        .map_err(|error| error.to_string())
+        .to_tauri()
 }
 
 #[tauri::command]
@@ -96,8 +94,6 @@ pub fn fix_sync_warning(
     let engine = SyncEngine::current();
     ensure_write_allowed(&engine, "fix_sync_warning")?;
     let _guard = runtime.acquire_sync_lock()?;
-    engine
-        .fix_sync_warning(&warning)
-        .map_err(|error| error.to_string())?;
+    engine.fix_sync_warning(&warning).to_tauri()?;
     Ok(())
 }

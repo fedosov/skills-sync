@@ -18,6 +18,16 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 use tauri::Manager;
 
+pub(crate) trait IntoTauriResult<T> {
+    fn to_tauri(self) -> Result<T, String>;
+}
+
+impl<T, E: std::fmt::Display> IntoTauriResult<T> for Result<T, E> {
+    fn to_tauri(self) -> Result<T, String> {
+        self.map_err(|e| e.to_string())
+    }
+}
+
 pub(crate) const MAX_MAIN_FILE_PREVIEW_CHARS: usize = 50_000;
 pub(crate) const MAX_TREE_ENTRIES: usize = 500;
 const AUTO_WATCH_DEBOUNCE_MS: u64 = 800;
@@ -301,7 +311,7 @@ pub(crate) fn run_sync_with_lock(
     trigger: SyncTrigger,
 ) -> Result<SyncState, String> {
     let _guard = runtime.acquire_sync_lock()?;
-    engine.run_sync(trigger).map_err(|error| error.to_string())
+    engine.run_sync(trigger).to_tauri()
 }
 
 fn enable_auto_watch_and_initial_sync(
@@ -411,9 +421,7 @@ pub(crate) fn set_allow_filesystem_changes_inner_with<F>(
 where
     F: Fn(&RuntimeState, &SyncEngine) -> Result<(), String>,
 {
-    engine
-        .set_allow_filesystem_changes(allow)
-        .map_err(|error| error.to_string())?;
+    engine.set_allow_filesystem_changes(allow).to_tauri()?;
 
     if allow {
         if let Err(error) = enable_when_allowed(runtime, engine) {
@@ -458,7 +466,7 @@ pub(crate) fn mutate_catalog_item_inner(
     let target = to_catalog_mutation_target(request.target)?;
     engine
         .mutate_catalog_item(action, target, request.confirmed)
-        .map_err(|error| error.to_string())
+        .to_tauri()
 }
 
 pub(crate) fn normalize_os_name(raw_os: &str) -> &'static str {

@@ -176,3 +176,17 @@ export function mcpDeleteLabel(server: McpServerRecord): string {
   }
   return `MCP server "${server.server_key}" (Global)`;
 }
+
+export function sortAndFilter<T>(
+  items: T[],
+  query: string,
+  compareFn: (a: T, b: T) => number,
+  searchFields: (item: T) => string[],
+): T[] {
+  const ordered = items.slice().sort(compareFn);
+  const q = query.trim().toLowerCase();
+  if (!q) return ordered;
+  return ordered.filter((item) =>
+    searchFields(item).some((field) => field.toLowerCase().includes(q)),
+  );
+}

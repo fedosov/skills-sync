@@ -2,7 +2,7 @@ use agent_sync_core::{SkillLifecycleStatus, SyncEngine, SyncState};
 
 use crate::{
     ensure_write_allowed, find_skill, mutate_catalog_item_inner, CatalogMutationActionPayload,
-    CatalogMutationRequestPayload, CatalogMutationTargetPayload, RuntimeState,
+    CatalogMutationRequestPayload, CatalogMutationTargetPayload, IntoTauriResult, RuntimeState,
 };
 
 #[tauri::command]
@@ -78,9 +78,7 @@ pub fn make_global(
     ensure_write_allowed(&engine, "make_global")?;
     let _guard = runtime.acquire_sync_lock()?;
     let skill = find_skill(&engine, &skill_key, Some(SkillLifecycleStatus::Active))?;
-    engine
-        .make_global(&skill, confirmed)
-        .map_err(|error| error.to_string())
+    engine.make_global(&skill, confirmed).to_tauri()
 }
 
 #[tauri::command]
@@ -93,7 +91,5 @@ pub fn rename_skill(
     ensure_write_allowed(&engine, "rename_skill")?;
     let _guard = runtime.acquire_sync_lock()?;
     let skill = find_skill(&engine, &skill_key, Some(SkillLifecycleStatus::Active))?;
-    engine
-        .rename(&skill, &new_title)
-        .map_err(|error| error.to_string())
+    engine.rename(&skill, &new_title).to_tauri()
 }
