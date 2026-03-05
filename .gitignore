@@ -1,5 +1,6 @@
 .DS_Store
 platform/target/
+platform/node_modules/
 platform/apps/agent-sync-desktop/ui/node_modules/
 platform/apps/agent-sync-desktop/ui/dist/
 platform/apps/agent-sync-desktop/ui/coverage/
