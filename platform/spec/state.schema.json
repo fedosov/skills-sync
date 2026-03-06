@@ -176,7 +176,7 @@
           },
           "targets": { "type": "array", "items": { "type": "string" } },
           "warnings": { "type": "array", "items": { "type": "string" } },
-          "status": { "type": "string", "enum": ["active", "archived"] },
+          "status": { "type": "string", "enum": ["active", "archived", "unmanaged"] },
           "archived_at": { "type": ["string", "null"], "format": "date-time" }
         }
       }

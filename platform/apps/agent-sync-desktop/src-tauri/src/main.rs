@@ -831,6 +831,7 @@ fn main() {
             get_mcp_servers,
             set_mcp_server_enabled,
             fix_sync_warning,
+            delete_unmanaged_mcp,
             mutate_catalog_item,
             delete_skill,
             archive_skill,

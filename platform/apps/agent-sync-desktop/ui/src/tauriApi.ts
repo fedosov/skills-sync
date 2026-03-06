@@ -197,6 +197,12 @@ export async function migrateDotagents(
   return invoke<void>("migrate_dotagents", { scope });
 }
 
+export async function deleteUnmanagedMcp(
+  serverKey: string,
+): Promise<SyncState> {
+  return invoke<SyncState>("delete_unmanaged_mcp", { serverKey });
+}
+
 export async function getMcpServers(): Promise<McpServerRecord[]> {
   return invoke<McpServerRecord[]>("get_mcp_servers");
 }

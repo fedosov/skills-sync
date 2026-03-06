@@ -26,7 +26,9 @@ export function mcpStatus(server: McpServerRecord): SkillLifecycleStatus {
 }
 
 export function statusRank(status: SkillLifecycleStatus): number {
-  return status === "active" ? 0 : 1;
+  if (status === "active") return 0;
+  if (status === "unmanaged") return 1;
+  return 2;
 }
 
 export function syncStatusVariant(status: SyncHealthStatus | undefined) {
@@ -171,6 +173,10 @@ export function mcpTarget(server: McpServerRecord): CatalogMutationTarget {
 }
 
 export function mcpDeleteLabel(server: McpServerRecord): string {
+  const status = mcpStatus(server);
+  if (status === "unmanaged") {
+    return `unmanaged MCP server "${server.server_key}"`;
+  }
   if (server.scope === "project") {
     return `MCP server "${server.server_key}" (Project: ${server.workspace ?? "unknown workspace"})`;
   }

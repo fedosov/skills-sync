@@ -37,6 +37,7 @@ vi.mock("./tauriApi", () => ({
   setSkillStarred: vi.fn(),
   setMcpServerEnabled: vi.fn(),
   fixSyncWarning: vi.fn(),
+  deleteUnmanagedMcp: vi.fn(),
 }));
 
 let clipboardWriteSpy: ReturnType<typeof vi.fn>;
@@ -1421,7 +1422,6 @@ describe("App quiet redesign", () => {
     );
 
     expect(tauriApi.fixSyncWarning).toHaveBeenCalledWith(unmanagedWarning);
-    expect(tauriApi.runSync).toHaveBeenCalledTimes(1);
   });
 
   it("disables Fix action when filesystem changes are disabled", async () => {

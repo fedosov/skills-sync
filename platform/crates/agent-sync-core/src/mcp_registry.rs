@@ -63,6 +63,14 @@ pub struct McpSyncOutcome {
     pub warnings: Vec<String>,
 }
 
+fn status_sort_rank(s: &SkillLifecycleStatus) -> u8 {
+    match s {
+        SkillLifecycleStatus::Active => 0,
+        SkillLifecycleStatus::Unmanaged => 1,
+        SkillLifecycleStatus::Archived => 2,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UnmanagedClaudeMcpCandidate {
     pub server_key: String,
@@ -271,6 +279,7 @@ impl McpRegistry {
         let previous_manifest = self.load_manifest();
 
         let mut catalog = self.load_central_catalog(&mut warnings)?;
+        let mut unmanaged_entries: BTreeMap<String, (CatalogEntry, Vec<String>)> = BTreeMap::new();
         if catalog.is_empty() {
             catalog = self.bootstrap_catalog(&discovered, &mut warnings);
         } else {
@@ -315,24 +324,36 @@ impl McpRegistry {
                                 }
                             }
                             _ => {
-                                warnings.push(format!(
+                                let unmanaged_warning = format!(
                                     "MCP server '{}' ({}) exists in {} but is unmanaged in central catalog",
                                     item.entry.server_key,
                                     item.entry.catalog_id,
                                     item.file_path.display()
-                                ));
+                                );
+                                warnings.push(unmanaged_warning.clone());
+                                let entry = unmanaged_entries
+                                    .entry(item.entry.server_key.clone())
+                                    .or_insert_with(|| (item.entry.clone(), Vec::new()));
+                                entry.1.push(unmanaged_warning);
                             }
                         }
                     } else {
-                        warnings.push(format!(
+                        let unmanaged_warning = format!(
                             "MCP server '{}' ({}) exists in {} but is unmanaged in central catalog",
                             item.entry.server_key,
                             item.entry.catalog_id,
                             item.file_path.display()
-                        ));
+                        );
+                        warnings.push(unmanaged_warning.clone());
+                        let entry = unmanaged_entries
+                            .entry(item.entry.server_key.clone())
+                            .or_insert_with(|| (item.entry.clone(), Vec::new()));
+                        entry.1.push(unmanaged_warning.clone());
                         if let Some(candidate) = build_broken_unmanaged_claude_candidate(item) {
-                            warnings
-                                .push(format_broken_unmanaged_claude_warning(&candidate.output));
+                            let broken_warning =
+                                format_broken_unmanaged_claude_warning(&candidate.output);
+                            warnings.push(broken_warning.clone());
+                            entry.1.push(broken_warning);
                         }
                     }
                 }
@@ -642,9 +663,28 @@ impl McpRegistry {
                 }
             })
             .collect::<Vec<_>>();
+
+        for (server_key, (entry, entry_warnings)) in unmanaged_entries {
+            records.push(McpServerRecord {
+                server_key,
+                scope: entry.scope.as_str().to_string(),
+                workspace: entry.workspace,
+                transport: entry.definition.transport,
+                command: entry.definition.command,
+                args: entry.definition.args,
+                url: entry.definition.url,
+                env: entry.definition.env,
+                enabled_by_agent: entry.enabled_by_agent,
+                targets: Vec::new(),
+                warnings: entry_warnings,
+                status: SkillLifecycleStatus::Unmanaged,
+                archived_at: None,
+            });
+        }
+
         records.sort_by(|lhs, rhs| {
-            lhs.status
-                .cmp(&rhs.status)
+            status_sort_rank(&lhs.status)
+                .cmp(&status_sort_rank(&rhs.status))
                 .then_with(|| lhs.server_key.cmp(&rhs.server_key))
                 .then_with(|| lhs.scope.cmp(&rhs.scope))
                 .then_with(|| lhs.workspace.cmp(&rhs.workspace))
@@ -856,6 +896,69 @@ impl McpRegistry {
         }
 
         self.write_central_catalog(&catalog)
+    }
+
+    pub fn delete_unmanaged_mcp(
+        &self,
+        workspaces: &[PathBuf],
+        server_key: &str,
+    ) -> Result<(), SyncEngineError> {
+        let mut warnings = Vec::new();
+        let discovered = self.discover_all(workspaces, &mut warnings);
+        let catalog = self.load_central_catalog(&mut warnings)?;
+
+        let unmanaged: Vec<&Discovered> = discovered
+            .iter()
+            .filter(|item| {
+                item.entry.server_key == server_key && !catalog.contains_key(&item.entry.catalog_id)
+            })
+            .collect();
+
+        if unmanaged.is_empty() {
+            return Err(SyncEngineError::Unsupported(format!(
+                "no unmanaged MCP entries found for server key '{server_key}'"
+            )));
+        }
+
+        for item in &unmanaged {
+            match item.source {
+                SourceKind::CodexGlobal | SourceKind::ProjectCodex => {
+                    self.remove_unmanaged_codex_server_entry(&item.file_path, server_key)?;
+                }
+                SourceKind::ClaudeUserGlobal => {
+                    let keys = BTreeSet::from([server_key.to_string()]);
+                    self.remove_claude_json_server_keys(
+                        &item.file_path,
+                        &ClaudeJsonTargetLocation::Root,
+                        &keys,
+                        &mut warnings,
+                    )?;
+                }
+                SourceKind::ClaudeUserProject => {
+                    if let Some(workspace) = &item.entry.workspace {
+                        let keys = BTreeSet::from([server_key.to_string()]);
+                        self.remove_claude_json_server_keys(
+                            &item.file_path,
+                            &ClaudeJsonTargetLocation::Project {
+                                workspace: workspace.clone(),
+                            },
+                            &keys,
+                            &mut warnings,
+                        )?;
+                    }
+                }
+                SourceKind::ClaudeLocalGlobal
+                | SourceKind::ClaudeGlobalGlobal
+                | SourceKind::ProjectClaude => {
+                    if let Some(candidate) = build_broken_unmanaged_claude_candidate(item) {
+                        let candidates = vec![candidate];
+                        self.remove_broken_unmanaged_claude_entries(&candidates, &mut warnings)?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn fix_unmanaged_claude_mcp(
@@ -3456,6 +3559,7 @@ fn render_central_block(catalog: &BTreeMap<String, CatalogEntry>) -> String {
                 match entry.status {
                     SkillLifecycleStatus::Active => "active",
                     SkillLifecycleStatus::Archived => "archived",
+                    SkillLifecycleStatus::Unmanaged => "active",
                 }
                 .to_string(),
             ),

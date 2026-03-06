@@ -1,4 +1,4 @@
-export type SkillLifecycleStatus = "active" | "archived";
+export type SkillLifecycleStatus = "active" | "archived" | "unmanaged";
 export type SyncHealthStatus = "ok" | "failed" | "syncing" | "unknown";
 export type PlatformOs = "macos" | "windows" | "linux" | "unknown";
 

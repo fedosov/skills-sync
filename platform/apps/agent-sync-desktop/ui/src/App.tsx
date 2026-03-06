@@ -51,6 +51,7 @@ import {
   runDotagentsSync,
   setAllowFilesystemChanges,
   setMcpServerEnabled,
+  deleteUnmanagedMcp,
 } from "./tauriApi";
 import { normalizeSkillKey, sortAndFilterSkills } from "./skillUtils";
 import type {
@@ -61,8 +62,9 @@ import type {
 } from "./types";
 
 type DeleteDialogState = {
-  request: CatalogMutationRequest;
+  request: CatalogMutationRequest | null;
   label: string;
+  onConfirmOverride?: () => Promise<void>;
 } | null;
 type OpenTargetMenu = "skill" | "subagent" | null;
 type ActionsMenuTarget = "skill" | "subagent" | "mcp" | null;
@@ -310,7 +312,18 @@ export function App() {
     state?.mcp_servers?.find(
       (item) => mcpSelectionKey(item) === selectedMcpKey,
     ) ?? null;
-  const syncWarnings = state?.sync.warnings ?? [];
+  const syncWarnings = useMemo(() => {
+    const allWarnings = state?.sync.warnings ?? [];
+    const unmanagedKeys = new Set(
+      (state?.mcp_servers ?? [])
+        .filter((s) => mcpStatus(s) === "unmanaged")
+        .map((s) => s.server_key),
+    );
+    if (unmanagedKeys.size === 0) return allWarnings;
+    return allWarnings.filter(
+      (w) => ![...unmanagedKeys].some((key) => warningMentionsServer(w, key)),
+    );
+  }, [state]);
   const selectedMcpWarnings = useMemo(() => {
     if (!selectedMcpServer) {
       return [];
@@ -968,6 +981,10 @@ export function App() {
                                     <span className="text-[10px] text-muted-foreground">
                                       Archived
                                     </span>
+                                  ) : mcpStatus(server) === "unmanaged" ? (
+                                    <span className="text-[10px] text-amber-500 font-medium">
+                                      Unmanaged
+                                    </span>
                                   ) : null}
                                 </span>
                               </div>
@@ -1213,14 +1230,28 @@ export function App() {
                 }}
                 onRequestDelete={() => {
                   setActionsMenuTarget(null);
-                  setDeleteDialog({
-                    request: {
-                      action: "delete",
-                      target: mcpTarget(selectedMcpServer),
-                      confirmed: true,
-                    },
-                    label: mcpDeleteLabel(selectedMcpServer),
-                  });
+                  if (mcpStatus(selectedMcpServer) === "unmanaged") {
+                    const serverKey = selectedMcpServer.server_key;
+                    setDeleteDialog({
+                      request: null,
+                      label: mcpDeleteLabel(selectedMcpServer),
+                      onConfirmOverride: async () => {
+                        await withBusyGuard(async () => {
+                          const next = await deleteUnmanagedMcp(serverKey);
+                          applyState(next, selectedSkillKey);
+                        });
+                      },
+                    });
+                  } else {
+                    setDeleteDialog({
+                      request: {
+                        action: "delete",
+                        target: mcpTarget(selectedMcpServer),
+                        confirmed: true,
+                      },
+                      label: mcpDeleteLabel(selectedMcpServer),
+                    });
+                  }
                 }}
               />
             ) : null}
@@ -1341,9 +1372,13 @@ export function App() {
                 variant="destructive"
                 disabled={busy}
                 onClick={() => {
-                  const request = deleteDialog.request;
+                  const { request, onConfirmOverride } = deleteDialog;
                   setDeleteDialog(null);
-                  void executeCatalogMutation(request);
+                  if (onConfirmOverride) {
+                    void onConfirmOverride();
+                  } else if (request) {
+                    void executeCatalogMutation(request);
+                  }
                 }}
               >
                 Delete

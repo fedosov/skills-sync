@@ -1571,6 +1571,7 @@ fn mutate_catalog_item_updates_exact_project_mcp_locator() {
     assert!(deleted_state
         .mcp_servers
         .iter()
+        .filter(|item| item.status == SkillLifecycleStatus::Active)
         .all(|item| item.workspace.as_deref() != Some(workspace_a_key.as_str())));
     assert!(deleted_state
         .mcp_servers
@@ -1620,11 +1621,15 @@ fn mutate_catalog_item_make_global_promotes_exact_project_mcp_locator() {
     let promoted_global = find_mcp(&promoted, "exa", "global", None);
     assert_eq!(promoted_global.status, SkillLifecycleStatus::Active);
     assert!(!promoted_global.enabled_by_agent.project);
-    assert!(promoted.mcp_servers.iter().all(|item| {
-        !(item.server_key == "exa"
-            && item.scope == "project"
-            && item.workspace.as_deref() == Some(workspace_a_key.as_str()))
-    }));
+    assert!(promoted
+        .mcp_servers
+        .iter()
+        .filter(|item| item.status == SkillLifecycleStatus::Active)
+        .all(|item| {
+            !(item.server_key == "exa"
+                && item.scope == "project"
+                && item.workspace.as_deref() == Some(workspace_a_key.as_str()))
+        }));
     assert!(promoted.mcp_servers.iter().any(|item| {
         item.server_key == "exa"
             && item.scope == "project"
@@ -2880,10 +2885,18 @@ project = false
         "missing explicit broken unmanaged warning: {:?}",
         state.sync.warnings
     );
-    assert!(!state
+    let unmanaged_entry = state
         .mcp_servers
         .iter()
-        .any(|server| server.server_key == "claude-mem"));
+        .find(|server| server.server_key == "claude-mem");
+    assert!(
+        unmanaged_entry.is_some(),
+        "broken unmanaged server should appear in mcp_servers list"
+    );
+    assert_eq!(
+        unmanaged_entry.unwrap().status,
+        SkillLifecycleStatus::Unmanaged
+    );
 
     let after = fs::read_to_string(home.join(".claude.json")).expect("read after");
     assert_eq!(after, before);

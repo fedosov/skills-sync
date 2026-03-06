@@ -349,6 +349,16 @@ impl SyncEngine {
         items
     }
 
+    pub fn delete_unmanaged_mcp(&self, server_key: &str) -> Result<SyncState, SyncEngineError> {
+        let workspaces = self.workspace_candidates();
+        let registry = McpRegistry::new(
+            self.environment.home_directory.clone(),
+            self.environment.runtime_directory.clone(),
+        );
+        registry.delete_unmanaged_mcp(&workspaces, server_key)?;
+        self.run_sync(SyncTrigger::Delete)
+    }
+
     pub fn run_dotagents_sync(&self, scope: DotagentsScope) -> Result<(), SyncEngineError> {
         self.run_dotagents_command(scope, &["sync"])
     }

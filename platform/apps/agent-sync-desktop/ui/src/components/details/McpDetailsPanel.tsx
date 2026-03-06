@@ -103,7 +103,7 @@ export function McpDetailsPanel({
                       </button>
                     ) : null}
                   </>
-                ) : (
+                ) : status === "archived" ? (
                   <button
                     type="button"
                     role="menuitem"
@@ -113,7 +113,7 @@ export function McpDetailsPanel({
                   >
                     Restore
                   </button>
-                )}
+                ) : null}
                 <button
                   type="button"
                   role="menuitem"
@@ -129,6 +129,13 @@ export function McpDetailsPanel({
         </div>
       </CardHeader>
       <CardContent className="space-y-3 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+        {status === "unmanaged" ? (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-foreground">
+            This MCP server exists in agent config files but is not in the
+            managed catalog. Delete it to clean up, or use &quot;Fix&quot; on
+            the sync warning to adopt it.
+          </div>
+        ) : null}
         <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
           <div>
             <dt className="text-muted-foreground">Status</dt>
@@ -178,7 +185,9 @@ export function McpDetailsPanel({
                     role="switch"
                     aria-label={`${agent} toggle`}
                     aria-checked={enabled}
-                    disabled={busy || status === "archived"}
+                    disabled={
+                      busy || status === "archived" || status === "unmanaged"
+                    }
                     onClick={() => onSetEnabled(agent, !enabled)}
                     className={cn(
                       "relative inline-flex h-6 w-11 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
@@ -202,6 +211,10 @@ export function McpDetailsPanel({
           {status === "archived" ? (
             <p className="text-xs text-muted-foreground">
               Restore this MCP server to change per-agent toggles.
+            </p>
+          ) : status === "unmanaged" ? (
+            <p className="text-xs text-muted-foreground">
+              Unmanaged servers cannot be toggled per-agent.
             </p>
           ) : null}
         </section>

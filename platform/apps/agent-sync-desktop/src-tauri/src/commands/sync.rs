@@ -97,3 +97,14 @@ pub fn fix_sync_warning(
     engine.fix_sync_warning(&warning).to_tauri()?;
     Ok(())
 }
+
+#[tauri::command]
+pub fn delete_unmanaged_mcp(
+    server_key: String,
+    runtime: tauri::State<RuntimeState>,
+) -> Result<SyncState, String> {
+    let engine = SyncEngine::current();
+    ensure_write_allowed(&engine, "delete_unmanaged_mcp")?;
+    let _guard = runtime.acquire_sync_lock()?;
+    engine.delete_unmanaged_mcp(&server_key).to_tauri()
+}

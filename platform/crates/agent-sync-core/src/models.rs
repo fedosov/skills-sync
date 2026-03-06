@@ -177,6 +177,7 @@ fn default_mcp_scope() -> String {
 pub enum SkillLifecycleStatus {
     Active,
     Archived,
+    Unmanaged,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
