@@ -1,6 +1,5 @@
 use agent_sync_core::{
-    AgentsContextReport, McpAgent, McpServerRecord, SubagentRecord, SyncEngine, SyncState,
-    SyncTrigger,
+    AgentsContextReport, McpAgent, SubagentRecord, SyncEngine, SyncState, SyncTrigger,
 };
 
 use crate::{
@@ -55,11 +54,6 @@ pub fn list_subagents(scope: Option<String>) -> Result<Vec<SubagentRecord>, Stri
     let engine = SyncEngine::current();
     let scope_filter = parse_scope_filter(scope.as_deref())?;
     Ok(engine.list_subagents(scope_filter))
-}
-
-#[tauri::command]
-pub fn get_mcp_servers() -> Vec<McpServerRecord> {
-    SyncEngine::current().list_mcp_servers()
 }
 
 #[tauri::command]

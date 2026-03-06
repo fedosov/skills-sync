@@ -719,7 +719,6 @@ fn main() {
             dotagents_mcp_add,
             dotagents_mcp_remove,
             migrate_dotagents,
-            get_mcp_servers,
             set_mcp_server_enabled,
             fix_sync_warning,
             delete_unmanaged_mcp,

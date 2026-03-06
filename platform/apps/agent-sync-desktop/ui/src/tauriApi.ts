@@ -204,10 +204,6 @@ export async function deleteUnmanagedMcp(
   return invoke<SyncState>("delete_unmanaged_mcp", { serverKey });
 }
 
-export async function getMcpServers(): Promise<McpServerRecord[]> {
-  return invoke<McpServerRecord[]>("get_mcp_servers");
-}
-
 export async function setMcpServerEnabled(
   serverKey: string,
   agent: "codex" | "claude",

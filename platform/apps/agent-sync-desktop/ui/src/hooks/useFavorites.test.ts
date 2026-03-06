@@ -38,45 +38,74 @@ describe("useFavorites", () => {
   it("reads persisted data on mount", () => {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ subagents: ["a"], mcp: [], agents: ["b"] }),
+      JSON.stringify({
+        subagents: ["sub-1"],
+        mcp: ["mcp-1"],
+        agents: ["agent-1"],
+      }),
     );
 
     const { result } = renderHook(() => useFavorites());
-    expect(result.current.favorites.subagents.has("a")).toBe(true);
-    expect(result.current.favorites.agents.has("b")).toBe(true);
+    expect(result.current.favorites.subagents.has("sub-1")).toBe(true);
+    expect(result.current.favorites.mcp.has("mcp-1")).toBe(true);
+    expect(result.current.favorites.agents.has("agent-1")).toBe(true);
   });
 
-  it("handles corrupt localStorage gracefully", () => {
+  it("falls back to empty sets for malformed JSON", () => {
     window.localStorage.setItem(STORAGE_KEY, "not-valid-json");
 
     const { result } = renderHook(() => useFavorites());
     expect(result.current.favorites.subagents.size).toBe(0);
+    expect(result.current.favorites.mcp.size).toBe(0);
+    expect(result.current.favorites.agents.size).toBe(0);
   });
 
-  it("filters out non-string elements from stored arrays", () => {
+  it("falls back to empty arrays when a stored field is not an array", () => {
     window.localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        subagents: ["ok", 42, null, true],
-        mcp: [{}],
-        agents: [],
+        subagents: "bad",
+        mcp: 123,
+        agents: null,
       }),
     );
 
     const { result } = renderHook(() => useFavorites());
     expect(result.current.favorites.subagents.size).toBe(0);
     expect(result.current.favorites.mcp.size).toBe(0);
+    expect(result.current.favorites.agents.size).toBe(0);
   });
 
-  it("falls back to empty when stored field is not an array", () => {
+  it("falls back to empty arrays when an array contains non-string members", () => {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ subagents: "bad", mcp: 123, agents: null }),
+      JSON.stringify({
+        subagents: ["ok", 42, null, true],
+        mcp: [{}],
+        agents: ["agent-1", ["nested"]],
+      }),
     );
 
     const { result } = renderHook(() => useFavorites());
     expect(result.current.favorites.subagents.size).toBe(0);
     expect(result.current.favorites.mcp.size).toBe(0);
     expect(result.current.favorites.agents.size).toBe(0);
+  });
+
+  it("ignores unknown keys in persisted data", () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        subagents: ["sub-1"],
+        mcp: [],
+        agents: ["agent-1"],
+        unknown: ["ignored"],
+      }),
+    );
+
+    const { result } = renderHook(() => useFavorites());
+    expect(result.current.favorites.subagents.has("sub-1")).toBe(true);
+    expect(result.current.favorites.agents.has("agent-1")).toBe(true);
+    expect(result.current.favorites.mcp.size).toBe(0);
   });
 });

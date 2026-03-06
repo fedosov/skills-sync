@@ -1,6 +1,11 @@
 import { useCallback, useState } from "react";
 
 const STORAGE_KEY = "agent-sync.favorites.v1";
+const EMPTY_FAVORITES_DATA: FavoritesData = {
+  subagents: [],
+  mcp: [],
+  agents: [],
+};
 
 type FavoritesKind = "subagents" | "mcp" | "agents";
 
@@ -15,19 +20,39 @@ function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
 
+function emptyFavoritesData(): FavoritesData {
+  return {
+    subagents: [...EMPTY_FAVORITES_DATA.subagents],
+    mcp: [...EMPTY_FAVORITES_DATA.mcp],
+    agents: [...EMPTY_FAVORITES_DATA.agents],
+  };
+}
+
+function parseFavoriteIds(value: unknown): string[] {
+  return isStringArray(value) ? [...value] : [];
+}
+
+function parseFavoritesData(value: unknown): FavoritesData {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return emptyFavoritesData();
+  }
+
+  const parsed = value as Partial<Record<FavoritesKind, unknown>>;
+
+  return {
+    subagents: parseFavoriteIds(parsed.subagents),
+    mcp: parseFavoriteIds(parsed.mcp),
+    agents: parseFavoriteIds(parsed.agents),
+  };
+}
+
 function loadFromStorage(): FavoritesData {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { subagents: [], mcp: [], agents: [] };
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- validated below via isStringArray
-    const parsed: Record<string, unknown> = JSON.parse(raw);
-    return {
-      subagents: isStringArray(parsed.subagents) ? parsed.subagents : [],
-      mcp: isStringArray(parsed.mcp) ? parsed.mcp : [],
-      agents: isStringArray(parsed.agents) ? parsed.agents : [],
-    };
+    if (!raw) return emptyFavoritesData();
+    return parseFavoritesData(JSON.parse(raw));
   } catch {
-    return { subagents: [], mcp: [], agents: [] };
+    return emptyFavoritesData();
   }
 }
 

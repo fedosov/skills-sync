@@ -10,7 +10,6 @@ import {
   getSubagentDetails,
   listSubagents,
   getPlatformContext,
-  getMcpServers,
   mutateCatalogItem,
   mutateSkill,
   migrateDotagents,
@@ -186,11 +185,6 @@ describe("tauriApi command payloads", () => {
   it("loads platform context without args", async () => {
     await getPlatformContext();
     expect(invoke).toHaveBeenCalledWith("get_platform_context");
-  });
-
-  it("loads mcp servers without args", async () => {
-    await getMcpServers();
-    expect(invoke).toHaveBeenCalledWith("get_mcp_servers");
   });
 
   it("lists dotagents skills", async () => {
