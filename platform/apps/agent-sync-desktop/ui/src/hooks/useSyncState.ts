@@ -15,6 +15,7 @@ import {
   loadDashboardSnapshot,
   runSync,
 } from "../tauriApi";
+import { mcpSelectionKey } from "../lib/catalogUtils";
 import { errorMessage, pickPreferred } from "../lib/utils";
 import { pickSelectedSkillKey } from "../skillUtils";
 import type {
@@ -23,7 +24,6 @@ import type {
   RuntimeControls,
   SubagentRecord,
   SyncState,
-  McpServerRecord,
 } from "../types";
 
 type RefreshOptions = {
@@ -61,10 +61,6 @@ type UseSyncStateResult = {
     preferredSubagentId?: string | null,
   ) => void;
 };
-
-export function mcpSelectionKey(server: McpServerRecord): string {
-  return `${server.scope}::${server.workspace ?? "global"}::${server.server_key}`;
-}
 
 function pickSubagentId(
   subagents: SubagentRecord[],

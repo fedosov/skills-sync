@@ -15,22 +15,23 @@ import { Input } from "./components/ui/input";
 import { useSkillDetails } from "./hooks/useSkillDetails";
 import { useEntityDetails } from "./hooks/useEntityDetails";
 import { useFavorites } from "./hooks/useFavorites";
-import { useSyncState, mcpSelectionKey } from "./hooks/useSyncState";
+import { useSyncState } from "./hooks/useSyncState";
 import {
   toTitleCase,
   subagentStatus,
   mcpStatus,
-  statusRank,
-  sortAndFilter,
   syncStatusVariant,
   warningMentionsServer,
   syncWarningFixSummary,
   isFixableSyncWarning,
-  severityRank,
   severityDotClass,
   readStoredFocusKind,
   mcpTarget,
   mcpDeleteLabel,
+  mcpSelectionKey,
+  sortAndFilterAgentEntries,
+  sortAndFilterMcpServers,
+  sortAndFilterSubagents,
   CATALOG_FOCUS_STORAGE_KEY,
 } from "./lib/catalogUtils";
 import { cn, errorMessage } from "./lib/utils";
@@ -288,71 +289,20 @@ export function App() {
 
   const filteredSubagents = useMemo(() => {
     const q = focusKind === "subagents" ? query : "";
-    const favSet = favorites.subagents;
-    const favRank = (id: string) => (favSet.has(id) ? 0 : 1);
-    return sortAndFilter(
-      subagents,
-      q,
-      (lhs, rhs) =>
-        statusRank(subagentStatus(lhs)) - statusRank(subagentStatus(rhs)) ||
-        favRank(lhs.id) - favRank(rhs.id) ||
-        lhs.name.localeCompare(rhs.name) ||
-        lhs.scope.localeCompare(rhs.scope) ||
-        (lhs.workspace ?? "").localeCompare(rhs.workspace ?? ""),
-      (item) => [
-        item.name,
-        item.subagent_key,
-        item.scope,
-        item.workspace ?? "",
-        item.description,
-      ],
-    );
+    return sortAndFilterSubagents(subagents, q, favorites.subagents);
   }, [favorites.subagents, focusKind, query, subagents]);
 
   const filteredMcpServers = useMemo(() => {
     const q = focusKind === "mcp" ? query : "";
-    const mcpFavSet = favorites.mcp;
-    const mcpFavRank = (server: McpServerRecord) =>
-      mcpFavSet.has(mcpSelectionKey(server)) ? 0 : 1;
-    return sortAndFilter(
-      state?.mcp_servers ?? [],
-      q,
-      (lhs, rhs) =>
-        statusRank(mcpStatus(lhs)) - statusRank(mcpStatus(rhs)) ||
-        mcpFavRank(lhs) - mcpFavRank(rhs) ||
-        lhs.server_key.localeCompare(rhs.server_key) ||
-        lhs.scope.localeCompare(rhs.scope) ||
-        (lhs.workspace ?? "").localeCompare(rhs.workspace ?? ""),
-      (item) => [
-        item.server_key,
-        item.scope,
-        item.workspace ?? "",
-        item.transport,
-        item.command ?? "",
-        item.url ?? "",
-      ],
-    );
+    return sortAndFilterMcpServers(state?.mcp_servers ?? [], q, favorites.mcp);
   }, [favorites.mcp, focusKind, query, state]);
 
   const filteredAgentEntries = useMemo(() => {
     const q = focusKind === "agents" ? query : "";
-    const agentFavSet = favorites.agents;
-    const agentFavRank = (id: string) => (agentFavSet.has(id) ? 0 : 1);
-    return sortAndFilter(
+    return sortAndFilterAgentEntries(
       agentsReport?.entries ?? [],
       q,
-      (lhs, rhs) =>
-        severityRank(rhs.severity) - severityRank(lhs.severity) ||
-        agentFavRank(lhs.id) - agentFavRank(rhs.id) ||
-        lhs.scope.localeCompare(rhs.scope) ||
-        (lhs.workspace ?? "").localeCompare(rhs.workspace ?? "") ||
-        lhs.root_path.localeCompare(rhs.root_path),
-      (entry) => [
-        entry.root_path,
-        entry.scope,
-        entry.workspace ?? "",
-        entry.severity,
-      ],
+      favorites.agents,
     );
   }, [agentsReport, favorites.agents, focusKind, query]);
 

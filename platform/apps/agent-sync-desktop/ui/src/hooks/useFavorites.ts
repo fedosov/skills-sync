@@ -20,6 +20,10 @@ function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 function emptyFavoritesData(): FavoritesData {
   return {
     subagents: [...EMPTY_FAVORITES_DATA.subagents],
@@ -33,16 +37,14 @@ function parseFavoriteIds(value: unknown): string[] {
 }
 
 function parseFavoritesData(value: unknown): FavoritesData {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return emptyFavoritesData();
   }
 
-  const parsed = value as Partial<Record<FavoritesKind, unknown>>;
-
   return {
-    subagents: parseFavoriteIds(parsed.subagents),
-    mcp: parseFavoriteIds(parsed.mcp),
-    agents: parseFavoriteIds(parsed.agents),
+    subagents: parseFavoriteIds(value.subagents),
+    mcp: parseFavoriteIds(value.mcp),
+    agents: parseFavoriteIds(value.agents),
   };
 }
 

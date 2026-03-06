@@ -1,4 +1,5 @@
 import type {
+  AgentContextEntry,
   AgentContextSeverity,
   AuditEventStatus,
   CatalogMutationTarget,
@@ -183,6 +184,10 @@ export function mcpDeleteLabel(server: McpServerRecord): string {
   return `MCP server "${server.server_key}" (Global)`;
 }
 
+export function mcpSelectionKey(server: McpServerRecord): string {
+  return `${server.scope}::${server.workspace ?? "global"}::${server.server_key}`;
+}
+
 export function sortAndFilter<T>(
   items: T[],
   query: string,
@@ -194,5 +199,89 @@ export function sortAndFilter<T>(
   if (!q) return ordered;
   return ordered.filter((item) =>
     searchFields(item).some((field) => field.toLowerCase().includes(q)),
+  );
+}
+
+function favoriteRank(favorites: Set<string>, key: string): number {
+  return favorites.has(key) ? 0 : 1;
+}
+
+function compareNullableText(
+  lhs: string | null | undefined,
+  rhs: string | null | undefined,
+): number {
+  return (lhs ?? "").localeCompare(rhs ?? "");
+}
+
+export function sortAndFilterSubagents(
+  subagents: SubagentRecord[],
+  query: string,
+  favoriteIds: Set<string>,
+): SubagentRecord[] {
+  return sortAndFilter(
+    subagents,
+    query,
+    (lhs, rhs) =>
+      statusRank(subagentStatus(lhs)) - statusRank(subagentStatus(rhs)) ||
+      favoriteRank(favoriteIds, lhs.id) - favoriteRank(favoriteIds, rhs.id) ||
+      lhs.name.localeCompare(rhs.name) ||
+      lhs.scope.localeCompare(rhs.scope) ||
+      compareNullableText(lhs.workspace, rhs.workspace),
+    (item) => [
+      item.name,
+      item.subagent_key,
+      item.scope,
+      item.workspace ?? "",
+      item.description,
+    ],
+  );
+}
+
+export function sortAndFilterMcpServers(
+  servers: McpServerRecord[],
+  query: string,
+  favoriteIds: Set<string>,
+): McpServerRecord[] {
+  return sortAndFilter(
+    servers,
+    query,
+    (lhs, rhs) =>
+      statusRank(mcpStatus(lhs)) - statusRank(mcpStatus(rhs)) ||
+      favoriteRank(favoriteIds, mcpSelectionKey(lhs)) -
+        favoriteRank(favoriteIds, mcpSelectionKey(rhs)) ||
+      lhs.server_key.localeCompare(rhs.server_key) ||
+      lhs.scope.localeCompare(rhs.scope) ||
+      compareNullableText(lhs.workspace, rhs.workspace),
+    (item) => [
+      item.server_key,
+      item.scope,
+      item.workspace ?? "",
+      item.transport,
+      item.command ?? "",
+      item.url ?? "",
+    ],
+  );
+}
+
+export function sortAndFilterAgentEntries(
+  entries: AgentContextEntry[],
+  query: string,
+  favoriteIds: Set<string>,
+): AgentContextEntry[] {
+  return sortAndFilter(
+    entries,
+    query,
+    (lhs, rhs) =>
+      severityRank(rhs.severity) - severityRank(lhs.severity) ||
+      favoriteRank(favoriteIds, lhs.id) - favoriteRank(favoriteIds, rhs.id) ||
+      lhs.scope.localeCompare(rhs.scope) ||
+      compareNullableText(lhs.workspace, rhs.workspace) ||
+      lhs.root_path.localeCompare(rhs.root_path),
+    (entry) => [
+      entry.root_path,
+      entry.scope,
+      entry.workspace ?? "",
+      entry.severity,
+    ],
   );
 }

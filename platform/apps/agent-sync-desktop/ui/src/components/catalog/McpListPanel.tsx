@@ -1,4 +1,3 @@
-import { mcpSelectionKey } from "../../hooks/useSyncState";
 import { getVisibleMcpAgents } from "../../lib/mcpAgents";
 import { cn } from "../../lib/utils";
 import type { McpServerRecord } from "../../types";
@@ -6,7 +5,7 @@ import { AgentLogoIcon } from "./AgentLogoIcon";
 import { ScopeGroupedCatalog } from "./ScopeGroupedCatalog";
 import { ScopeMarker } from "./ScopeMarker";
 import { StarIcon } from "../ui/StarIcon";
-import { mcpStatus } from "../../lib/catalogUtils";
+import { mcpSelectionKey, mcpStatus } from "../../lib/catalogUtils";
 
 type McpListPanelProps = {
   servers: McpServerRecord[];
