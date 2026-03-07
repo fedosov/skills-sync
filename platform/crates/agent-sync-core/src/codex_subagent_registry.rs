@@ -77,83 +77,105 @@ impl CodexSubagentRegistryWriter {
         }
 
         for (config_path, group) in by_config {
-            let base_dir = config_path.parent().ok_or_else(|| {
-                CodexSubagentRegistryError::WriteFailed("invalid config path".into())
-            })?;
-            std::fs::create_dir_all(base_dir)
-                .map_err(|e| CodexSubagentRegistryError::WriteFailed(e.to_string()))?;
-            let agents_dir = base_dir.join("agents");
-            std::fs::create_dir_all(&agents_dir)
-                .map_err(|e| CodexSubagentRegistryError::WriteFailed(e.to_string()))?;
-
-            let mut deduped_group = Vec::new();
-            let mut seen_keys = HashSet::new();
-            for item in group {
-                if seen_keys.insert(item.subagent_key.clone()) {
-                    deduped_group.push(item);
-                }
-            }
-
-            let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
-            let unmanaged = strip_managed_blocks(&existing, &SUBAGENT_MANAGED_MARKER_PAIRS);
-            let unmanaged_agents = extract_unmanaged_agent_keys(&unmanaged);
-            let mut agents_table = toml::Table::new();
-            let mut skipped_keys: BTreeSet<String> = BTreeSet::new();
-            for item in deduped_group {
-                if unmanaged_agents.contains(&item.subagent_key) {
-                    skipped_keys.insert(item.subagent_key);
-                    continue;
-                }
-
-                let cfg_file = agents_dir.join(format!("{}.toml", item.subagent_key));
-                let cfg_rel = format!("agents/{}.toml", item.subagent_key);
-                self.write_subagent_config(&cfg_file, &item)?;
-                let mut agent_entry = toml::Table::new();
-                agent_entry.insert(
-                    "description".into(),
-                    toml::Value::String(item.description.clone()),
-                );
-                agent_entry.insert("config_file".into(), toml::Value::String(cfg_rel));
-                agents_table.insert(item.subagent_key.clone(), toml::Value::Table(agent_entry));
-            }
-
-            let role_toml = if agents_table.is_empty() {
-                String::new()
-            } else {
-                let mut root = toml::Table::new();
-                root.insert("agents".into(), toml::Value::Table(agents_table));
-                toml::to_string(&root)
-                    .expect("BUG: invalid TOML table")
-                    .trim_end()
-                    .to_string()
-            };
-
-            let mut body_lines = Vec::new();
-            for key in skipped_keys {
-                body_lines.push(format!(
-                    "# Skipped managed subagent '{}' because unmanaged agents.{} table already exists",
-                    key, key
-                ));
-            }
-            if !body_lines.is_empty() && !role_toml.is_empty() {
-                body_lines.push(String::new());
-            }
-            if !role_toml.is_empty() {
-                body_lines.push(role_toml);
-            }
-
-            let updated = self.upsert_managed_subagent_block(&unmanaged, &body_lines.join("\n"));
-            toml::from_str::<toml::Table>(&updated).map_err(|error| {
-                CodexSubagentRegistryError::WriteFailed(format!(
-                    "generated invalid TOML for {}: {error}",
-                    config_path.display()
-                ))
-            })?;
-            std::fs::write(config_path, updated)
-                .map_err(|e| CodexSubagentRegistryError::WriteFailed(e.to_string()))?;
+            self.process_config_file(&config_path, group)?;
         }
 
         Ok(())
+    }
+
+    fn process_config_file(
+        &self,
+        config_path: &Path,
+        group: Vec<CodexSubagentConfigEntry>,
+    ) -> Result<(), CodexSubagentRegistryError> {
+        let base_dir = config_path
+            .parent()
+            .ok_or_else(|| CodexSubagentRegistryError::WriteFailed("invalid config path".into()))?;
+        std::fs::create_dir_all(base_dir)
+            .map_err(|e| CodexSubagentRegistryError::WriteFailed(e.to_string()))?;
+        let agents_dir = base_dir.join("agents");
+        std::fs::create_dir_all(&agents_dir)
+            .map_err(|e| CodexSubagentRegistryError::WriteFailed(e.to_string()))?;
+
+        let mut deduped_group = Vec::new();
+        let mut seen_keys = HashSet::new();
+        for item in group {
+            if seen_keys.insert(item.subagent_key.clone()) {
+                deduped_group.push(item);
+            }
+        }
+
+        let existing = std::fs::read_to_string(config_path).unwrap_or_default();
+        let unmanaged = strip_managed_blocks(&existing, &SUBAGENT_MANAGED_MARKER_PAIRS);
+        let unmanaged_agents = extract_unmanaged_agent_keys(&unmanaged);
+
+        let (agents_table, skipped_keys) =
+            self.build_agents_toml_block(&agents_dir, deduped_group, &unmanaged_agents)?;
+
+        let role_toml = if agents_table.is_empty() {
+            String::new()
+        } else {
+            let mut root = toml::Table::new();
+            root.insert("agents".into(), toml::Value::Table(agents_table));
+            toml::to_string(&root)
+                .expect("BUG: invalid TOML table")
+                .trim_end()
+                .to_string()
+        };
+
+        let mut body_lines = Vec::new();
+        for key in skipped_keys {
+            body_lines.push(format!(
+                "# Skipped managed subagent '{}' because unmanaged agents.{} table already exists",
+                key, key
+            ));
+        }
+        if !body_lines.is_empty() && !role_toml.is_empty() {
+            body_lines.push(String::new());
+        }
+        if !role_toml.is_empty() {
+            body_lines.push(role_toml);
+        }
+
+        let updated = self.upsert_managed_subagent_block(&unmanaged, &body_lines.join("\n"));
+        toml::from_str::<toml::Table>(&updated).map_err(|error| {
+            CodexSubagentRegistryError::WriteFailed(format!(
+                "generated invalid TOML for {}: {error}",
+                config_path.display()
+            ))
+        })?;
+        std::fs::write(config_path, updated)
+            .map_err(|e| CodexSubagentRegistryError::WriteFailed(e.to_string()))?;
+
+        Ok(())
+    }
+
+    fn build_agents_toml_block(
+        &self,
+        agents_dir: &Path,
+        entries: Vec<CodexSubagentConfigEntry>,
+        unmanaged_agents: &BTreeSet<String>,
+    ) -> Result<(toml::Table, BTreeSet<String>), CodexSubagentRegistryError> {
+        let mut agents_table = toml::Table::new();
+        let mut skipped_keys: BTreeSet<String> = BTreeSet::new();
+        for item in entries {
+            if unmanaged_agents.contains(&item.subagent_key) {
+                skipped_keys.insert(item.subagent_key);
+                continue;
+            }
+
+            let cfg_file = agents_dir.join(format!("{}.toml", item.subagent_key));
+            let cfg_rel = format!("agents/{}.toml", item.subagent_key);
+            self.write_subagent_config(&cfg_file, &item)?;
+            let mut agent_entry = toml::Table::new();
+            agent_entry.insert(
+                "description".into(),
+                toml::Value::String(item.description.clone()),
+            );
+            agent_entry.insert("config_file".into(), toml::Value::String(cfg_rel));
+            agents_table.insert(item.subagent_key.clone(), toml::Value::Table(agent_entry));
+        }
+        Ok((agents_table, skipped_keys))
     }
 
     fn find_managed_config_candidates(&self) -> Vec<PathBuf> {
