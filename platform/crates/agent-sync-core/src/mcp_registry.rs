@@ -860,25 +860,7 @@ impl McpRegistry {
             )));
         };
 
-        let mut enabled = McpEnabledByAgent {
-            codex: false,
-            claude: false,
-            project: false,
-        };
-        for item in &related {
-            if item.entry.enabled_by_agent.codex && item.enabled {
-                enabled.codex = true;
-            }
-            if item.entry.enabled_by_agent.claude && item.enabled {
-                enabled.claude = true;
-            }
-            if item.entry.enabled_by_agent.project && item.enabled {
-                enabled.project = true;
-            }
-        }
-        if primary.entry.scope == McpScope::Global {
-            enabled.project = false;
-        }
+        let enabled = aggregate_enabled_flags(&related, primary.entry.scope);
 
         let mut entry = primary.entry.clone();
         entry.enabled_by_agent = enabled;
@@ -897,6 +879,32 @@ impl McpRegistry {
         Ok(())
     }
 
+    fn mutate_catalog_entries_for_server(
+        &self,
+        server_key: &str,
+        stale_error: String,
+        mutate: impl Fn(&mut CatalogEntry) -> bool,
+    ) -> Result<(), SyncEngineError> {
+        let mut warnings = Vec::new();
+        let mut catalog = self.load_central_catalog(&mut warnings)?;
+        let mut updated_count = 0usize;
+
+        for entry in catalog.values_mut() {
+            if entry.server_key != server_key {
+                continue;
+            }
+            if mutate(entry) {
+                updated_count += 1;
+            }
+        }
+
+        if updated_count == 0 {
+            return Err(SyncEngineError::Unsupported(stale_error));
+        }
+
+        self.write_central_catalog(&catalog)
+    }
+
     fn fix_inline_secret_env_warning(
         &self,
         server_key: &str,
@@ -908,31 +916,21 @@ impl McpRegistry {
             )));
         }
 
-        let mut warnings = Vec::new();
-        let mut catalog = self.load_central_catalog(&mut warnings)?;
-        let mut updated_count = 0usize;
-
-        for entry in catalog.values_mut() {
-            if entry.server_key != server_key {
-                continue;
-            }
-            let Some(value) = entry.definition.env.get_mut(env_key) else {
-                continue;
-            };
-            if value.starts_with("${") {
-                continue;
-            }
-            *value = format!("${{{env_key}}}");
-            updated_count += 1;
-        }
-
-        if updated_count == 0 {
-            return Err(SyncEngineError::Unsupported(format!(
-                "warning is stale (inline secret env key not found): server={server_key}, key={env_key}"
-            )));
-        }
-
-        self.write_central_catalog(&catalog)
+        let env_key = env_key.to_owned();
+        self.mutate_catalog_entries_for_server(
+            server_key,
+            format!("warning is stale (inline secret env key not found): server={server_key}, key={env_key}"),
+            move |entry| {
+                let Some(value) = entry.definition.env.get_mut(&env_key) else {
+                    return false;
+                };
+                if value.starts_with("${") {
+                    return false;
+                }
+                *value = format!("${{{env_key}}}");
+                true
+            },
+        )
     }
 
     fn fix_skipped_managed_codex_warning(
@@ -966,36 +964,28 @@ impl McpRegistry {
             )));
         }
 
-        let mut warnings = Vec::new();
-        let mut catalog = self.load_central_catalog(&mut warnings)?;
-        let mut updated_count = 0usize;
-
-        for entry in catalog.values_mut() {
-            if entry.server_key != server_key {
-                continue;
-            }
-            for arg in &mut entry.definition.args {
-                let Some(redacted) = redact_secret_like_arg(arg) else {
-                    continue;
-                };
-                if redacted != redacted_argument {
-                    continue;
+        let redacted_argument = redacted_argument.to_owned();
+        self.mutate_catalog_entries_for_server(
+            server_key,
+            format!("warning is stale (inline secret argument not found): server={server_key}, arg={redacted_argument}"),
+            move |entry| {
+                let mut matched = false;
+                for arg in &mut entry.definition.args {
+                    let Some(redacted) = redact_secret_like_arg(arg) else {
+                        continue;
+                    };
+                    if redacted != redacted_argument {
+                        continue;
+                    }
+                    let Some((arg_key, _)) = arg.split_once('=') else {
+                        continue;
+                    };
+                    *arg = format!("{arg_key}=${{{env_key}}}");
+                    matched = true;
                 }
-                let Some((arg_key, _)) = arg.split_once('=') else {
-                    continue;
-                };
-                *arg = format!("{arg_key}=${{{env_key}}}");
-                updated_count += 1;
-            }
-        }
-
-        if updated_count == 0 {
-            return Err(SyncEngineError::Unsupported(format!(
-                "warning is stale (inline secret argument not found): server={server_key}, arg={redacted_argument}"
-            )));
-        }
-
-        self.write_central_catalog(&catalog)
+                matched
+            },
+        )
     }
 
     fn fix_missing_project_target_warning(&self, file_path: &str) -> Result<(), SyncEngineError> {
@@ -3837,6 +3827,29 @@ fn secret_arg_env_key(arg_key: &str) -> String {
     } else {
         normalized
     }
+}
+
+fn aggregate_enabled_flags(items: &[&Discovered], scope: McpScope) -> McpEnabledByAgent {
+    let mut enabled = McpEnabledByAgent {
+        codex: false,
+        claude: false,
+        project: false,
+    };
+    for item in items {
+        if item.entry.enabled_by_agent.codex && item.enabled {
+            enabled.codex = true;
+        }
+        if item.entry.enabled_by_agent.claude && item.enabled {
+            enabled.claude = true;
+        }
+        if item.entry.enabled_by_agent.project && item.enabled {
+            enabled.project = true;
+        }
+    }
+    if scope == McpScope::Global {
+        enabled.project = false;
+    }
+    enabled
 }
 
 fn source_label(source: SourceKind) -> &'static str {
