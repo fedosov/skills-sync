@@ -1371,113 +1371,52 @@ impl SyncEngine {
         let mut subagent_entries: Vec<SubagentRecord> = Vec::new();
         let mut codex_subagent_entries: Vec<CodexSubagentConfigEntry> = Vec::new();
 
-        for (skill_key, package) in &global_canonical {
-            let mut target_paths = Vec::new();
-            for target_root in self.global_targets() {
-                let target = target_root.join(skill_key);
-                if standardized_path(&target) == standardized_path(&package.canonical_path) {
-                    target_paths.push(target.display().to_string());
-                    continue;
-                }
-
-                self.create_or_update_symlink(&target, &package.canonical_path)?;
-                new_managed_links.insert(standardized_path(&target));
-                target_paths.push(target.display().to_string());
-            }
-            entries.push(self.create_skill_entry("global", None, skill_key, package, target_paths));
-        }
+        self.sync_skill_scope(
+            &global_canonical,
+            &self.global_targets(),
+            "global",
+            None,
+            &mut new_managed_links,
+            &mut entries,
+        )?;
 
         for workspace in &workspaces {
             let Some(canonical) = project_resolved_by_workspace.get(workspace) else {
                 continue;
             };
-            let target_roots = self.project_targets(workspace);
-            for (skill_key, package) in canonical {
-                let mut target_paths = Vec::new();
-                for target_root in &target_roots {
-                    let target = target_root.join(skill_key);
-                    if standardized_path(&target) == standardized_path(&package.canonical_path) {
-                        target_paths.push(target.display().to_string());
-                        continue;
-                    }
-
-                    self.create_or_update_symlink(&target, &package.canonical_path)?;
-                    new_managed_links.insert(standardized_path(&target));
-                    target_paths.push(target.display().to_string());
-                }
-
-                entries.push(self.create_skill_entry(
-                    "project",
-                    Some(workspace.display().to_string()),
-                    skill_key,
-                    package,
-                    target_paths,
-                ));
-            }
+            self.sync_skill_scope(
+                canonical,
+                &self.project_targets(workspace),
+                "project",
+                Some(workspace),
+                &mut new_managed_links,
+                &mut entries,
+            )?;
         }
 
-        for (subagent_key, package) in &global_subagent_canonical {
-            let mut target_paths = Vec::new();
-            for target_root in self.global_subagent_targets() {
-                let target = target_root.join(format!("{subagent_key}.md"));
-                if standardized_path(&target) == standardized_path(&package.canonical_path) {
-                    target_paths.push(target.display().to_string());
-                    continue;
-                }
-                self.create_or_update_symlink(&target, &package.canonical_path)?;
-                new_subagent_managed_links.insert(standardized_path(&target));
-                target_paths.push(target.display().to_string());
-            }
-            subagent_entries.push(self.create_subagent_entry(
-                "global",
-                None,
-                subagent_key,
-                package,
-                target_paths,
-            ));
-            codex_subagent_entries.push(CodexSubagentConfigEntry {
-                scope: "global".to_string(),
-                workspace: None,
-                subagent_key: subagent_key.clone(),
-                description: package.description.clone(),
-                prompt: package.body.clone(),
-                model: package.model.clone(),
-            });
-        }
+        self.sync_subagent_scope(
+            &global_subagent_canonical,
+            &self.global_subagent_targets(),
+            "global",
+            None,
+            &mut new_subagent_managed_links,
+            &mut subagent_entries,
+            &mut codex_subagent_entries,
+        )?;
 
         for workspace in &workspaces {
             let Some(canonical) = project_subagent_resolved_by_workspace.get(workspace) else {
                 continue;
             };
-            let target_roots = self.project_subagent_targets(workspace);
-            for (subagent_key, package) in canonical {
-                let mut target_paths = Vec::new();
-                for target_root in &target_roots {
-                    let target = target_root.join(format!("{subagent_key}.md"));
-                    if standardized_path(&target) == standardized_path(&package.canonical_path) {
-                        target_paths.push(target.display().to_string());
-                        continue;
-                    }
-                    self.create_or_update_symlink(&target, &package.canonical_path)?;
-                    new_subagent_managed_links.insert(standardized_path(&target));
-                    target_paths.push(target.display().to_string());
-                }
-                subagent_entries.push(self.create_subagent_entry(
-                    "project",
-                    Some(workspace.display().to_string()),
-                    subagent_key,
-                    package,
-                    target_paths,
-                ));
-                codex_subagent_entries.push(CodexSubagentConfigEntry {
-                    scope: "project".to_string(),
-                    workspace: Some(workspace.display().to_string()),
-                    subagent_key: subagent_key.clone(),
-                    description: package.description.clone(),
-                    prompt: package.body.clone(),
-                    model: package.model.clone(),
-                });
-            }
+            self.sync_subagent_scope(
+                canonical,
+                &self.project_subagent_targets(workspace),
+                "project",
+                Some(workspace),
+                &mut new_subagent_managed_links,
+                &mut subagent_entries,
+                &mut codex_subagent_entries,
+            )?;
         }
 
         self.cleanup_stale_links(&old_managed_links, &new_managed_links);
@@ -1563,6 +1502,81 @@ impl SyncEngine {
             archived_original_scope: None,
             archived_original_workspace: None,
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn sync_skill_scope(
+        &self,
+        canonical: &BTreeMap<String, SkillPackage>,
+        target_roots: &[PathBuf],
+        scope: &str,
+        workspace: Option<&Path>,
+        managed_links: &mut HashSet<String>,
+        entries: &mut Vec<SkillRecord>,
+    ) -> Result<(), SyncEngineError> {
+        for (skill_key, package) in canonical {
+            let mut target_paths = Vec::new();
+            for target_root in target_roots {
+                let target = target_root.join(skill_key);
+                if standardized_path(&target) == standardized_path(&package.canonical_path) {
+                    target_paths.push(target.display().to_string());
+                    continue;
+                }
+                self.create_or_update_symlink(&target, &package.canonical_path)?;
+                managed_links.insert(standardized_path(&target));
+                target_paths.push(target.display().to_string());
+            }
+            entries.push(self.create_skill_entry(
+                scope,
+                workspace.map(|w| w.display().to_string()),
+                skill_key,
+                package,
+                target_paths,
+            ));
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn sync_subagent_scope(
+        &self,
+        canonical: &BTreeMap<String, SubagentPackage>,
+        target_roots: &[PathBuf],
+        scope: &str,
+        workspace: Option<&Path>,
+        managed_links: &mut HashSet<String>,
+        subagent_entries: &mut Vec<SubagentRecord>,
+        codex_entries: &mut Vec<CodexSubagentConfigEntry>,
+    ) -> Result<(), SyncEngineError> {
+        for (subagent_key, package) in canonical {
+            let mut target_paths = Vec::new();
+            for target_root in target_roots {
+                let target = target_root.join(format!("{subagent_key}.md"));
+                if standardized_path(&target) == standardized_path(&package.canonical_path) {
+                    target_paths.push(target.display().to_string());
+                    continue;
+                }
+                self.create_or_update_symlink(&target, &package.canonical_path)?;
+                managed_links.insert(standardized_path(&target));
+                target_paths.push(target.display().to_string());
+            }
+            subagent_entries.push(self.create_subagent_entry(
+                scope,
+                workspace.map(|w| w.display().to_string()),
+                subagent_key,
+                package,
+                target_paths,
+            ));
+            codex_entries.push(CodexSubagentConfigEntry {
+                scope: scope.to_string(),
+                workspace: workspace.map(|w| w.display().to_string()),
+                subagent_key: subagent_key.clone(),
+                description: package.description.clone(),
+                prompt: package.body.clone(),
+                model: package.model.clone(),
+            });
+        }
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2066,91 +2080,105 @@ impl SyncEngine {
 
         let mut canonical_by_key = BTreeMap::new();
         for (skill_key, options) in by_key {
-            let hashes: HashSet<String> = options
-                .iter()
-                .map(|item| item.package_hash.clone())
-                .collect();
-            if hashes.len() > 1 {
-                return Err(SyncEngineError::conflicts(vec![SyncConflict {
-                    kind: SyncConflictKind::Skill,
-                    scope: scope.to_string(),
-                    workspace: workspace.map(|item| item.display().to_string()),
-                    skill_key,
-                }]));
+            if let Some(package) = self.migrate_single_skill_to_canonical(
+                &skill_key,
+                &options,
+                scope,
+                workspace,
+                &canonical_root,
+            )? {
+                canonical_by_key.insert(skill_key, package);
             }
-
-            let desired = canonical_root.join(&skill_key);
-            if let Some(parent) = desired.parent() {
-                fs::create_dir_all(parent).map_err(|e| SyncEngineError::io(parent, e))?;
-            }
-
-            let selected = options.iter().min_by(|lhs, rhs| {
-                self.source_priority(scope, lhs, workspace)
-                    .cmp(&self.source_priority(scope, rhs, workspace))
-                    .then_with(|| lhs.canonical_path.cmp(&rhs.canonical_path))
-            });
-
-            let Some(selected) = selected else {
-                continue;
-            };
-            let selected_path = selected.canonical_path.clone();
-            let selected_skill_key = selected.skill_key.clone();
-            let selected_package_hash = selected.package_hash.clone();
-
-            if standardized_path(&selected_path) != standardized_path(&desired)
-                && path_exists_or_symlink(&selected_path)
-            {
-                if path_exists_or_symlink(&desired) {
-                    if is_symlink(&desired) || desired.is_dir() {
-                        remove_path(&desired)?;
-                    } else {
-                        return Err(SyncEngineError::MigrationFailed {
-                            skill_key,
-                            reason: format!("canonical path occupied: {}", desired.display()),
-                        });
-                    }
-                }
-
-                fs::rename(&selected_path, &desired).map_err(|e| {
-                    SyncEngineError::MigrationFailed {
-                        skill_key: selected_skill_key.clone(),
-                        reason: e.to_string(),
-                    }
-                })?;
-            }
-
-            for option in options {
-                if standardized_path(&option.canonical_path) == standardized_path(&desired) {
-                    continue;
-                }
-                if !path_exists_or_symlink(&option.canonical_path) {
-                    continue;
-                }
-                self.create_or_update_symlink(&option.canonical_path, &desired)
-                    .map_err(|error| SyncEngineError::MigrationFailed {
-                        skill_key: option.skill_key.clone(),
-                        reason: error.to_string(),
-                    })?;
-            }
-
-            canonical_by_key.insert(
-                skill_key.clone(),
-                SkillPackage {
-                    source_root: canonical_root.clone(),
-                    skill_key: skill_key.clone(),
-                    name: desired
-                        .file_name()
-                        .and_then(OsStr::to_str)
-                        .unwrap_or(&skill_key)
-                        .to_string(),
-                    canonical_path: desired,
-                    package_type: String::from("dir"),
-                    package_hash: selected_package_hash,
-                },
-            );
         }
 
         Ok(canonical_by_key)
+    }
+
+    fn migrate_single_skill_to_canonical(
+        &self,
+        skill_key: &str,
+        options: &[SkillPackage],
+        scope: &str,
+        workspace: Option<&Path>,
+        canonical_root: &Path,
+    ) -> Result<Option<SkillPackage>, SyncEngineError> {
+        let hashes: HashSet<String> = options
+            .iter()
+            .map(|item| item.package_hash.clone())
+            .collect();
+        if hashes.len() > 1 {
+            return Err(SyncEngineError::conflicts(vec![SyncConflict {
+                kind: SyncConflictKind::Skill,
+                scope: scope.to_string(),
+                workspace: workspace.map(|item| item.display().to_string()),
+                skill_key: skill_key.to_string(),
+            }]));
+        }
+
+        let desired = canonical_root.join(skill_key);
+        if let Some(parent) = desired.parent() {
+            fs::create_dir_all(parent).map_err(|e| SyncEngineError::io(parent, e))?;
+        }
+
+        let selected = options.iter().min_by(|lhs, rhs| {
+            self.source_priority(scope, lhs, workspace)
+                .cmp(&self.source_priority(scope, rhs, workspace))
+                .then_with(|| lhs.canonical_path.cmp(&rhs.canonical_path))
+        });
+
+        let Some(selected) = selected else {
+            return Ok(None);
+        };
+        let selected_path = selected.canonical_path.clone();
+        let selected_skill_key = selected.skill_key.clone();
+        let selected_package_hash = selected.package_hash.clone();
+
+        if standardized_path(&selected_path) != standardized_path(&desired)
+            && path_exists_or_symlink(&selected_path)
+        {
+            if path_exists_or_symlink(&desired) {
+                if is_symlink(&desired) || desired.is_dir() {
+                    remove_path(&desired)?;
+                } else {
+                    return Err(SyncEngineError::MigrationFailed {
+                        skill_key: skill_key.to_string(),
+                        reason: format!("canonical path occupied: {}", desired.display()),
+                    });
+                }
+            }
+
+            fs::rename(&selected_path, &desired).map_err(|e| SyncEngineError::MigrationFailed {
+                skill_key: selected_skill_key.clone(),
+                reason: e.to_string(),
+            })?;
+        }
+
+        for option in options {
+            if standardized_path(&option.canonical_path) == standardized_path(&desired) {
+                continue;
+            }
+            if !path_exists_or_symlink(&option.canonical_path) {
+                continue;
+            }
+            self.create_or_update_symlink(&option.canonical_path, &desired)
+                .map_err(|error| SyncEngineError::MigrationFailed {
+                    skill_key: option.skill_key.clone(),
+                    reason: error.to_string(),
+                })?;
+        }
+
+        Ok(Some(SkillPackage {
+            source_root: canonical_root.to_path_buf(),
+            skill_key: skill_key.to_string(),
+            name: desired
+                .file_name()
+                .and_then(OsStr::to_str)
+                .unwrap_or(skill_key)
+                .to_string(),
+            canonical_path: desired,
+            package_type: String::from("dir"),
+            package_hash: selected_package_hash,
+        }))
     }
 
     fn dotagents_adapter(&self) -> DotagentsAdapter {
