@@ -283,108 +283,14 @@ impl McpRegistry {
         if catalog.is_empty() {
             catalog = self.bootstrap_catalog(&discovered, &mut warnings);
         } else {
-            let mut stale_codex_removals: BTreeMap<PathBuf, BTreeSet<String>> = BTreeMap::new();
-            let mut stale_claude_removals: BTreeMap<
-                (PathBuf, ClaudeJsonTargetLocation),
-                BTreeSet<String>,
-            > = BTreeMap::new();
-
-            for item in &discovered {
-                if !catalog.contains_key(&item.entry.catalog_id) {
-                    let managed_elsewhere = catalog.values().any(|e| {
-                        e.server_key == item.entry.server_key
-                            && e.status == SkillLifecycleStatus::Active
-                    });
-
-                    if managed_elsewhere {
-                        match item.source {
-                            SourceKind::CodexGlobal | SourceKind::ProjectCodex => {
-                                stale_codex_removals
-                                    .entry(item.file_path.clone())
-                                    .or_default()
-                                    .insert(item.entry.server_key.clone());
-                            }
-                            SourceKind::ClaudeUserGlobal => {
-                                stale_claude_removals
-                                    .entry((item.file_path.clone(), ClaudeJsonTargetLocation::Root))
-                                    .or_default()
-                                    .insert(item.entry.server_key.clone());
-                            }
-                            SourceKind::ClaudeUserProject => {
-                                if let Some(workspace) = &item.entry.workspace {
-                                    stale_claude_removals
-                                        .entry((
-                                            item.file_path.clone(),
-                                            ClaudeJsonTargetLocation::Project {
-                                                workspace: workspace.clone(),
-                                            },
-                                        ))
-                                        .or_default()
-                                        .insert(item.entry.server_key.clone());
-                                }
-                            }
-                            _ => {
-                                let unmanaged_warning = format!(
-                                    "MCP server '{}' ({}) exists in {} but is unmanaged in central catalog",
-                                    item.entry.server_key,
-                                    item.entry.catalog_id,
-                                    item.file_path.display()
-                                );
-                                warnings.push(unmanaged_warning.clone());
-                                let entry = unmanaged_entries
-                                    .entry(item.entry.server_key.clone())
-                                    .or_insert_with(|| (item.entry.clone(), Vec::new()));
-                                entry.1.push(unmanaged_warning);
-                            }
-                        }
-                    } else {
-                        let unmanaged_warning = format!(
-                            "MCP server '{}' ({}) exists in {} but is unmanaged in central catalog",
-                            item.entry.server_key,
-                            item.entry.catalog_id,
-                            item.file_path.display()
-                        );
-                        warnings.push(unmanaged_warning.clone());
-                        let entry = unmanaged_entries
-                            .entry(item.entry.server_key.clone())
-                            .or_insert_with(|| (item.entry.clone(), Vec::new()));
-                        entry.1.push(unmanaged_warning.clone());
-                        if let Some(candidate) = build_broken_unmanaged_claude_candidate(item) {
-                            let broken_warning =
-                                format_broken_unmanaged_claude_warning(&candidate.output);
-                            warnings.push(broken_warning.clone());
-                            entry.1.push(broken_warning);
-                        }
-                    }
-                }
-            }
-
-            for (path, keys) in &stale_codex_removals {
-                for key in keys {
-                    if let Err(error) = self.remove_unmanaged_codex_server_entry(path, key) {
-                        warnings.push(format!(
-                            "Failed to auto-clean stale Codex MCP '{}' from {}: {}",
-                            key,
-                            path.display(),
-                            error
-                        ));
-                    }
-                }
-            }
-
-            for ((path, location), keys) in &stale_claude_removals {
-                match self.remove_claude_json_server_keys(path, location, keys, &mut warnings) {
-                    Ok(count) if count > 0 => {}
-                    Ok(_) => {}
-                    Err(error) => {
-                        warnings.push(format!(
-                            "Failed to auto-clean stale Claude MCP entries from {}: {}",
-                            path.display(),
-                            error
-                        ));
-                    }
-                }
-            }
+            let (stale_codex_removals, stale_claude_removals, discovered_unmanaged) =
+                reconcile_discovered_against_catalog(&catalog, &discovered, &mut warnings);
+            unmanaged_entries = discovered_unmanaged;
+            self.auto_clean_stale_entries(
+                &stale_codex_removals,
+                &stale_claude_removals,
+                &mut warnings,
+            );
         }
         self.reconcile_claude_enabled(&mut catalog, &discovered, &previous_manifest, &mut warnings);
         let observed_codex = self.load_managed_codex_observed(workspaces, &mut warnings);
@@ -440,126 +346,15 @@ impl McpRegistry {
         let global_claude_target = self.effective_global_claude_target_path();
         let claude_user_path = self.claude_user_config_path();
 
-        let mut json_plans: Vec<JsonWritePlan> = Vec::new();
-        for item in catalog.values() {
-            if item.status == SkillLifecycleStatus::Active
-                && item.scope == McpScope::Global
-                && item.enabled_by_agent.claude
-            {
-                push_json_plan_entry(
-                    &mut json_plans,
-                    &global_claude_target,
-                    JsonTargetLocation::Root,
-                    true,
-                    JsonCatalogEntry {
-                        locator: locator_for_entry(item),
-                        server_key: item.server_key.clone(),
-                        definition: item.definition.clone(),
-                    },
-                );
-            }
+        let json_plans =
+            build_claude_json_plans(&catalog, &global_claude_target, &claude_user_path);
 
-            if item.status != SkillLifecycleStatus::Active
-                || item.scope != McpScope::Project
-                || !item.enabled_by_agent.project
-                || !item.enabled_by_agent.claude
-            {
-                continue;
-            }
-
-            let Some(workspace) = item.workspace.as_ref() else {
-                continue;
-            };
-            match item.project_claude_target {
-                ProjectClaudeTarget::WorkspaceMcpJson => {
-                    let project_path = PathBuf::from(workspace).join(".mcp.json");
-                    push_json_plan_entry(
-                        &mut json_plans,
-                        &project_path,
-                        JsonTargetLocation::Root,
-                        false,
-                        JsonCatalogEntry {
-                            locator: locator_for_entry(item),
-                            server_key: item.server_key.clone(),
-                            definition: item.definition.clone(),
-                        },
-                    );
-                }
-                ProjectClaudeTarget::ClaudeUserProject => {
-                    push_json_plan_entry(
-                        &mut json_plans,
-                        &claude_user_path,
-                        JsonTargetLocation::Project {
-                            workspace: workspace.clone(),
-                        },
-                        true,
-                        JsonCatalogEntry {
-                            locator: locator_for_entry(item),
-                            server_key: item.server_key.clone(),
-                            definition: item.definition.clone(),
-                        },
-                    );
-                }
-            }
-        }
-
-        let mut touched_json_locations = HashSet::new();
-        for plan in &json_plans {
-            let path_key = plan.path.display().to_string();
-            let previous_for_path = previous_manifest
-                .targets
-                .get(&path_key)
-                .cloned()
-                .unwrap_or_default();
-            let previous_for_location = filter_manifest_locators_for_location(
-                &plan.path,
-                &plan.location,
-                &previous_for_path,
-            );
-
-            if !plan.path.exists() && !plan.create_when_missing {
-                if !plan.entries.is_empty() || !previous_for_location.is_empty() {
-                    warnings.push(format!(
-                        "Skipped project MCP target {} because file does not exist",
-                        plan.path.display()
-                    ));
-                }
-                continue;
-            }
-
-            let locators = self.apply_json_catalog_path(
-                &plan.path,
-                &plan.location,
-                &plan.entries,
-                previous_for_location,
-                plan.create_when_missing,
-                &mut warnings,
-            )?;
-            append_manifest_targets(&mut new_manifest.targets, &path_key, locators);
-            touched_json_locations.insert(json_location_key(&path_key, &plan.location));
-        }
-
-        for (path_key, locators) in &previous_manifest.targets {
-            if !path_key.ends_with(".json") {
-                continue;
-            }
-            let path = PathBuf::from(path_key);
-            let groups = group_locators_by_location(&path, locators);
-            for (location, group_locators) in groups {
-                let location_key = json_location_key(path_key, &location);
-                if touched_json_locations.contains(&location_key) {
-                    continue;
-                }
-                let _ = self.apply_json_catalog_path(
-                    &path,
-                    &location,
-                    &[],
-                    group_locators,
-                    false,
-                    &mut warnings,
-                )?;
-            }
-        }
+        self.apply_json_plans_and_cleanup(
+            &json_plans,
+            &previous_manifest,
+            &mut new_manifest,
+            &mut warnings,
+        )?;
 
         for workspace in workspaces {
             let workspace_key = workspace.display().to_string();
@@ -616,79 +411,15 @@ impl McpRegistry {
 
         self.save_manifest(&new_manifest)?;
 
-        let mut records = catalog
-            .into_values()
-            .map(|entry| {
-                let targets = build_targets(
-                    &self.codex_config_path(),
-                    &global_claude_target,
-                    &claude_user_path,
-                    &entry,
-                );
-                let mut record_warnings =
-                    detect_inline_secret_warnings(&entry.server_key, &entry.definition);
-                warnings.extend(record_warnings.clone());
-                let CatalogEntry {
-                    server_key,
-                    scope,
-                    workspace,
-                    definition,
-                    enabled_by_agent,
-                    status,
-                    archived_at,
-                    ..
-                } = entry;
-                McpServerRecord {
-                    server_key,
-                    scope: scope.as_str().to_string(),
-                    workspace,
-                    transport: definition.transport,
-                    command: definition.command,
-                    args: definition.args,
-                    url: definition.url,
-                    env: definition.env,
-                    enabled_by_agent,
-                    targets: if status == SkillLifecycleStatus::Active {
-                        targets
-                    } else {
-                        Vec::new()
-                    },
-                    warnings: {
-                        record_warnings.sort();
-                        record_warnings.dedup();
-                        record_warnings
-                    },
-                    status,
-                    archived_at,
-                }
-            })
-            .collect::<Vec<_>>();
-
-        for (server_key, (entry, entry_warnings)) in unmanaged_entries {
-            records.push(McpServerRecord {
-                server_key,
-                scope: entry.scope.as_str().to_string(),
-                workspace: entry.workspace,
-                transport: entry.definition.transport,
-                command: entry.definition.command,
-                args: entry.definition.args,
-                url: entry.definition.url,
-                env: entry.definition.env,
-                enabled_by_agent: entry.enabled_by_agent,
-                targets: Vec::new(),
-                warnings: entry_warnings,
-                status: SkillLifecycleStatus::Unmanaged,
-                archived_at: None,
-            });
-        }
-
-        records.sort_by(|lhs, rhs| {
-            status_sort_rank(&lhs.status)
-                .cmp(&status_sort_rank(&rhs.status))
-                .then_with(|| lhs.server_key.cmp(&rhs.server_key))
-                .then_with(|| lhs.scope.cmp(&rhs.scope))
-                .then_with(|| lhs.workspace.cmp(&rhs.workspace))
-        });
+        let codex_config_path = self.codex_config_path();
+        let records = build_output_records(
+            catalog,
+            unmanaged_entries,
+            &codex_config_path,
+            &global_claude_target,
+            &claude_user_path,
+            &mut warnings,
+        );
 
         warnings.sort();
         warnings.dedup();
@@ -2578,6 +2309,355 @@ impl McpRegistry {
 
         Ok(())
     }
+
+    fn auto_clean_stale_entries(
+        &self,
+        stale_codex_removals: &BTreeMap<PathBuf, BTreeSet<String>>,
+        stale_claude_removals: &BTreeMap<(PathBuf, ClaudeJsonTargetLocation), BTreeSet<String>>,
+        warnings: &mut Vec<String>,
+    ) {
+        for (path, keys) in stale_codex_removals {
+            for key in keys {
+                if let Err(error) = self.remove_unmanaged_codex_server_entry(path, key) {
+                    warnings.push(format!(
+                        "Failed to auto-clean stale Codex MCP '{}' from {}: {}",
+                        key,
+                        path.display(),
+                        error
+                    ));
+                }
+            }
+        }
+
+        for ((path, location), keys) in stale_claude_removals {
+            match self.remove_claude_json_server_keys(path, location, keys, warnings) {
+                Ok(_) => {}
+                Err(error) => {
+                    warnings.push(format!(
+                        "Failed to auto-clean stale Claude MCP entries from {}: {}",
+                        path.display(),
+                        error
+                    ));
+                }
+            }
+        }
+    }
+
+    fn apply_json_plans_and_cleanup(
+        &self,
+        json_plans: &[JsonWritePlan],
+        previous_manifest: &McpManifest,
+        new_manifest: &mut McpManifest,
+        warnings: &mut Vec<String>,
+    ) -> Result<(), SyncEngineError> {
+        let mut touched_json_locations = HashSet::new();
+        for plan in json_plans {
+            let path_key = plan.path.display().to_string();
+            let previous_for_path = previous_manifest
+                .targets
+                .get(&path_key)
+                .cloned()
+                .unwrap_or_default();
+            let previous_for_location = filter_manifest_locators_for_location(
+                &plan.path,
+                &plan.location,
+                &previous_for_path,
+            );
+
+            if !plan.path.exists() && !plan.create_when_missing {
+                if !plan.entries.is_empty() || !previous_for_location.is_empty() {
+                    warnings.push(format!(
+                        "Skipped project MCP target {} because file does not exist",
+                        plan.path.display()
+                    ));
+                }
+                continue;
+            }
+
+            let locators = self.apply_json_catalog_path(
+                &plan.path,
+                &plan.location,
+                &plan.entries,
+                previous_for_location,
+                plan.create_when_missing,
+                warnings,
+            )?;
+            append_manifest_targets(&mut new_manifest.targets, &path_key, locators);
+            touched_json_locations.insert(json_location_key(&path_key, &plan.location));
+        }
+
+        for (path_key, locators) in &previous_manifest.targets {
+            if !path_key.ends_with(".json") {
+                continue;
+            }
+            let path = PathBuf::from(path_key);
+            let groups = group_locators_by_location(&path, locators);
+            for (location, group_locators) in groups {
+                let location_key = json_location_key(path_key, &location);
+                if touched_json_locations.contains(&location_key) {
+                    continue;
+                }
+                let _ = self.apply_json_catalog_path(
+                    &path,
+                    &location,
+                    &[],
+                    group_locators,
+                    false,
+                    warnings,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[allow(clippy::type_complexity)]
+fn reconcile_discovered_against_catalog(
+    catalog: &BTreeMap<String, CatalogEntry>,
+    discovered: &[Discovered],
+    warnings: &mut Vec<String>,
+) -> (
+    BTreeMap<PathBuf, BTreeSet<String>>,
+    BTreeMap<(PathBuf, ClaudeJsonTargetLocation), BTreeSet<String>>,
+    BTreeMap<String, (CatalogEntry, Vec<String>)>,
+) {
+    let mut stale_codex_removals: BTreeMap<PathBuf, BTreeSet<String>> = BTreeMap::new();
+    let mut stale_claude_removals: BTreeMap<(PathBuf, ClaudeJsonTargetLocation), BTreeSet<String>> =
+        BTreeMap::new();
+    let mut unmanaged_entries: BTreeMap<String, (CatalogEntry, Vec<String>)> = BTreeMap::new();
+
+    for item in discovered {
+        if catalog.contains_key(&item.entry.catalog_id) {
+            continue;
+        }
+
+        let managed_elsewhere = catalog.values().any(|e| {
+            e.server_key == item.entry.server_key && e.status == SkillLifecycleStatus::Active
+        });
+
+        if !managed_elsewhere {
+            let unmanaged_warning = format!(
+                "MCP server '{}' ({}) exists in {} but is unmanaged in central catalog",
+                item.entry.server_key,
+                item.entry.catalog_id,
+                item.file_path.display()
+            );
+            warnings.push(unmanaged_warning.clone());
+            let entry = unmanaged_entries
+                .entry(item.entry.server_key.clone())
+                .or_insert_with(|| (item.entry.clone(), Vec::new()));
+            entry.1.push(unmanaged_warning.clone());
+            if let Some(candidate) = build_broken_unmanaged_claude_candidate(item) {
+                let broken_warning = format_broken_unmanaged_claude_warning(&candidate.output);
+                warnings.push(broken_warning.clone());
+                entry.1.push(broken_warning);
+            }
+            continue;
+        }
+
+        match item.source {
+            SourceKind::CodexGlobal | SourceKind::ProjectCodex => {
+                stale_codex_removals
+                    .entry(item.file_path.clone())
+                    .or_default()
+                    .insert(item.entry.server_key.clone());
+            }
+            SourceKind::ClaudeUserGlobal => {
+                stale_claude_removals
+                    .entry((item.file_path.clone(), ClaudeJsonTargetLocation::Root))
+                    .or_default()
+                    .insert(item.entry.server_key.clone());
+            }
+            SourceKind::ClaudeUserProject => {
+                if let Some(workspace) = &item.entry.workspace {
+                    stale_claude_removals
+                        .entry((
+                            item.file_path.clone(),
+                            ClaudeJsonTargetLocation::Project {
+                                workspace: workspace.clone(),
+                            },
+                        ))
+                        .or_default()
+                        .insert(item.entry.server_key.clone());
+                }
+            }
+            _ => {
+                let unmanaged_warning = format!(
+                    "MCP server '{}' ({}) exists in {} but is unmanaged in central catalog",
+                    item.entry.server_key,
+                    item.entry.catalog_id,
+                    item.file_path.display()
+                );
+                warnings.push(unmanaged_warning.clone());
+                let entry = unmanaged_entries
+                    .entry(item.entry.server_key.clone())
+                    .or_insert_with(|| (item.entry.clone(), Vec::new()));
+                entry.1.push(unmanaged_warning);
+            }
+        }
+    }
+
+    (
+        stale_codex_removals,
+        stale_claude_removals,
+        unmanaged_entries,
+    )
+}
+
+fn build_claude_json_plans(
+    catalog: &BTreeMap<String, CatalogEntry>,
+    global_claude_target: &Path,
+    claude_user_path: &Path,
+) -> Vec<JsonWritePlan> {
+    let mut json_plans: Vec<JsonWritePlan> = Vec::new();
+    for item in catalog.values() {
+        if item.status == SkillLifecycleStatus::Active
+            && item.scope == McpScope::Global
+            && item.enabled_by_agent.claude
+        {
+            push_json_plan_entry(
+                &mut json_plans,
+                global_claude_target,
+                JsonTargetLocation::Root,
+                true,
+                JsonCatalogEntry {
+                    locator: locator_for_entry(item),
+                    server_key: item.server_key.clone(),
+                    definition: item.definition.clone(),
+                },
+            );
+        }
+
+        if item.status != SkillLifecycleStatus::Active
+            || item.scope != McpScope::Project
+            || !item.enabled_by_agent.project
+            || !item.enabled_by_agent.claude
+        {
+            continue;
+        }
+
+        let Some(workspace) = item.workspace.as_ref() else {
+            continue;
+        };
+        match item.project_claude_target {
+            ProjectClaudeTarget::WorkspaceMcpJson => {
+                let project_path = PathBuf::from(workspace).join(".mcp.json");
+                push_json_plan_entry(
+                    &mut json_plans,
+                    &project_path,
+                    JsonTargetLocation::Root,
+                    false,
+                    JsonCatalogEntry {
+                        locator: locator_for_entry(item),
+                        server_key: item.server_key.clone(),
+                        definition: item.definition.clone(),
+                    },
+                );
+            }
+            ProjectClaudeTarget::ClaudeUserProject => {
+                push_json_plan_entry(
+                    &mut json_plans,
+                    claude_user_path,
+                    JsonTargetLocation::Project {
+                        workspace: workspace.clone(),
+                    },
+                    true,
+                    JsonCatalogEntry {
+                        locator: locator_for_entry(item),
+                        server_key: item.server_key.clone(),
+                        definition: item.definition.clone(),
+                    },
+                );
+            }
+        }
+    }
+    json_plans
+}
+
+fn build_output_records(
+    catalog: BTreeMap<String, CatalogEntry>,
+    unmanaged_entries: BTreeMap<String, (CatalogEntry, Vec<String>)>,
+    codex_config_path: &Path,
+    global_claude_target: &Path,
+    claude_user_path: &Path,
+    warnings: &mut Vec<String>,
+) -> Vec<McpServerRecord> {
+    let mut records = catalog
+        .into_values()
+        .map(|entry| {
+            let targets = build_targets(
+                codex_config_path,
+                global_claude_target,
+                claude_user_path,
+                &entry,
+            );
+            let mut record_warnings =
+                detect_inline_secret_warnings(&entry.server_key, &entry.definition);
+            warnings.extend(record_warnings.clone());
+            let CatalogEntry {
+                server_key,
+                scope,
+                workspace,
+                definition,
+                enabled_by_agent,
+                status,
+                archived_at,
+                ..
+            } = entry;
+            McpServerRecord {
+                server_key,
+                scope: scope.as_str().to_string(),
+                workspace,
+                transport: definition.transport,
+                command: definition.command,
+                args: definition.args,
+                url: definition.url,
+                env: definition.env,
+                enabled_by_agent,
+                targets: if status == SkillLifecycleStatus::Active {
+                    targets
+                } else {
+                    Vec::new()
+                },
+                warnings: {
+                    record_warnings.sort();
+                    record_warnings.dedup();
+                    record_warnings
+                },
+                status,
+                archived_at,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    for (server_key, (entry, entry_warnings)) in unmanaged_entries {
+        records.push(McpServerRecord {
+            server_key,
+            scope: entry.scope.as_str().to_string(),
+            workspace: entry.workspace,
+            transport: entry.definition.transport,
+            command: entry.definition.command,
+            args: entry.definition.args,
+            url: entry.definition.url,
+            env: entry.definition.env,
+            enabled_by_agent: entry.enabled_by_agent,
+            targets: Vec::new(),
+            warnings: entry_warnings,
+            status: SkillLifecycleStatus::Unmanaged,
+            archived_at: None,
+        });
+    }
+
+    records.sort_by(|lhs, rhs| {
+        status_sort_rank(&lhs.status)
+            .cmp(&status_sort_rank(&rhs.status))
+            .then_with(|| lhs.server_key.cmp(&rhs.server_key))
+            .then_with(|| lhs.scope.cmp(&rhs.scope))
+            .then_with(|| lhs.workspace.cmp(&rhs.workspace))
+    });
+
+    records
 }
 
 fn make_catalog_id(scope: McpScope, workspace: Option<&str>, server_key: &str) -> String {
