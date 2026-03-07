@@ -25,6 +25,32 @@
       "kind_counts": {
         "complex-function": 5
       }
+    },
+    {
+      "timestamp": "2026-03-07T08:23:15.87095Z",
+      "git_head": "28b78494f37c38941de6f47be0021322274d23e7",
+      "total_signals": 15,
+      "collector_counts": {
+        "apidrift": 0,
+        "complexity": 73,
+        "configdrift": 0,
+        "coupling": 2,
+        "deadcode": 110,
+        "dephealth": 0,
+        "docstale": 0,
+        "duplication": 200,
+        "github": 0,
+        "githygiene": 7203,
+        "gitlog": 21,
+        "lotteryrisk": 4,
+        "patterns": 64,
+        "todos": 0,
+        "vuln": 0
+      },
+      "kind_counts": {
+        "complex-function": 11,
+        "large-binary": 4
+      }
     }
   ]
 }
