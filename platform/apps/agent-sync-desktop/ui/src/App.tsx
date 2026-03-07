@@ -4,31 +4,28 @@ import { McpListPanel } from "./components/catalog/McpListPanel";
 import { SkillListPanel } from "./components/catalog/SkillListPanel";
 import { SubagentListPanel } from "./components/catalog/SubagentListPanel";
 import { AuditLogDialog } from "./components/AuditLogDialog";
+import { AppHeader } from "./components/AppHeader";
+import { SyncWarningsBanner } from "./components/SyncWarningsBanner";
+import { DeleteConfirmDialog } from "./components/DeleteConfirmDialog";
 import { AgentsDetailsPanel } from "./components/details/AgentsDetailsPanel";
 import { McpDetailsPanel } from "./components/details/McpDetailsPanel";
 import { SkillDetailsPanel } from "./components/details/SkillDetailsPanel";
 import { SubagentDetailsPanel } from "./components/details/SubagentDetailsPanel";
-import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
-import { Input } from "./components/ui/input";
 import { useSkillDetails } from "./hooks/useSkillDetails";
 import { useEntityDetails } from "./hooks/useEntityDetails";
 import { useFavorites } from "./hooks/useFavorites";
 import { useSyncState } from "./hooks/useSyncState";
+import { useDotagentsVerification } from "./hooks/useDotagentsVerification";
+import { useSyncWarnings } from "./hooks/useSyncWarnings";
+import { useAppMenuState } from "./hooks/useAppMenuState";
 import {
-  toTitleCase,
   subagentStatus,
   mcpStatus,
-  syncStatusVariant,
-  warningMentionsServer,
-  syncWarningFixSummary,
-  isFixableSyncWarning,
-  severityDotClass,
   readStoredFocusKind,
   mcpTarget,
   mcpDeleteLabel,
-  mcpSelectionKey,
   sortAndFilterAgentEntries,
   sortAndFilterMcpServers,
   sortAndFilterSubagents,
@@ -37,17 +34,12 @@ import {
 import { cn, errorMessage } from "./lib/utils";
 import {
   deleteUnmanagedMcp,
-  fixSyncWarning,
   getSubagentDetails,
-  listDotagentsMcp,
-  listDotagentsSkills,
-  migrateDotagents,
   mutateCatalogItem,
   mutateSkill,
   openSubagentPath,
   openSkillPath,
   renameSkill,
-  runDotagentsSync,
   setAllowFilesystemChanges,
   setSkillStarred,
   setMcpServerEnabled,
@@ -60,14 +52,6 @@ import type {
   MutationCommand,
 } from "./types";
 
-type DeleteDialogState = {
-  request: CatalogMutationRequest | null;
-  label: string;
-  onConfirmOverride?: () => Promise<void>;
-} | null;
-type OpenTargetMenu = "skill" | "subagent" | null;
-type ActionsMenuTarget = "skill" | "subagent" | "mcp" | null;
-type DotagentsProofStatus = "idle" | "running" | "ok" | "error";
 type CatalogProjectGroupState = Record<
   FocusKind,
   Record<string, boolean | undefined>
@@ -78,8 +62,6 @@ type AppActionOptions = {
   skipIfBusy?: boolean;
   withBusy?: boolean;
 };
-const DOTAGENTS_MIGRATION_REQUIRED =
-  "migration required before strict dotagents sync";
 const FILESYSTEM_DISABLED_MESSAGE =
   "Filesystem changes are disabled. Enable 'Allow filesystem changes' first.";
 const EMPTY_PROJECT_GROUP_STATE: CatalogProjectGroupState = {
@@ -88,25 +70,6 @@ const EMPTY_PROJECT_GROUP_STATE: CatalogProjectGroupState = {
   mcp: {},
   agents: {},
 };
-
-function renderSyncWarningText(warning: string) {
-  const term = "central catalog";
-  const replacement = "Central Catalog (~/.config/ai-agents/config.toml)";
-  const index = warning.indexOf(term);
-  if (index === -1) {
-    return warning;
-  }
-
-  const before = warning.slice(0, index);
-  const after = warning.slice(index + term.length);
-  return (
-    <>
-      {before}
-      <code className="font-mono text-[11px]">{replacement}</code>
-      {after}
-    </>
-  );
-}
 
 export function App() {
   const {
@@ -153,27 +116,12 @@ export function App() {
     setError,
   );
 
-  const [auditOpen, setAuditOpen] = useState(false);
   const [focusKind, setFocusKind] = useState<FocusKind>(() =>
     readStoredFocusKind(),
   );
   const [query, setQuery] = useState("");
   const [expandedProjectGroups, setExpandedProjectGroups] =
     useState<CatalogProjectGroupState>(EMPTY_PROJECT_GROUP_STATE);
-  const [openTargetMenu, setOpenTargetMenu] = useState<OpenTargetMenu>(null);
-  const [actionsMenuTarget, setActionsMenuTarget] =
-    useState<ActionsMenuTarget>(null);
-  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>(null);
-  const [dotagentsProofStatus, setDotagentsProofStatus] =
-    useState<DotagentsProofStatus>("idle");
-  const [dotagentsProofSummary, setDotagentsProofSummary] = useState(
-    "Dotagents check not run yet.",
-  );
-  const [dotagentsNeedsMigration, setDotagentsNeedsMigration] = useState(false);
-  const [syncWarningsExpanded, setSyncWarningsExpanded] = useState(false);
-  const [fixingSyncWarning, setFixingSyncWarning] = useState<string | null>(
-    null,
-  );
 
   async function runAppAction(
     action: () => Promise<void>,
@@ -211,36 +159,50 @@ export function App() {
     }
   }
 
-  async function handleToggleSkillStar(skillId: string) {
-    const isCurrentlyStarred = starredSkillSet.has(skillId);
-    await runAppAction(
-      async () => {
-        const next = await setSkillStarred(skillId, !isCurrentlyStarred);
-        setStarredSkillIds(next);
-      },
-      { skipIfBusy: true, withBusy: false },
-    );
-  }
+  const {
+    openTargetMenu,
+    setOpenTargetMenu,
+    actionsMenuTarget,
+    setActionsMenuTarget,
+    deleteDialog,
+    setDeleteDialog,
+    auditOpen,
+    setAuditOpen,
+    closeMenus,
+  } = useAppMenuState();
 
-  async function handleAllowToggle(allow: boolean) {
-    await runAppAction(
-      async () => {
-        const next = await setAllowFilesystemChanges(allow);
-        setRuntimeControls(next);
-        await refreshState({
-          preferredSkillKey: selectedSkillKey,
-          withBusy: false,
-        });
-      },
-      {
-        onError: async (message) => {
-          setError(message);
-          await loadRuntimeControls();
-        },
-        skipIfBusy: true,
-      },
-    );
-  }
+  const {
+    dotagentsProofStatus,
+    dotagentsProofSummary,
+    dotagentsNeedsMigration,
+    handleVerifyDotagents,
+    handleInitializeDotagents,
+  } = useDotagentsVerification({
+    runAppAction,
+    runtimeControls,
+    setError,
+    refreshState,
+    selectedSkillKey,
+    busy,
+  });
+
+  const {
+    syncWarnings,
+    syncWarningsExpanded,
+    setSyncWarningsExpanded,
+    fixingSyncWarning,
+    handleFixSyncWarning,
+    selectedMcpServer,
+    selectedMcpWarnings,
+  } = useSyncWarnings({
+    state,
+    runAppAction,
+    runtimeControls,
+    setError,
+    refreshState,
+    selectedSkillKey,
+    selectedMcpKey,
+  });
 
   useEffect(() => {
     try {
@@ -249,23 +211,6 @@ export function App() {
       // Ignore storage errors in restricted environments.
     }
   }, [focusKind]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      setOpenTargetMenu(null);
-      setActionsMenuTarget(null);
-      setDeleteDialog(null);
-      setAuditOpen(false);
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, []);
 
   useEffect(() => {
     if (!runtimeControls?.allow_filesystem_changes) {
@@ -306,35 +251,6 @@ export function App() {
     );
   }, [agentsReport, favorites.agents, focusKind, query]);
 
-  const selectedMcpServer =
-    state?.mcp_servers?.find(
-      (item) => mcpSelectionKey(item) === selectedMcpKey,
-    ) ?? null;
-  const syncWarnings = useMemo(() => {
-    const allWarnings = state?.sync.warnings ?? [];
-    const unmanagedKeys = new Set(
-      (state?.mcp_servers ?? [])
-        .filter((s) => mcpStatus(s) === "unmanaged")
-        .map((s) => s.server_key),
-    );
-    if (unmanagedKeys.size === 0) return allWarnings;
-    return allWarnings.filter(
-      (w) => ![...unmanagedKeys].some((key) => warningMentionsServer(w, key)),
-    );
-  }, [state]);
-  const selectedMcpWarnings = useMemo(() => {
-    if (!selectedMcpServer) {
-      return [];
-    }
-    const warnings = state?.sync.warnings ?? [];
-    const merged = [
-      ...selectedMcpServer.warnings,
-      ...warnings.filter((warning) =>
-        warningMentionsServer(warning, selectedMcpServer.server_key),
-      ),
-    ];
-    return Array.from(new Set(merged));
-  }, [selectedMcpServer, state?.sync.warnings]);
   const selectedAgentEntry =
     agentsReport?.entries.find((item) => item.id === selectedAgentEntryId) ??
     null;
@@ -351,6 +267,37 @@ export function App() {
       )
       .slice(0, 8);
   }, [selectedAgentEntry]);
+
+  async function handleToggleSkillStar(skillId: string) {
+    const isCurrentlyStarred = starredSkillSet.has(skillId);
+    await runAppAction(
+      async () => {
+        const next = await setSkillStarred(skillId, !isCurrentlyStarred);
+        setStarredSkillIds(next);
+      },
+      { skipIfBusy: true, withBusy: false },
+    );
+  }
+
+  async function handleAllowToggle(allow: boolean) {
+    await runAppAction(
+      async () => {
+        const next = await setAllowFilesystemChanges(allow);
+        setRuntimeControls(next);
+        await refreshState({
+          preferredSkillKey: selectedSkillKey,
+          withBusy: false,
+        });
+      },
+      {
+        onError: async (message) => {
+          setError(message);
+          await loadRuntimeControls();
+        },
+        skipIfBusy: true,
+      },
+    );
+  }
 
   async function executeSkillMutation(
     command: MutationCommand,
@@ -470,113 +417,8 @@ export function App() {
     });
   }
 
-  async function handleFixSyncWarning(warning: string) {
-    if (!runtimeControls?.allow_filesystem_changes) {
-      setError(FILESYSTEM_DISABLED_MESSAGE);
-      return;
-    }
-    if (fixingSyncWarning) {
-      return;
-    }
-
-    setFixingSyncWarning(warning);
-    try {
-      await runAppAction(
-        async () => {
-          await fixSyncWarning(warning);
-          await refreshState({
-            preferredSkillKey: selectedSkillKey,
-            syncFirst: false,
-            withBusy: false,
-          });
-        },
-        { skipIfBusy: true },
-      );
-    } finally {
-      setFixingSyncWarning(null);
-    }
-  }
-
-  async function verifyDotagentsContracts() {
-    await runDotagentsSync("all");
-    const [skills, mcp] = await Promise.all([
-      listDotagentsSkills("all"),
-      listDotagentsMcp("all"),
-    ]);
-    setDotagentsProofStatus("ok");
-    setDotagentsProofSummary(
-      `Dotagents verified: skills=${skills.length}, mcp=${mcp.length}.`,
-    );
-    await refreshState({
-      preferredSkillKey: selectedSkillKey,
-      withBusy: false,
-    });
-  }
-
-  function applyDotagentsVerificationError(message: string) {
-    const migrationRequired = message
-      .toLowerCase()
-      .includes(DOTAGENTS_MIGRATION_REQUIRED);
-    setDotagentsNeedsMigration(migrationRequired);
-    setDotagentsProofStatus("error");
-    setDotagentsProofSummary(
-      migrationRequired
-        ? "Dotagents contracts are missing. Run Initialize dotagents."
-        : `Dotagents check failed: ${message}`,
-    );
-    setError(message);
-  }
-
-  async function handleVerifyDotagents() {
-    if (!runtimeControls?.allow_filesystem_changes) {
-      setError(FILESYSTEM_DISABLED_MESSAGE);
-      return;
-    }
-
-    setDotagentsNeedsMigration(false);
-    setDotagentsProofStatus("running");
-    setDotagentsProofSummary("Verifying dotagents commands...");
-    await runAppAction(verifyDotagentsContracts, {
-      onError: applyDotagentsVerificationError,
-      skipIfBusy: true,
-    });
-  }
-
-  async function handleInitializeDotagents() {
-    if (!runtimeControls?.allow_filesystem_changes) {
-      setError(FILESYSTEM_DISABLED_MESSAGE);
-      return;
-    }
-
-    setDotagentsNeedsMigration(false);
-    setDotagentsProofStatus("running");
-    setDotagentsProofSummary("Initializing dotagents contracts...");
-    await runAppAction(
-      async () => {
-        await migrateDotagents("all");
-        setDotagentsProofSummary("Verifying dotagents commands...");
-        await verifyDotagentsContracts();
-      },
-      {
-        onError: (message) => {
-          setDotagentsProofStatus("error");
-          setDotagentsProofSummary(
-            `Dotagents initialization failed: ${message}`,
-          );
-          setError(message);
-        },
-        skipIfBusy: true,
-      },
-    );
-  }
-
   function handleCatalogTabChange(next: FocusKind) {
     setFocusKind(next);
-    setActionsMenuTarget(null);
-    setOpenTargetMenu(null);
-  }
-
-  function closeMenus() {
     setActionsMenuTarget(null);
     setOpenTargetMenu(null);
   }
@@ -639,160 +481,33 @@ export function App() {
   const showSubagent = focusKind === "subagents" && subagentDetails;
   const showMcp = focusKind === "mcp" && selectedMcpServer;
   const showAgents = focusKind === "agents" && selectedAgentEntry;
-  const dotagentsIndicatorColors: Record<string, string> = {
-    ok: "bg-emerald-400",
-    running: "bg-amber-400",
-    error: "bg-red-400",
-  };
-  const dotagentsIndicatorClass = cn(
-    "inline-block h-2 w-2 rounded-full",
-    dotagentsIndicatorColors[dotagentsProofStatus] ?? "bg-muted-foreground/40",
-  );
-  const agentsTotals = agentsReport?.totals;
-  const agentsIndicatorClass = severityDotClass(agentsTotals?.severity ?? "ok");
 
   return (
     <div className="min-h-full bg-background text-foreground lg:h-screen lg:overflow-hidden">
       <div className="mx-auto flex min-h-full max-w-[1500px] flex-col gap-3 p-3 lg:h-full lg:min-h-0 lg:p-4">
-        <header className="shrink-0 border-b border-border/60 px-1 pb-3">
-          <div className="flex flex-wrap items-start justify-between gap-2.5">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <h1 className="text-base font-semibold tracking-tight text-dense">
-                  Agent Sync
-                </h1>
-                <Badge variant={syncStatusVariant(state?.sync.status)}>
-                  {toTitleCase(state?.sync.status ?? "unknown")}
-                </Badge>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Active {activeSkillCount} · Archived {archivedSkillCount} ·
-                Skills {state?.skills.length ?? 0} · Subagents A{" "}
-                {activeSubagentCount}/R {archivedSubagentCount} · MCP A{" "}
-                {activeMcpCount}/R {archivedMcpCount} · Agents{" "}
-                {agentContextCount}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy || !runtimeControls?.allow_filesystem_changes}
-                aria-label="Sync"
-                onClick={() => void handleSync()}
-              >
-                Sync
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy || !runtimeControls?.allow_filesystem_changes}
-                aria-label="Verify dotagents"
-                onClick={() => void handleVerifyDotagents()}
-              >
-                Verify dotagents
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => setAuditOpen(true)}
-              >
-                Audit log
-              </Button>
-              <div className="inline-flex items-center gap-2 rounded-md border border-border/70 px-2 py-1">
-                <span className="flex flex-col leading-tight">
-                  <span className="text-xs text-muted-foreground">Allow</span>
-                  <span className="text-[10px] text-muted-foreground/90">
-                    access to disk
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-label="Allow filesystem changes"
-                  aria-checked={
-                    runtimeControls?.allow_filesystem_changes ?? false
-                  }
-                  disabled={busy}
-                  onClick={() =>
-                    void handleAllowToggle(
-                      !(runtimeControls?.allow_filesystem_changes ?? false),
-                    )
-                  }
-                  className={cn(
-                    "relative inline-flex h-6 w-11 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
-                    runtimeControls?.allow_filesystem_changes
-                      ? "border-primary/70 bg-primary/80"
-                      : "border-border bg-muted-foreground/25",
-                  )}
-                >
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "inline-block h-4 w-4 transform rounded-full bg-background shadow-sm transition-transform",
-                      runtimeControls?.allow_filesystem_changes
-                        ? "translate-x-5"
-                        : "translate-x-1",
-                    )}
-                  />
-                </button>
-              </div>
-            </div>
-          </div>
-          {!runtimeControls?.allow_filesystem_changes ? (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Read-only mode: filesystem changes are blocked.
-            </p>
-          ) : null}
-          <p
-            className="mt-1 text-xs text-muted-foreground"
-            data-testid="dotagents-proof"
-            aria-live="polite"
-            data-status={dotagentsProofStatus}
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <span aria-hidden="true" className={dotagentsIndicatorClass} />
-              <span className="font-medium">Dotagents</span>
-              <span>{dotagentsProofSummary}</span>
-            </span>
-          </p>
-          <p
-            className="mt-1 text-xs text-muted-foreground"
-            data-testid="agents-context-indicator"
-            aria-live="polite"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <span aria-hidden="true" className={agentsIndicatorClass} />
-              <span className="font-medium">Agents context</span>
-              <span>
-                {agentsTotals
-                  ? `${agentsTotals.tokens_estimate} est · warnings ${agentsReport?.warning_count ?? 0} / critical ${agentsReport?.critical_count ?? 0}`
-                  : "loading..."}
-              </span>
-            </span>
-          </p>
-          {dotagentsNeedsMigration ? (
-            <div className="mt-1.5">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy || !runtimeControls?.allow_filesystem_changes}
-                aria-label="Initialize dotagents"
-                onClick={() => void handleInitializeDotagents()}
-              >
-                Initialize dotagents
-              </Button>
-            </div>
-          ) : null}
-          <div className="mt-2.5">
-            <Input
-              value={query}
-              placeholder="Search by name, key, scope or workspace"
-              onChange={(event) => setQuery(event.currentTarget.value)}
-            />
-          </div>
-        </header>
+        <AppHeader
+          state={state}
+          runtimeControls={runtimeControls}
+          busy={busy}
+          query={query}
+          setQuery={setQuery}
+          activeSkillCount={activeSkillCount}
+          archivedSkillCount={archivedSkillCount}
+          activeSubagentCount={activeSubagentCount}
+          archivedSubagentCount={archivedSubagentCount}
+          activeMcpCount={activeMcpCount}
+          archivedMcpCount={archivedMcpCount}
+          agentContextCount={agentContextCount}
+          agentsReport={agentsReport}
+          dotagentsProofStatus={dotagentsProofStatus}
+          dotagentsProofSummary={dotagentsProofSummary}
+          dotagentsNeedsMigration={dotagentsNeedsMigration}
+          onSync={() => void handleSync()}
+          onVerifyDotagents={() => void handleVerifyDotagents()}
+          onInitializeDotagents={() => void handleInitializeDotagents()}
+          onAuditOpen={() => setAuditOpen(true)}
+          onAllowToggle={(allow) => void handleAllowToggle(allow)}
+        />
 
         {error ? (
           <Card className="shrink-0 border-destructive/35 bg-destructive/10">
@@ -810,68 +525,15 @@ export function App() {
           </Card>
         ) : null}
 
-        {syncWarnings.length > 0 ? (
-          <Card
-            className="shrink-0 border-amber-500/40 bg-amber-500/10"
-            data-testid="sync-warning-banner"
-          >
-            <CardContent className="space-y-2 p-2 text-xs text-foreground">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-medium">
-                  {`Sync warnings (${syncWarnings.length})`}
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 px-2 text-[11px]"
-                  onClick={() => setSyncWarningsExpanded((current) => !current)}
-                >
-                  {syncWarningsExpanded ? "Hide warnings" : "Show warnings"}
-                </Button>
-              </div>
-              {syncWarningsExpanded ? (
-                <ul className="space-y-1">
-                  {syncWarnings.map((warning) => (
-                    <li
-                      key={warning}
-                      className="rounded-md border border-amber-600/35 bg-amber-500/15 p-2 text-foreground"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="min-w-0 flex-1 break-words">
-                          {renderSyncWarningText(warning)}
-                        </span>
-                        {isFixableSyncWarning(warning) ? (
-                          <div className="flex shrink-0 items-center gap-2 pl-2">
-                            <span className="max-w-[220px] text-right text-[11px] font-medium leading-tight text-foreground/90">
-                              {syncWarningFixSummary(warning)}
-                            </span>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-6 shrink-0 border-amber-600/45 bg-card/70 px-2 text-[11px] text-foreground hover:bg-amber-500/20"
-                              disabled={
-                                busy ||
-                                !runtimeControls?.allow_filesystem_changes ||
-                                fixingSyncWarning !== null
-                              }
-                              onClick={() => void handleFixSyncWarning(warning)}
-                            >
-                              {fixingSyncWarning === warning
-                                ? "Fixing..."
-                                : "Fix"}
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </CardContent>
-          </Card>
-        ) : null}
+        <SyncWarningsBanner
+          syncWarnings={syncWarnings}
+          syncWarningsExpanded={syncWarningsExpanded}
+          onToggleExpanded={() => setSyncWarningsExpanded((current) => !current)}
+          fixingSyncWarning={fixingSyncWarning}
+          busy={busy}
+          runtimeControls={runtimeControls}
+          onFixWarning={(warning) => void handleFixSyncWarning(warning)}
+        />
 
         <main className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
           <Card className="min-h-[520px] overflow-hidden lg:flex lg:h-full lg:min-h-0 lg:flex-col">
@@ -1250,47 +912,12 @@ export function App() {
         />
       ) : null}
 
-      {deleteDialog ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Confirm delete"
-            className="w-full max-w-sm rounded-md border border-border/70 bg-card p-4"
-          >
-            <h2 className="text-sm font-semibold">Confirm delete</h2>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Remove {deleteDialog.label}? This action moves files to system
-              Trash.
-            </p>
-            <div className="mt-3 flex items-center justify-end gap-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setDeleteDialog(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                disabled={busy}
-                onClick={() => {
-                  const { request, onConfirmOverride } = deleteDialog;
-                  setDeleteDialog(null);
-                  if (onConfirmOverride) {
-                    void onConfirmOverride();
-                  } else if (request) {
-                    void executeCatalogMutation(request);
-                  }
-                }}
-              >
-                Delete
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <DeleteConfirmDialog
+        deleteDialog={deleteDialog}
+        busy={busy}
+        onClose={() => setDeleteDialog(null)}
+        onConfirm={(request) => void executeCatalogMutation(request)}
+      />
     </div>
   );
 }
