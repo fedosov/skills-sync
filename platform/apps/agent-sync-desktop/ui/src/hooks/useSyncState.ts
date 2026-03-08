@@ -10,7 +10,6 @@ import {
   getAgentsContextReport,
   getRuntimeControls,
   getStarredSkillIds,
-  getState,
   listSubagents,
   loadDashboardSnapshot,
   runSync,
@@ -81,35 +80,6 @@ function pickAgentEntryId(
   previousId: string | null,
 ): string | null {
   return pickPreferred(entries, preferredId, previousId, (e) => e.id);
-}
-
-type FallbackResult = {
-  state: SyncState;
-  subagents: SubagentRecord[];
-  agentsReport: AgentsContextReport | null;
-};
-
-async function loadStateWithFallback(): Promise<FallbackResult> {
-  const [fallbackState, fallbackSubagents, fallbackReport] =
-    await Promise.allSettled([
-      getState(),
-      listSubagents("all"),
-      getAgentsContextReport(),
-    ]);
-
-  if (fallbackState.status === "rejected") {
-    throw fallbackState.reason;
-  }
-  if (fallbackSubagents.status === "rejected") {
-    throw fallbackSubagents.reason;
-  }
-
-  return {
-    state: fallbackState.value,
-    subagents: fallbackSubagents.value,
-    agentsReport:
-      fallbackReport.status === "fulfilled" ? fallbackReport.value : null,
-  };
 }
 
 export function useSyncState(): UseSyncStateResult {
@@ -243,12 +213,14 @@ export function useSyncState(): UseSyncStateResult {
         setError(errorMessage(invokeError));
 
         try {
-          const fallback = await loadStateWithFallback();
+          const fallback = await loadDashboardSnapshot();
 
           if (requestId !== refreshTokenRef.current) {
             return null;
           }
 
+          setError(null);
+          setStarredSkillIds(fallback.starredSkillIds);
           applySubagents(fallback.subagents, preferredSubagentId);
           applyAgentsReport(fallback.agentsReport);
           applyState(fallback.state, preferredSkillKey);

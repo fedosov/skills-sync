@@ -1,5 +1,5 @@
 import { renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSyncState } from "./useSyncState";
 import * as tauriApi from "../tauriApi";
 import type { DashboardSnapshot } from "../types";
@@ -7,11 +7,7 @@ import type { DashboardSnapshot } from "../types";
 vi.mock("../tauriApi", () => ({
   getRuntimeControls: vi.fn(),
   loadDashboardSnapshot: vi.fn(),
-  getAgentsContextReport: vi.fn(),
-  getStarredSkillIds: vi.fn(),
   runSync: vi.fn(),
-  getState: vi.fn(),
-  listSubagents: vi.fn(),
 }));
 
 function snapshot(version: string): DashboardSnapshot {
@@ -55,6 +51,10 @@ function snapshot(version: string): DashboardSnapshot {
 }
 
 describe("useSyncState", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("ignores stale refresh responses", async () => {
     vi.mocked(tauriApi.getRuntimeControls).mockResolvedValue({
       allow_filesystem_changes: true,
@@ -138,5 +138,27 @@ describe("useSyncState", () => {
     await waitFor(() => {
       expect(result.current.busy).toBe(false);
     });
+  });
+
+  it("retries refresh through the shared dashboard snapshot loader", async () => {
+    vi.mocked(tauriApi.getRuntimeControls).mockResolvedValue({
+      allow_filesystem_changes: true,
+      auto_watch_active: false,
+    });
+    vi.mocked(tauriApi.loadDashboardSnapshot)
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockResolvedValueOnce(snapshot("recovered"));
+
+    const { result } = renderHook(() => useSyncState());
+
+    await waitFor(() => {
+      expect(tauriApi.loadDashboardSnapshot).toHaveBeenCalledTimes(2);
+    });
+
+    await waitFor(() => {
+      expect(result.current.state?.generated_at).toBe("recovered");
+    });
+
+    expect(result.current.error).toBeNull();
   });
 });

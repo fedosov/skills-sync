@@ -53,7 +53,6 @@ export type RuntimeControls = {
   auto_watch_active: boolean;
 };
 
-export type RefreshIntervalMinutes = 0 | 5 | 15 | 30;
 export type FocusKind = "skills" | "subagents" | "mcp" | "agents";
 
 export type AuditEventStatus = "success" | "failed" | "blocked";
