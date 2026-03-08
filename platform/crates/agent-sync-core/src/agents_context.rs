@@ -749,6 +749,7 @@ mod tests {
             mcp_servers: Vec::new(),
             top_skills: Vec::new(),
             top_subagents: Vec::new(),
+            config_validations: Vec::new(),
         }
     }
 

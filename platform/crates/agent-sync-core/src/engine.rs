@@ -7,9 +7,10 @@ use crate::dotagents_runtime::DotagentsRuntimeManager;
 use crate::error::{render_json_pretty, write_json_pretty, SyncEngineError};
 use crate::mcp_registry::{McpAgent, McpRegistry, McpSyncOutcome, UnmanagedClaudeMcpFixReport};
 use crate::models::{
-    AuditEvent, AuditEventStatus, CatalogMutationAction, CatalogMutationTarget, McpServerRecord,
-    SkillLifecycleStatus, SkillRecord, SubagentRecord, SyncConflict, SyncConflictKind,
-    SyncHealthStatus, SyncMetadata, SyncState, SyncSummary, SyncTrigger,
+    AuditEvent, AuditEventStatus, CatalogMutationAction, CatalogMutationTarget,
+    ConfigValidationResult, McpServerRecord, SkillLifecycleStatus, SkillRecord, SubagentRecord,
+    SyncConflict, SyncConflictKind, SyncHealthStatus, SyncMetadata, SyncState, SyncSummary,
+    SyncTrigger,
 };
 use crate::paths::{home_dir, SyncPaths};
 use crate::settings::{AppUiState, SyncPreferencesStore};
@@ -655,6 +656,14 @@ impl SyncEngine {
             .find(|item| item.id == subagent_id)
     }
 
+    pub fn validate_configs(&self) -> Vec<ConfigValidationResult> {
+        let workspaces = self.workspace_candidates();
+        crate::config_validation::validate_all_configs(
+            &self.environment.home_directory,
+            &workspaces,
+        )
+    }
+
     pub fn mutate_catalog_item(
         &self,
         action: CatalogMutationAction,
@@ -767,7 +776,7 @@ impl SyncEngine {
                     self.environment.home_directory.clone(),
                     self.environment.runtime_directory.clone(),
                 );
-                let mcp_outcome = mcp_registry.sync(&workspaces)?;
+                let mut mcp_outcome = mcp_registry.sync(&workspaces)?;
 
                 // Final-pass dedup: guarantee no duplicate [mcp_servers.*] keys in Codex config.
                 let codex_config_path = self
@@ -779,8 +788,32 @@ impl SyncEngine {
                     McpRegistry::deduplicate_codex_toml_file(&codex_config_path)?;
                 }
 
+                // Post-sync config validation
+                let validation_results = self.validate_configs();
+                for result in &validation_results {
+                    for warning in &result.warnings {
+                        mcp_outcome.warnings.push(warning.clone());
+                    }
+                    if !result.valid_syntax {
+                        if let Some(err) = &result.syntax_error {
+                            mcp_outcome.warnings.push(format!(
+                                "Config syntax error in {}: {}",
+                                result.path.display(),
+                                err,
+                            ));
+                        }
+                    }
+                    for dup in &result.duplicate_keys {
+                        mcp_outcome.warnings.push(format!(
+                            "Duplicate MCP key '{}' in {}",
+                            dup,
+                            result.path.display(),
+                        ));
+                    }
+                }
+
                 let finished = Utc::now();
-                let state = self.make_state(
+                let mut state = self.make_state(
                     SyncHealthStatus::Ok,
                     result.entries,
                     result.subagent_entries,
@@ -791,6 +824,7 @@ impl SyncEngine {
                     finished,
                     None,
                 );
+                state.config_validations = validation_results;
                 self.store.save_state(&state)?;
                 let diff = build_audit_sync_diff(&previous_state, &state);
                 let should_record_success = should_record_audit_success(&previous_state, &diff);
@@ -1658,6 +1692,7 @@ impl SyncEngine {
             mcp_servers: mcp_outcome.records,
             top_skills: top_skill_ids,
             top_subagents: top_subagent_ids,
+            config_validations: Vec::new(),
         }
     }
 
@@ -1702,6 +1737,7 @@ impl SyncEngine {
             mcp_servers: previous.mcp_servers,
             top_skills: previous.top_skills,
             top_subagents: previous.top_subagents,
+            config_validations: Vec::new(),
         }
     }
 
@@ -3706,6 +3742,7 @@ mod tests {
             mcp_servers: Vec::new(),
             top_skills: Vec::new(),
             top_subagents: Vec::new(),
+            config_validations: Vec::new(),
         }
     }
 

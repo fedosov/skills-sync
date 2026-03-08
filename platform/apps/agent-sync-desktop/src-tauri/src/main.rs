@@ -733,6 +733,7 @@ fn main() {
             open_skill_path,
             open_subagent_path,
             get_platform_context,
+            validate_configs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running agent-sync desktop app");

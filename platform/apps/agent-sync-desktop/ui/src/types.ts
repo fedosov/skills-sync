@@ -113,6 +113,17 @@ export type McpServerRecord = {
   archived_at?: string | null;
 };
 
+export type ConfigFormat = "toml" | "json";
+
+export type ConfigValidationResult = {
+  path: string;
+  format: ConfigFormat;
+  valid_syntax: boolean;
+  syntax_error?: string | null;
+  duplicate_keys: string[];
+  warnings: string[];
+};
+
 export type SyncState = {
   version?: number;
   generated_at: string;
@@ -124,6 +135,7 @@ export type SyncState = {
   mcp_servers?: McpServerRecord[];
   top_skills?: string[];
   top_subagents?: string[];
+  config_validations?: ConfigValidationResult[];
 };
 
 export type AgentContextSeverity = "ok" | "warning" | "critical";

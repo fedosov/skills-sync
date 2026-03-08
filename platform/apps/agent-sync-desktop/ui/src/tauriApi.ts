@@ -4,6 +4,7 @@ import type {
   AuditEvent,
   AuditQuery,
   CatalogMutationRequest,
+  ConfigValidationResult,
   DashboardSnapshot,
   DotagentsScope,
   MutationCommand,
@@ -270,4 +271,8 @@ export async function openSubagentPath(
 
 export async function getPlatformContext(): Promise<PlatformContext> {
   return invoke<PlatformContext>("get_platform_context");
+}
+
+export async function validateConfigs(): Promise<ConfigValidationResult[]> {
+  return invoke<ConfigValidationResult[]>("validate_configs");
 }
