@@ -723,10 +723,6 @@ fn main() {
             fix_sync_warning,
             delete_unmanaged_mcp,
             mutate_catalog_item,
-            delete_skill,
-            archive_skill,
-            restore_skill,
-            make_global,
             rename_skill,
             get_skill_details,
             get_subagent_details,
@@ -1090,7 +1086,7 @@ mod tests {
 
         assert!(matches!(result, Err(error) if error == "watch startup failed"));
         assert!(!engine.allow_filesystem_changes());
-        assert!(ensure_write_allowed(&engine, "delete_skill").is_err());
+        assert!(ensure_write_allowed(&engine, "mutate_catalog_item").is_err());
     }
 
     #[test]
@@ -1112,6 +1108,6 @@ mod tests {
 
         assert!(matches!(result, Err(error) if error.contains("Detected 1 conflict")));
         assert!(!engine.allow_filesystem_changes());
-        assert!(ensure_write_allowed(&engine, "delete_skill").is_err());
+        assert!(ensure_write_allowed(&engine, "mutate_catalog_item").is_err());
     }
 }

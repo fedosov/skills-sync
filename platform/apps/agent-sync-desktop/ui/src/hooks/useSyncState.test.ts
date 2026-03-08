@@ -6,6 +6,9 @@ import type { DashboardSnapshot } from "../types";
 
 vi.mock("../tauriApi", () => ({
   getRuntimeControls: vi.fn(),
+  getAgentsContextReport: vi.fn(),
+  getStarredSkillIds: vi.fn(),
+  listSubagents: vi.fn(),
   loadDashboardSnapshot: vi.fn(),
   runSync: vi.fn(),
 }));
@@ -50,9 +53,42 @@ function snapshot(version: string): DashboardSnapshot {
   };
 }
 
+function agentsReport() {
+  return {
+    generated_at: "2026-03-08T00:00:00Z",
+    limits: {
+      include_max_depth: 5,
+      file_warning_tokens: 1000,
+      file_critical_tokens: 2000,
+      total_warning_tokens: 3000,
+      total_critical_tokens: 4000,
+      tokens_formula: "chars / 4",
+    },
+    totals: {
+      roots_count: 0,
+      rendered_chars: 0,
+      rendered_lines: 0,
+      tokens_estimate: 0,
+      include_count: 0,
+      missing_include_count: 0,
+      cycle_count: 0,
+      max_depth_reached_count: 0,
+      severity: "ok" as const,
+    },
+    warning_count: 0,
+    critical_count: 0,
+    entries: [],
+  };
+}
+
 describe("useSyncState", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(tauriApi.getAgentsContextReport).mockResolvedValue(
+      agentsReport(),
+    );
+    vi.mocked(tauriApi.getStarredSkillIds).mockResolvedValue([]);
+    vi.mocked(tauriApi.listSubagents).mockResolvedValue([]);
   });
 
   it("ignores stale refresh responses", async () => {
@@ -160,5 +196,33 @@ describe("useSyncState", () => {
     });
 
     expect(result.current.error).toBeNull();
+  });
+
+  it("reloads sync-first refresh through the shared dashboard snapshot loader", async () => {
+    vi.mocked(tauriApi.getRuntimeControls).mockResolvedValue({
+      allow_filesystem_changes: true,
+      auto_watch_active: false,
+    });
+    vi.mocked(tauriApi.loadDashboardSnapshot)
+      .mockResolvedValueOnce(snapshot("initial"))
+      .mockResolvedValueOnce(snapshot("after-sync"));
+    vi.mocked(tauriApi.runSync).mockResolvedValue(snapshot("ignored").state);
+
+    const { result } = renderHook(() => useSyncState());
+
+    await waitFor(() => {
+      expect(result.current.state?.generated_at).toBe("initial");
+    });
+
+    await result.current.refreshState({ syncFirst: true });
+
+    expect(tauriApi.runSync).toHaveBeenCalledTimes(1);
+    expect(tauriApi.loadDashboardSnapshot).toHaveBeenCalledTimes(2);
+    expect(tauriApi.listSubagents).not.toHaveBeenCalled();
+    expect(tauriApi.getAgentsContextReport).not.toHaveBeenCalled();
+    expect(tauriApi.getStarredSkillIds).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(result.current.state?.generated_at).toBe("after-sync");
+    });
   });
 });

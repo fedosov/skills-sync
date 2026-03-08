@@ -31,7 +31,6 @@ vi.mock("./tauriApi", () => ({
   getSubagentDetails: vi.fn(),
   listSubagents: vi.fn(),
   mutateCatalogItem: vi.fn(),
-  mutateSkill: vi.fn(),
   renameSkill: vi.fn(),
   openSkillPath: vi.fn(),
   openSubagentPath: vi.fn(),
@@ -441,7 +440,6 @@ function setApiDefaults(
   );
   vi.mocked(tauriApi.migrateDotagents).mockResolvedValue(undefined);
   vi.mocked(tauriApi.mutateCatalogItem).mockResolvedValue(state);
-  vi.mocked(tauriApi.mutateSkill).mockResolvedValue(state);
   vi.mocked(tauriApi.renameSkill).mockResolvedValue({
     state,
     renamed_skill_key: state.skills[0]?.skill_key ?? "skill",
@@ -1405,6 +1403,26 @@ describe("App quiet redesign", () => {
 
     expect(tauriApi.mutateCatalogItem).toHaveBeenCalledWith({
       action: "delete",
+      target: { kind: "skill", skillKey: projectSkill.skill_key },
+      confirmed: true,
+    });
+  });
+
+  it("makes a project skill global through shared catalog mutation", async () => {
+    const state = buildState([projectSkill]);
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Make global" }));
+
+    expect(tauriApi.mutateCatalogItem).toHaveBeenCalledWith({
+      action: "make_global",
       target: { kind: "skill", skillKey: projectSkill.skill_key },
       confirmed: true,
     });

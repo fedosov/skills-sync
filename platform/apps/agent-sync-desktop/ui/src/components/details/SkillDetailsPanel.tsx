@@ -1,10 +1,16 @@
-import { CardContent } from "../ui/card";
 import { Input } from "../ui/input";
-import { compactPath, formatUnixTime } from "../../lib/formatting";
+import { formatUnixTime } from "../../lib/formatting";
 import type { SkillDetails } from "../../types";
 import { EntityDetailHeader } from "./EntityDetailHeader";
 import { EntityActionMenus } from "./EntityActionMenus";
 import { Button } from "../ui/button";
+import {
+  DetailContent,
+  DetailPathValue,
+  DetailPreviewSection,
+  DetailSection,
+  DetailStringList,
+} from "./DetailPrimitives";
 
 type SkillDetailsPanelProps = {
   details: SkillDetails;
@@ -102,7 +108,7 @@ export function SkillDetailsPanel({
         }
       />
 
-      <CardContent className="space-y-3 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+      <DetailContent>
         <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
           <div>
             <dt className="text-muted-foreground">Workspace</dt>
@@ -128,91 +134,48 @@ export function SkillDetailsPanel({
           </div>
           <div>
             <dt className="text-muted-foreground">Main file</dt>
-            <dd className="mt-0.5 flex items-center gap-2 font-mono">
-              <span title={details.main_file_path}>
-                {compactPath(details.main_file_path)}
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                aria-label="Copy main path"
-                onClick={() =>
-                  onCopyPath(details.main_file_path, "Copy main path failed.")
-                }
-              >
-                Copy
-              </Button>
-            </dd>
+            <DetailPathValue
+              path={details.main_file_path}
+              copyAriaLabel="Copy main path"
+              onCopy={() =>
+                onCopyPath(details.main_file_path, "Copy main path failed.")
+              }
+            />
           </div>
           <div>
             <dt className="text-muted-foreground">Canonical path</dt>
-            <dd className="mt-0.5 flex items-center gap-2 font-mono">
-              <span title={details.skill.canonical_source_path}>
-                {compactPath(details.skill.canonical_source_path)}
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                aria-label="Copy canonical path"
-                onClick={() =>
-                  onCopyPath(
-                    details.skill.canonical_source_path,
-                    "Copy canonical path failed.",
-                  )
-                }
-              >
-                Copy
-              </Button>
-            </dd>
+            <DetailPathValue
+              path={details.skill.canonical_source_path}
+              copyAriaLabel="Copy canonical path"
+              onCopy={() =>
+                onCopyPath(
+                  details.skill.canonical_source_path,
+                  "Copy canonical path failed.",
+                )
+              }
+            />
           </div>
         </dl>
 
-        <section className="space-y-1.5 border-t border-border/50 pt-3">
-          <h3 className="text-xs font-semibold text-muted-foreground">
-            SKILL.md preview
-          </h3>
-          {details.main_file_body_preview ? (
-            <pre className="max-h-64 overflow-auto rounded-md bg-muted/30 p-2 font-mono text-[11px] leading-relaxed">
-              {details.main_file_body_preview}
-            </pre>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              No readable preview available.
-            </p>
-          )}
-        </section>
+        <DetailPreviewSection
+          title="SKILL.md preview"
+          preview={details.main_file_body_preview}
+          emptyText="No readable preview available."
+        />
 
-        <section className="space-y-1.5 border-t border-border/50 pt-3">
-          <h3 className="text-xs font-semibold text-muted-foreground">
-            SKILL dir tree
-          </h3>
-          {details.skill_dir_tree_preview ? (
-            <pre className="max-h-48 overflow-auto rounded-md bg-muted/30 p-2 font-mono text-[11px] leading-relaxed">
-              {details.skill_dir_tree_preview}
-            </pre>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              No readable directory tree available.
-            </p>
-          )}
-        </section>
+        <DetailPreviewSection
+          title="SKILL dir tree"
+          preview={details.skill_dir_tree_preview}
+          emptyText="No readable directory tree available."
+          maxHeightClass="max-h-48"
+        />
 
-        <section className="space-y-1.5 border-t border-border/50 pt-3">
-          <h3 className="text-xs font-semibold text-muted-foreground">
-            Targets
-          </h3>
-          {details.skill.target_paths.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No target paths.</p>
-          ) : (
-            <ul className="space-y-1 text-xs">
-              {details.skill.target_paths.map((path) => (
-                <li key={path} className="rounded-md bg-muted/20 p-2 font-mono">
-                  {path}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <DetailSection title="Targets">
+          <DetailStringList
+            items={details.skill.target_paths}
+            emptyText="No target paths."
+          />
+        </DetailSection>
 
         {details.skill.status === "active" ? (
           <form
@@ -243,7 +206,7 @@ export function SkillDetailsPanel({
             </Button>
           </form>
         ) : null}
-      </CardContent>
+      </DetailContent>
     </>
   );
 }

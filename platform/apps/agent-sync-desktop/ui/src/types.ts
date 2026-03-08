@@ -218,12 +218,6 @@ export type RenameSkillResult = {
   renamed_skill_key: string;
 };
 
-export type MutationCommand =
-  | "archive_skill"
-  | "restore_skill"
-  | "delete_skill"
-  | "make_global";
-
 export type CatalogMutationAction =
   | "archive"
   | "restore"

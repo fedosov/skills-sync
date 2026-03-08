@@ -1,153 +1,24 @@
+mod support;
+
 use agent_sync_core::{
     AuditEventStatus, CatalogMutationAction, CatalogMutationTarget, DotagentsScope, McpAgent,
-    ScopeFilter, SkillLifecycleStatus, SkillLocator, SyncEngine, SyncEngineEnvironment, SyncPaths,
-    SyncPreferencesStore, SyncStateStore, SyncTrigger,
+    ScopeFilter, SkillLifecycleStatus, SkillLocator, SyncTrigger,
 };
 use serde_json::Value as JsonValue;
-use std::ffi::OsString;
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
-use tempfile::TempDir;
-
-fn write_skill(root: &Path, key: &str, body: &str) {
-    let skill_path = root.join(key).join("SKILL.md");
-    fs::create_dir_all(skill_path.parent().expect("parent")).expect("create parent");
-    fs::write(skill_path, body).expect("write skill");
-}
-
-fn write_subagent(root: &Path, key: &str, body: &str) {
-    let subagent_path = root.join(format!("{key}.md"));
-    fs::create_dir_all(subagent_path.parent().expect("parent")).expect("create parent");
-    fs::write(subagent_path, body).expect("write subagent");
-}
-
-fn engine_in_temp(temp: &TempDir) -> SyncEngine {
-    let home = temp.path().join("home");
-    let runtime = temp.path().join("runtime");
-    let app_runtime = temp.path().join("app-runtime");
-    fs::create_dir_all(&home).expect("home");
-    fs::create_dir_all(&runtime).expect("runtime");
-    fs::create_dir_all(&app_runtime).expect("app runtime");
-
-    let env = SyncEngineEnvironment {
-        home_directory: home.clone(),
-        dev_root: home.join("Dev"),
-        worktrees_root: home.join(".codex").join("worktrees"),
-        runtime_directory: runtime,
-    };
-
-    let paths = SyncPaths::from_runtime(app_runtime);
-    let store = SyncStateStore::new(paths.clone());
-    let prefs = SyncPreferencesStore::new(paths);
-
-    SyncEngine::new(env, store, prefs)
-}
-
-fn app_settings_path(temp: &TempDir) -> std::path::PathBuf {
-    temp.path().join("app-runtime").join("app-settings.json")
-}
-
-fn write_text(path: &Path, body: &str) {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("create parent");
-    }
-    fs::write(path, body).expect("write file");
-}
-
-fn count_occurrences(body: &str, needle: &str) -> usize {
-    body.match_indices(needle).count()
-}
-
-fn dotagents_env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
-
-struct EnvVarRestore {
-    key: &'static str,
-    previous: Option<OsString>,
-}
-
-impl Drop for EnvVarRestore {
-    fn drop(&mut self) {
-        if let Some(value) = self.previous.take() {
-            std::env::set_var(self.key, value);
-        } else {
-            std::env::remove_var(self.key);
-        }
-    }
-}
-
-fn set_env_var_with_restore(key: &'static str, value: &Path) -> EnvVarRestore {
-    let previous = std::env::var_os(key);
-    std::env::set_var(key, value);
-    EnvVarRestore { key, previous }
-}
-
-fn set_env_value_with_restore(key: &'static str, value: &str) -> EnvVarRestore {
-    let previous = std::env::var_os(key);
-    std::env::set_var(key, value);
-    EnvVarRestore { key, previous }
-}
-
-fn unset_env_var_with_restore(key: &'static str) -> EnvVarRestore {
-    let previous = std::env::var_os(key);
-    std::env::remove_var(key);
-    EnvVarRestore { key, previous }
-}
-
-fn find_skill(
-    engine: &SyncEngine,
-    skill_key: &str,
-    status: Option<SkillLifecycleStatus>,
-) -> agent_sync_core::SkillRecord {
-    engine
-        .find_skill(&SkillLocator {
-            skill_key: String::from(skill_key),
-            status,
-        })
-        .expect("skill exists")
-}
-
-fn find_mcp<'a>(
-    state: &'a agent_sync_core::SyncState,
-    server_key: &str,
-    scope: &str,
-    workspace: Option<&str>,
-) -> &'a agent_sync_core::McpServerRecord {
-    state
-        .mcp_servers
-        .iter()
-        .find(|item| {
-            item.server_key == server_key
-                && item.scope == scope
-                && item.workspace.as_deref() == workspace
-        })
-        .expect("mcp record exists")
-}
-
-fn find_subagent<'a>(
-    state: &'a agent_sync_core::SyncState,
-    subagent_key: &str,
-    status: Option<SkillLifecycleStatus>,
-) -> &'a agent_sync_core::SubagentRecord {
-    state
-        .subagents
-        .iter()
-        .find(|item| {
-            item.subagent_key == subagent_key
-                && status.map(|value| item.status == value).unwrap_or(true)
-        })
-        .expect("subagent exists")
-}
+use support::{
+    count_occurrences, dotagents_env_lock, find_mcp, find_skill, find_subagent,
+    set_env_value_with_restore, set_env_var_with_restore, unset_env_var_with_restore, write_skill,
+    write_subagent, write_text, EngineHarness,
+};
 
 #[test]
 fn run_sync_builds_and_persists_state() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -188,8 +59,8 @@ fn run_sync_builds_and_persists_state() {
 
 #[test]
 fn workspace_candidates_ignore_codex_worktrees_paths() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let stable_workspace = engine
         .environment()
         .home_directory
@@ -323,8 +194,8 @@ fn workspace_candidates_ignore_codex_worktrees_paths() {
 
 #[test]
 fn run_sync_records_success_audit_event() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -348,8 +219,8 @@ fn run_sync_records_success_audit_event() {
 
 #[test]
 fn run_sync_skips_success_audit_when_no_managed_changes() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -376,8 +247,8 @@ fn run_sync_skips_success_audit_when_no_managed_changes() {
 
 #[test]
 fn run_sync_records_success_audit_when_recovering_from_failed_sync() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     let claude_skills = engine
         .environment()
@@ -426,8 +297,8 @@ fn run_sync_records_success_audit_when_recovering_from_failed_sync() {
 
 #[test]
 fn run_sync_records_success_audit_when_mcp_definition_changes_with_same_targets() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let claude_user = engine.environment().home_directory.join(".claude.json");
     let central_catalog = engine
         .environment()
@@ -473,8 +344,8 @@ fn run_sync_records_success_audit_when_mcp_definition_changes_with_same_targets(
 
 #[test]
 fn run_sync_reports_conflict_when_hashes_differ() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -513,8 +384,8 @@ fn run_sync_reports_conflict_when_hashes_differ() {
 
 #[test]
 fn rename_skill_updates_title_and_key() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -552,8 +423,8 @@ fn rename_skill_updates_title_and_key() {
 
 #[test]
 fn list_skills_filters_archived() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -574,8 +445,8 @@ fn list_skills_filters_archived() {
 
 #[test]
 fn archive_moves_skill_to_archives_and_marks_as_archived() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -588,7 +459,7 @@ fn archive_moves_skill_to_archives_and_marks_as_archived() {
     );
 
     let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
-    let active = find_skill(&engine, "alpha", Some(SkillLifecycleStatus::Active));
+    let active = find_skill(engine, "alpha", Some(SkillLifecycleStatus::Active));
 
     let state = engine.archive(&active, true).expect("archive");
     let archived = state
@@ -610,8 +481,8 @@ fn archive_moves_skill_to_archives_and_marks_as_archived() {
 
 #[test]
 fn archive_requires_confirmation() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -624,7 +495,7 @@ fn archive_requires_confirmation() {
     );
 
     let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
-    let active = find_skill(&engine, "alpha", Some(SkillLifecycleStatus::Active));
+    let active = find_skill(engine, "alpha", Some(SkillLifecycleStatus::Active));
     let error = engine.archive(&active, false).expect_err("must fail");
     assert_eq!(
         error.to_string(),
@@ -634,8 +505,8 @@ fn archive_requires_confirmation() {
 
 #[test]
 fn restore_archived_skill_returns_it_back_to_active_global() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -648,10 +519,10 @@ fn restore_archived_skill_returns_it_back_to_active_global() {
     );
 
     let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
-    let active = find_skill(&engine, "alpha", Some(SkillLifecycleStatus::Active));
+    let active = find_skill(engine, "alpha", Some(SkillLifecycleStatus::Active));
     let _ = engine.archive(&active, true).expect("archive");
 
-    let archived = find_skill(&engine, "alpha", Some(SkillLifecycleStatus::Archived));
+    let archived = find_skill(engine, "alpha", Some(SkillLifecycleStatus::Archived));
     let state = engine.restore(&archived, true).expect("restore");
     let restored = state
         .skills
@@ -667,8 +538,8 @@ fn restore_archived_skill_returns_it_back_to_active_global() {
 
 #[test]
 fn delete_active_skill_moves_payload_to_trash_and_removes_state_entry() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -681,7 +552,7 @@ fn delete_active_skill_moves_payload_to_trash_and_removes_state_entry() {
     );
 
     let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
-    let active = find_skill(&engine, "alpha", Some(SkillLifecycleStatus::Active));
+    let active = find_skill(engine, "alpha", Some(SkillLifecycleStatus::Active));
 
     let state = engine.delete(&active, true).expect("delete");
     assert!(!state.skills.iter().any(|item| item.skill_key == "alpha"));
@@ -696,8 +567,8 @@ fn delete_active_skill_moves_payload_to_trash_and_removes_state_entry() {
 
 #[test]
 fn delete_archived_skill_removes_bundle_and_state_entry() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -710,9 +581,9 @@ fn delete_archived_skill_removes_bundle_and_state_entry() {
     );
 
     let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
-    let active = find_skill(&engine, "alpha", Some(SkillLifecycleStatus::Active));
+    let active = find_skill(engine, "alpha", Some(SkillLifecycleStatus::Active));
     let _ = engine.archive(&active, true).expect("archive");
-    let archived = find_skill(&engine, "alpha", Some(SkillLifecycleStatus::Archived));
+    let archived = find_skill(engine, "alpha", Some(SkillLifecycleStatus::Archived));
 
     let state = engine.delete(&archived, true).expect("delete archived");
     assert!(!state.skills.iter().any(|item| item.skill_key == "alpha"));
@@ -728,8 +599,8 @@ fn delete_archived_skill_removes_bundle_and_state_entry() {
 
 #[test]
 fn make_global_moves_project_skill_to_global_scope() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     let workspace = engine
         .environment()
@@ -743,7 +614,7 @@ fn make_global_moves_project_skill_to_global_scope() {
     );
 
     let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
-    let project = find_skill(&engine, "project-1", Some(SkillLifecycleStatus::Active));
+    let project = find_skill(engine, "project-1", Some(SkillLifecycleStatus::Active));
     assert_eq!(project.scope, "project");
 
     let state = engine.make_global(&project, true).expect("make global");
@@ -766,8 +637,8 @@ fn make_global_moves_project_skill_to_global_scope() {
 
 #[test]
 fn starred_skill_is_preserved_across_rename() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -780,7 +651,7 @@ fn starred_skill_is_preserved_across_rename() {
     );
     let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
 
-    let skill = find_skill(&engine, "old-key", Some(SkillLifecycleStatus::Active));
+    let skill = find_skill(engine, "old-key", Some(SkillLifecycleStatus::Active));
     let _ = engine
         .set_skill_starred(&skill.id, true)
         .expect("set starred skill");
@@ -800,8 +671,8 @@ fn starred_skill_is_preserved_across_rename() {
 
 #[test]
 fn starred_skill_is_preserved_across_make_global() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     let workspace = engine
         .environment()
@@ -815,7 +686,7 @@ fn starred_skill_is_preserved_across_make_global() {
     );
     let _ = engine.run_sync(SyncTrigger::Manual).expect("sync");
 
-    let project = find_skill(&engine, "project-1", Some(SkillLifecycleStatus::Active));
+    let project = find_skill(engine, "project-1", Some(SkillLifecycleStatus::Active));
     let _ = engine
         .set_skill_starred(&project.id, true)
         .expect("set starred skill");
@@ -833,8 +704,8 @@ fn starred_skill_is_preserved_across_make_global() {
 
 #[test]
 fn set_skill_starred_prunes_unknown_ids_and_deduplicates() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_skill(
         &engine
@@ -855,7 +726,7 @@ fn set_skill_starred_prunes_unknown_ids_and_deduplicates() {
         .clone();
 
     fs::write(
-        app_settings_path(&temp),
+        harness.app_settings_path(),
         format!(
             "{{\"version\":2,\"auto_migrate_to_canonical_source\":false,\"workspace_discovery_roots\":[],\"window_state\":null,\"ui_state\":{{\"sidebar_width\":null,\"scope_filter\":\"all\",\"search_text\":\"\",\"selected_skill_ids\":[],\"starred_skill_ids\":[\"missing\",\"{alpha}\",\"{alpha}\"]}}}}"
         ),
@@ -870,8 +741,8 @@ fn set_skill_starred_prunes_unknown_ids_and_deduplicates() {
 
 #[test]
 fn run_sync_discovers_global_and_project_subagents() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_subagent(
         &engine
@@ -902,8 +773,8 @@ fn run_sync_discovers_global_and_project_subagents() {
 
 #[test]
 fn mutate_catalog_item_archives_restores_and_deletes_subagent() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_subagent(
         &engine
@@ -971,8 +842,8 @@ fn mutate_catalog_item_archives_restores_and_deletes_subagent() {
 
 #[test]
 fn restore_subagent_returns_to_original_project_scope_workspace() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -1035,8 +906,8 @@ fn restore_subagent_returns_to_original_project_scope_workspace() {
 
 #[test]
 fn run_sync_reports_conflict_for_subagents_when_hashes_differ() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_subagent(
         &engine
@@ -1067,8 +938,8 @@ fn run_sync_reports_conflict_for_subagents_when_hashes_differ() {
 
 #[test]
 fn run_sync_writes_codex_subagent_managed_blocks() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -1113,8 +984,8 @@ fn run_sync_writes_codex_subagent_managed_blocks() {
 
 #[test]
 fn run_sync_clears_codex_subagent_managed_blocks_when_subagents_removed() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     let subagent_path = engine
         .environment()
@@ -1152,8 +1023,8 @@ fn run_sync_clears_codex_subagent_managed_blocks_when_subagents_removed() {
 
 #[test]
 fn run_sync_migrates_legacy_managed_markers_in_codex_config() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
 
     write_skill(&home.join(".agents").join("skills"), "alpha", "# Alpha");
@@ -1197,8 +1068,8 @@ command = "legacy"
 
 #[test]
 fn run_sync_avoids_duplicate_agents_table_when_legacy_key_exists() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
 
     write_subagent(
@@ -1227,8 +1098,8 @@ config_file = "agents/reviewer.toml"
 
 #[test]
 fn run_sync_cleans_legacy_only_subagent_block_without_discovered_subagents() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
 
     write_text(
@@ -1255,8 +1126,8 @@ config_file = "agents/legacy.toml"
 
 #[test]
 fn run_sync_bootstraps_mcp_catalog_from_existing_configs() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_text(
         &engine
@@ -1314,8 +1185,8 @@ args = ["-y", "mcp-remote@latest", "https://mcp.exa.ai/mcp"]
 
 #[test]
 fn set_mcp_server_enabled_updates_enabled_flags() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_text(
         &engine
@@ -1340,8 +1211,8 @@ args = ["-y", "mcp-remote@latest", "https://mcp.exa.ai/mcp"]
 
 #[test]
 fn run_sync_discovers_workspace_with_only_mcp_file() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -1372,8 +1243,8 @@ fn run_sync_discovers_workspace_with_only_mcp_file() {
 
 #[test]
 fn run_sync_creates_separate_project_records_for_same_server_key_different_workspaces() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace_a = engine
         .environment()
         .home_directory
@@ -1426,8 +1297,8 @@ fn run_sync_creates_separate_project_records_for_same_server_key_different_works
 
 #[test]
 fn set_enabled_without_scope_errors_on_ambiguous_server_key() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace_a = engine
         .environment()
         .home_directory
@@ -1456,8 +1327,8 @@ fn set_enabled_without_scope_errors_on_ambiguous_server_key() {
 
 #[test]
 fn set_enabled_with_scope_workspace_updates_exact_project_record_only() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace_a = engine
         .environment()
         .home_directory
@@ -1505,8 +1376,8 @@ fn set_enabled_with_scope_workspace_updates_exact_project_record_only() {
 
 #[test]
 fn mutate_catalog_item_updates_exact_project_mcp_locator() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace_a = engine
         .environment()
         .home_directory
@@ -1585,8 +1456,8 @@ fn mutate_catalog_item_updates_exact_project_mcp_locator() {
 
 #[test]
 fn mutate_catalog_item_make_global_promotes_exact_project_mcp_locator() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace_a = engine
         .environment()
         .home_directory
@@ -1643,8 +1514,8 @@ fn mutate_catalog_item_make_global_promotes_exact_project_mcp_locator() {
 
 #[test]
 fn mutate_catalog_item_make_global_errors_on_ambiguous_mcp_locator() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace_a = engine
         .environment()
         .home_directory
@@ -1682,8 +1553,8 @@ fn mutate_catalog_item_make_global_errors_on_ambiguous_mcp_locator() {
 
 #[test]
 fn mutate_catalog_item_make_global_rejects_archived_project_entry() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -1725,8 +1596,8 @@ fn mutate_catalog_item_make_global_rejects_archived_project_entry() {
 
 #[test]
 fn mutate_catalog_item_make_global_rejects_existing_global_server_key() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -1768,8 +1639,8 @@ args = ["-y", "mcp-remote@latest", "https://global.exa.ai/mcp"]
 
 #[test]
 fn mutate_catalog_item_errors_on_ambiguous_mcp_locator() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace_a = engine
         .environment()
         .home_directory
@@ -1807,8 +1678,8 @@ fn mutate_catalog_item_errors_on_ambiguous_mcp_locator() {
 
 #[test]
 fn global_record_does_not_expose_or_apply_project_toggle() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     write_text(
         &engine
             .environment()
@@ -1834,8 +1705,8 @@ args = ["-y", "mcp-remote@latest", "https://mcp.exa.ai/mcp"]
 
 #[test]
 fn project_effective_flags_use_shared_project_gate() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -1881,8 +1752,8 @@ fn project_effective_flags_use_shared_project_gate() {
 
 #[test]
 fn missing_project_target_emits_warning_and_skips_write() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -1916,8 +1787,8 @@ fn missing_project_target_emits_warning_and_skips_write() {
 
 #[test]
 fn run_sync_bootstraps_from_claude_user_root_json() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_text(
         &engine.environment().home_directory.join(".claude.json"),
@@ -1946,8 +1817,8 @@ fn run_sync_bootstraps_from_claude_user_root_json() {
 
 #[test]
 fn run_sync_bootstraps_from_claude_user_projects_json() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -1989,8 +1860,8 @@ fn run_sync_bootstraps_from_claude_user_projects_json() {
 
 #[test]
 fn workspace_mcp_json_takes_precedence_over_claude_projects_for_same_locator() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -2040,8 +1911,8 @@ fn workspace_mcp_json_takes_precedence_over_claude_projects_for_same_locator() {
 
 #[test]
 fn set_enabled_updates_project_entry_in_claude_json_projects() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -2109,8 +1980,8 @@ fn set_enabled_updates_project_entry_in_claude_json_projects() {
 
 #[test]
 fn global_claude_target_prefers_claude_json_over_settings_local() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_text(
         &engine.environment().home_directory.join(".claude.json"),
@@ -2158,8 +2029,8 @@ fn global_claude_target_prefers_claude_json_over_settings_local() {
 
 #[test]
 fn fallback_to_settings_local_when_claude_json_missing() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_text(
         &engine
@@ -2193,8 +2064,8 @@ fn fallback_to_settings_local_when_claude_json_missing() {
 
 #[test]
 fn run_sync_auto_aligns_claude_enabled_when_observed_in_claude_user_config() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_text(
         &engine
@@ -2249,8 +2120,8 @@ project = false
 
 #[test]
 fn run_sync_keeps_codex_disabled_servers_in_managed_block_global() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let codex_path = home.join(".codex").join("config.toml");
 
@@ -2284,8 +2155,8 @@ project = false
 
 #[test]
 fn run_sync_keeps_codex_disabled_servers_in_managed_block_project() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let workspace = home.join("Dev").join("workspace-a");
     let workspace_key = workspace.display().to_string();
@@ -2325,8 +2196,8 @@ project = true
 
 #[test]
 fn run_sync_auto_cleans_unmanaged_codex_when_catalog_codex_false_global() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let codex_path = home.join(".codex").join("config.toml");
 
@@ -2381,8 +2252,8 @@ enabled = true
 
 #[test]
 fn run_sync_auto_cleans_unmanaged_codex_when_catalog_codex_false_project() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let workspace = home.join("Dev").join("workspace-a");
     let workspace_key = workspace.display().to_string();
@@ -2438,8 +2309,8 @@ project = true
 
 #[test]
 fn run_sync_auto_aligns_codex_enabled_from_managed_block() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let codex_path = home.join(".codex").join("config.toml");
 
@@ -2474,8 +2345,8 @@ project = false
 
 #[test]
 fn run_sync_auto_aligns_codex_disabled_from_managed_block() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let codex_path = home.join(".codex").join("config.toml");
 
@@ -2510,8 +2381,8 @@ project = false
 
 #[test]
 fn manifest_v2_is_readable_and_upgraded_to_v3_locators() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -2569,8 +2440,8 @@ fn manifest_v2_is_readable_and_upgraded_to_v3_locators() {
 
 #[test]
 fn cleanup_removes_only_previous_managed_locators_on_target_switch() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = &engine.environment().home_directory;
     let settings_local = home.join(".claude").join("settings.local.json");
     let claude_user = home.join(".claude.json");
@@ -2630,8 +2501,8 @@ project = false
 
 #[test]
 fn watch_paths_include_claude_json() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let watch_paths = engine.watch_paths();
     assert!(watch_paths
         .iter()
@@ -2640,8 +2511,8 @@ fn watch_paths_include_claude_json() {
 
 #[test]
 fn strict_dotagents_user_scope_requires_initialized_contract() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     let error = engine
         .run_dotagents_sync(DotagentsScope::User)
@@ -2652,8 +2523,8 @@ fn strict_dotagents_user_scope_requires_initialized_contract() {
 
 #[test]
 fn strict_dotagents_project_scope_requires_agents_toml() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -2673,8 +2544,8 @@ fn strict_dotagents_project_scope_requires_agents_toml() {
 
 #[test]
 fn strict_dotagents_project_scope_requires_agents_toml_for_mcp_workspace() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -2697,8 +2568,8 @@ fn strict_dotagents_project_scope_requires_agents_toml_for_mcp_workspace() {
 
 #[test]
 fn strict_dotagents_project_scope_allows_empty_workspace_set() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     let skills = engine
         .list_dotagents_skills(DotagentsScope::Project)
@@ -2714,8 +2585,8 @@ fn strict_dotagents_project_scope_allows_empty_workspace_set() {
 #[test]
 #[cfg(unix)]
 fn strict_dotagents_project_scope_ignores_worktree_only_workspace() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let workspace = engine
         .environment()
         .home_directory
@@ -2725,7 +2596,7 @@ fn strict_dotagents_project_scope_ignores_worktree_only_workspace() {
         .join("workspace-only-in-worktree");
     write_text(&workspace.join("agents.toml"), "[skills]\n");
 
-    let script_path = temp.path().join("dotagents");
+    let script_path = harness.temp_dir().path().join("dotagents");
     write_text(
         &script_path,
         r#"#!/bin/sh
@@ -2765,8 +2636,8 @@ exit 9
 
 #[test]
 fn strict_dotagents_project_scope_write_commands_fail_without_workspace_context() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     let error = engine
         .run_dotagents_sync(DotagentsScope::Project)
@@ -2779,8 +2650,8 @@ fn strict_dotagents_project_scope_write_commands_fail_without_workspace_context(
 #[test]
 #[cfg(unix)]
 fn strict_dotagents_user_scope_empty_list_messages_return_empty_vectors() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let user_contract = engine
         .environment()
         .home_directory
@@ -2788,7 +2659,7 @@ fn strict_dotagents_user_scope_empty_list_messages_return_empty_vectors() {
         .join("agents.toml");
     write_text(&user_contract, "[skills]\n");
 
-    let script_path = temp.path().join("dotagents");
+    let script_path = harness.temp_dir().path().join("dotagents");
     write_text(
         &script_path,
         r#"#!/bin/sh
@@ -2830,8 +2701,8 @@ exit 9
 
 #[test]
 fn run_sync_warns_on_broken_unmanaged_claude_mcp_and_keeps_file_unchanged() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let workspace = home.join("Dev").join("workspace-a");
     fs::create_dir_all(&workspace).expect("workspace dir");
@@ -2908,8 +2779,8 @@ project = false
 
 #[test]
 fn run_sync_redacts_secret_like_arg_values_in_mcp_warnings() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     write_text(
         &engine
@@ -2937,8 +2808,8 @@ args = ["--foo_token=super-secret-token", "--ok=1"]
 
 #[test]
 fn fix_unmanaged_claude_mcp_dry_run_reports_candidates_without_writing() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let workspace = home.join("Dev").join("workspace-a");
     fs::create_dir_all(&workspace).expect("workspace dir");
@@ -3029,8 +2900,8 @@ project = false
 
 #[test]
 fn fix_unmanaged_claude_mcp_apply_removes_only_broken_unmanaged_entries() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let workspace = home.join("Dev").join("workspace-a");
     fs::create_dir_all(&workspace).expect("workspace dir");
@@ -3121,8 +2992,8 @@ project = false
 
 #[test]
 fn fix_unmanaged_claude_mcp_warning_apply_removes_only_matching_warning() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let workspace = home.join("Dev").join("workspace-a");
     fs::create_dir_all(&workspace).expect("workspace dir");
@@ -3235,8 +3106,8 @@ project = false
 
 #[test]
 fn fix_unmanaged_claude_mcp_warning_returns_error_for_stale_warning() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
 
     let error = engine
         .fix_unmanaged_claude_mcp_warning(
@@ -3254,8 +3125,8 @@ fn fix_unmanaged_claude_mcp_warning_returns_error_for_stale_warning() {
 
 #[test]
 fn fix_sync_warning_adopts_unmanaged_codex_entry_into_central_catalog() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let codex_config_path = home.join(".codex").join("config.toml");
 
@@ -3329,8 +3200,8 @@ enabled = true
 
 #[test]
 fn fix_sync_warning_fails_for_inline_secret_env_when_env_var_missing() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let central_path = home.join(".config").join("ai-agents").join("config.toml");
 
@@ -3391,8 +3262,8 @@ project = false
 
 #[test]
 fn fix_sync_warning_rewrites_inline_secret_env_values_when_env_var_is_set() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let central_path = home.join(".config").join("ai-agents").join("config.toml");
 
@@ -3448,8 +3319,8 @@ project = false
 
 #[test]
 fn fix_sync_warning_fails_for_inline_secret_argument_when_env_var_missing() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let central_path = home.join(".config").join("ai-agents").join("config.toml");
 
@@ -3509,8 +3380,8 @@ project = false
 
 #[test]
 fn fix_sync_warning_rewrites_inline_secret_argument_values_when_env_var_is_set() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let central_path = home.join(".config").join("ai-agents").join("config.toml");
 
@@ -3568,8 +3439,8 @@ project = false
 
 #[test]
 fn fix_sync_warning_removes_unmanaged_codex_entry_that_blocks_managed_sync() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let codex_config_path = home.join(".codex").join("config.toml");
 
@@ -3633,8 +3504,8 @@ enabled = true
 
 #[test]
 fn fix_sync_warning_creates_missing_project_target_file() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
     let workspace = home.join("Dev").join("geo-taxes");
     fs::create_dir_all(&workspace).expect("workspace dir");
@@ -3698,8 +3569,8 @@ project = true
 #[test]
 #[cfg(unix)]
 fn strict_dotagents_mcp_unknown_command_does_not_fallback_to_skills() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let user_contract = engine
         .environment()
         .home_directory
@@ -3707,7 +3578,7 @@ fn strict_dotagents_mcp_unknown_command_does_not_fallback_to_skills() {
         .join("agents.toml");
     write_text(&user_contract, "[skills]\n");
 
-    let script_path = temp.path().join("dotagents");
+    let script_path = harness.temp_dir().path().join("dotagents");
     write_text(
         &script_path,
         r#"#!/bin/sh
@@ -3745,8 +3616,8 @@ exit 9
 
 #[test]
 fn run_sync_does_not_duplicate_mcp_across_skills_and_mcp_writers() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
 
     // Central catalog with exa and sentry, both codex-enabled
@@ -3841,8 +3712,8 @@ path = \"/old/skill/path\"\n\
 
 #[test]
 fn run_sync_deduplicates_codex_mcp_when_unmanaged_and_managed_both_exist() {
-    let temp = TempDir::new().expect("tempdir");
-    let engine = engine_in_temp(&temp);
+    let harness = EngineHarness::new();
+    let engine = harness.engine();
     let home = engine.environment().home_directory.clone();
 
     // Central catalog with exa enabled for codex

@@ -2,7 +2,6 @@ import type { Dispatch, SetStateAction } from "react";
 import {
   deleteUnmanagedMcp,
   mutateCatalogItem,
-  mutateSkill,
   openSkillPath,
   openSubagentPath,
   renameSkill,
@@ -13,7 +12,6 @@ import {
 import type {
   CatalogMutationRequest,
   McpServerRecord,
-  MutationCommand,
   RuntimeControls,
   SyncState,
 } from "../types";
@@ -52,10 +50,6 @@ type UseCatalogActionsParams = {
 type UseCatalogActionsResult = {
   handleToggleSkillStar: (skillId: string) => Promise<void>;
   handleAllowToggle: (allow: boolean) => Promise<void>;
-  executeSkillMutation: (
-    command: MutationCommand,
-    skillKey: string,
-  ) => Promise<void>;
   executeCatalogMutation: (
     request: CatalogMutationRequest,
     preferredSkillKey?: string | null,
@@ -118,19 +112,6 @@ export function useCatalogActions({
         },
         skipIfBusy: true,
       },
-    );
-  }
-
-  async function executeSkillMutation(
-    command: MutationCommand,
-    skillKey: string,
-  ): Promise<void> {
-    await runAppAction(
-      async () => {
-        const next = await mutateSkill(command, skillKey);
-        applyState(next, skillKey);
-      },
-      { skipIfBusy: true },
     );
   }
 
@@ -226,7 +207,6 @@ export function useCatalogActions({
   return {
     handleToggleSkillStar,
     handleAllowToggle,
-    executeSkillMutation,
     executeCatalogMutation,
     handleRenameSkill,
     handleOpenSkillPath,

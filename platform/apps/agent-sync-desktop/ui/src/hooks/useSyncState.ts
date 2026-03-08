@@ -7,10 +7,7 @@ import {
   type SetStateAction,
 } from "react";
 import {
-  getAgentsContextReport,
   getRuntimeControls,
-  getStarredSkillIds,
-  listSubagents,
   loadDashboardSnapshot,
   runSync,
 } from "../tauriApi";
@@ -179,16 +176,12 @@ export function useSyncState(): UseSyncStateResult {
         let nextStarred: string[];
 
         if (syncFirst) {
-          nextState = await runSync();
-          const [subagentsResult, reportResult, starredResult] =
-            await Promise.all([
-              listSubagents("all"),
-              getAgentsContextReport(),
-              getStarredSkillIds().catch(() => [] as string[]),
-            ]);
-          nextSubagents = subagentsResult;
-          nextAgentsReport = reportResult;
-          nextStarred = starredResult;
+          await runSync();
+          const snapshot = await loadDashboardSnapshot();
+          nextState = snapshot.state;
+          nextSubagents = snapshot.subagents;
+          nextAgentsReport = snapshot.agentsReport;
+          nextStarred = snapshot.starredSkillIds;
         } else {
           const snapshot = await loadDashboardSnapshot();
           nextState = snapshot.state;

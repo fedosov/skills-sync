@@ -1,9 +1,15 @@
-import { CardContent } from "../ui/card";
-import { compactPath, formatUnixTime } from "../../lib/formatting";
+import { formatUnixTime } from "../../lib/formatting";
 import { subagentStatus } from "../../lib/catalogUtils";
 import type { SubagentDetails } from "../../types";
 import { EntityActionMenus } from "./EntityActionMenus";
 import { EntityDetailHeader } from "./EntityDetailHeader";
+import {
+  DetailContent,
+  DetailPathValue,
+  DetailPreviewSection,
+  DetailSection,
+  DetailStringList,
+} from "./DetailPrimitives";
 
 type SubagentDetailsPanelProps = {
   subagentDetails: SubagentDetails;
@@ -72,7 +78,7 @@ export function SubagentDetailsPanel({
         }
       />
 
-      <CardContent className="space-y-3 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+      <DetailContent>
         <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
           <div>
             <dt className="text-muted-foreground">Status</dt>
@@ -94,53 +100,29 @@ export function SubagentDetailsPanel({
           </div>
           <div>
             <dt className="text-muted-foreground">Main file</dt>
-            <dd className="mt-0.5 break-all font-mono">
-              {compactPath(subagentDetails.main_file_path)}
-            </dd>
+            <DetailPathValue path={subagentDetails.main_file_path} />
           </div>
           <div>
             <dt className="text-muted-foreground">Canonical path</dt>
-            <dd
-              className="mt-0.5 break-all font-mono"
-              title={subagentDetails.subagent.canonical_source_path}
-            >
-              {compactPath(subagentDetails.subagent.canonical_source_path)}
-            </dd>
+            <DetailPathValue
+              path={subagentDetails.subagent.canonical_source_path}
+            />
           </div>
         </dl>
 
-        <section className="space-y-1.5 border-t border-border/50 pt-3">
-          <h3 className="text-xs font-semibold text-muted-foreground">
-            Targets
-          </h3>
-          {subagentDetails.subagent.target_paths.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No target paths.</p>
-          ) : (
-            <ul className="space-y-1 text-xs">
-              {subagentDetails.subagent.target_paths.map((path) => (
-                <li key={path} className="rounded-md bg-muted/20 p-2 font-mono">
-                  {path}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <DetailSection title="Targets">
+          <DetailStringList
+            items={subagentDetails.subagent.target_paths}
+            emptyText="No target paths."
+          />
+        </DetailSection>
 
-        <section className="space-y-1.5 border-t border-border/50 pt-3">
-          <h3 className="text-xs font-semibold text-muted-foreground">
-            Subagent prompt preview
-          </h3>
-          {subagentDetails.main_file_body_preview ? (
-            <pre className="max-h-64 overflow-auto rounded-md bg-muted/30 p-2 font-mono text-[11px] leading-relaxed">
-              {subagentDetails.main_file_body_preview}
-            </pre>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              No readable preview available.
-            </p>
-          )}
-        </section>
-      </CardContent>
+        <DetailPreviewSection
+          title="Subagent prompt preview"
+          preview={subagentDetails.main_file_body_preview}
+          emptyText="No readable preview available."
+        />
+      </DetailContent>
     </>
   );
 }

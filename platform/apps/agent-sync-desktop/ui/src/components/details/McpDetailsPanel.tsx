@@ -1,12 +1,17 @@
 import { AgentLogoIcon } from "../catalog/AgentLogoIcon";
 import { Button } from "../ui/button";
 import { StarIcon } from "../ui/StarIcon";
-import { CardContent, CardHeader, CardTitle } from "../ui/card";
+import { CardHeader, CardTitle } from "../ui/card";
 import { getVisibleMcpAgents } from "../../lib/mcpAgents";
 import { mcpStatus, toTitleCase } from "../../lib/catalogUtils";
 import { cn } from "../../lib/utils";
 import type { McpServerRecord } from "../../types";
 import { EntityActionMenus } from "./EntityActionMenus";
+import {
+  DetailContent,
+  DetailSection,
+  DetailStringList,
+} from "./DetailPrimitives";
 
 type McpDetailsPanelProps = {
   server: McpServerRecord;
@@ -106,7 +111,7 @@ export function McpDetailsPanel({
           />
         </div>
       </CardHeader>
-      <CardContent className="space-y-3 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+      <DetailContent>
         {status === "unmanaged" ? (
           <div className="flex items-start justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-foreground">
             <span>
@@ -143,10 +148,7 @@ export function McpDetailsPanel({
           </div>
         </dl>
 
-        <section className="space-y-1.5 border-t border-border/50 pt-3">
-          <h3 className="text-xs font-semibold text-muted-foreground">
-            Enable by agent
-          </h3>
+        <DetailSection title="Enable by agent">
           <div className="flex flex-wrap gap-3">
             {getVisibleMcpAgents().map((agent) => {
               const enabled = server.enabled_by_agent[agent];
@@ -207,44 +209,20 @@ export function McpDetailsPanel({
               Unmanaged servers cannot be toggled per-agent.
             </p>
           ) : null}
-        </section>
+        </DetailSection>
 
-        <section className="space-y-1.5 border-t border-border/50 pt-3">
-          <h3 className="text-xs font-semibold text-muted-foreground">Args</h3>
-          {server.args.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No args.</p>
-          ) : (
-            <ul className="space-y-1 text-xs">
-              {server.args.map((arg) => (
-                <li key={arg} className="rounded-md bg-muted/20 p-2 font-mono">
-                  {arg}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <DetailSection title="Args">
+          <DetailStringList items={server.args} emptyText="No args." />
+        </DetailSection>
 
-        <section className="space-y-1.5 border-t border-border/50 pt-3">
-          <h3 className="text-xs font-semibold text-muted-foreground">
-            Targets
-          </h3>
-          {server.targets.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No managed targets.</p>
-          ) : (
-            <ul className="space-y-1 text-xs">
-              {server.targets.map((path) => (
-                <li key={path} className="rounded-md bg-muted/20 p-2 font-mono">
-                  {path}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <DetailSection title="Targets">
+          <DetailStringList
+            items={server.targets}
+            emptyText="No managed targets."
+          />
+        </DetailSection>
 
-        <section className="space-y-1.5 border-t border-border/50 pt-3">
-          <h3 className="text-xs font-semibold text-muted-foreground">
-            Warnings
-          </h3>
+        <DetailSection title="Warnings">
           {warnings.length === 0 ? (
             <p className="text-xs text-muted-foreground">No warnings.</p>
           ) : (
@@ -268,8 +246,8 @@ export function McpDetailsPanel({
               ))}
             </ul>
           )}
-        </section>
-      </CardContent>
+        </DetailSection>
+      </DetailContent>
     </>
   );
 }

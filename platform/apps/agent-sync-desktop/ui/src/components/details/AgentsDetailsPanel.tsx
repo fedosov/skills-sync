@@ -1,7 +1,12 @@
 import { Badge } from "../ui/badge";
 import { StarIcon } from "../ui/StarIcon";
-import { CardContent, CardHeader, CardTitle } from "../ui/card";
+import { CardHeader, CardTitle } from "../ui/card";
 import type { AgentContextEntry, AgentContextSegment } from "../../types";
+import {
+  DetailContent,
+  DetailSection,
+  DetailStringList,
+} from "./DetailPrimitives";
 
 type AgentsDetailsPanelProps = {
   entry: AgentContextEntry;
@@ -60,7 +65,7 @@ export function AgentsDetailsPanel({
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-3 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+      <DetailContent>
         <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
           <div>
             <dt className="text-muted-foreground">Scope</dt>
@@ -95,22 +100,16 @@ export function AgentsDetailsPanel({
           </div>
         </dl>
 
-        <section className="space-y-1.5 border-t border-border/50 pt-3">
-          <h3 className="text-xs font-semibold text-muted-foreground">
-            Include stats
-          </h3>
+        <DetailSection title="Include stats">
           <ul className="space-y-1 text-xs text-muted-foreground">
             <li>{`Includes: ${entry.include_count}`}</li>
             <li>{`Missing includes: ${entry.missing_includes.length}`}</li>
             <li>{`Cycles detected: ${entry.cycles_detected.length}`}</li>
             <li>{`Depth cap reached: ${entry.max_depth_reached ? "yes" : "no"}`}</li>
           </ul>
-        </section>
+        </DetailSection>
 
-        <section className="space-y-1.5 border-t border-border/50 pt-3">
-          <h3 className="text-xs font-semibold text-muted-foreground">
-            Top segments
-          </h3>
+        <DetailSection title="Top segments">
           {topSegments.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               No rendered segments.
@@ -131,25 +130,15 @@ export function AgentsDetailsPanel({
               ))}
             </ul>
           )}
-        </section>
+        </DetailSection>
 
-        <section className="space-y-1.5 border-t border-border/50 pt-3">
-          <h3 className="text-xs font-semibold text-muted-foreground">
-            Diagnostics
-          </h3>
-          {entry.diagnostics.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No diagnostics.</p>
-          ) : (
-            <ul className="space-y-1 text-xs">
-              {entry.diagnostics.map((item) => (
-                <li key={item} className="rounded-md bg-muted/20 p-2 font-mono">
-                  {item}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </CardContent>
+        <DetailSection title="Diagnostics">
+          <DetailStringList
+            items={entry.diagnostics}
+            emptyText="No diagnostics."
+          />
+        </DetailSection>
+      </DetailContent>
     </>
   );
 }

@@ -7,7 +7,6 @@ import type {
   ConfigValidationResult,
   DashboardSnapshot,
   DotagentsScope,
-  MutationCommand,
   McpServerRecord,
   PlatformContext,
   RenameSkillResult,
@@ -218,16 +217,6 @@ export async function setMcpServerEnabled(
     enabled,
     ...(scope ? { scope } : {}),
     ...(workspace ? { workspace } : {}),
-  });
-}
-
-export async function mutateSkill(
-  command: MutationCommand,
-  skillKey: string,
-): Promise<SyncState> {
-  return invoke<SyncState>(command, {
-    skillKey,
-    confirmed: true,
   });
 }
 

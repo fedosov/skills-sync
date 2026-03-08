@@ -252,7 +252,6 @@ export function App() {
   const {
     handleToggleSkillStar,
     handleAllowToggle,
-    executeSkillMutation,
     executeCatalogMutation,
     handleRenameSkill,
     handleOpenSkillPath,
@@ -577,8 +576,15 @@ export function App() {
                 }}
                 onMakeGlobal={() => {
                   setActionsMenuTarget(null);
-                  void executeSkillMutation(
-                    "make_global",
+                  void executeCatalogMutation(
+                    {
+                      action: "make_global",
+                      target: {
+                        kind: "skill",
+                        skillKey: details.skill.skill_key,
+                      },
+                      confirmed: true,
+                    },
                     details.skill.skill_key,
                   );
                 }}
