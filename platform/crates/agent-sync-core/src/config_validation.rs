@@ -81,8 +81,9 @@ fn validate_json_config_path(path: PathBuf) -> Option<ConfigValidationResult> {
 
     // Check JSON syntax
     match scan_json_duplicate_mcp_keys(&content) {
-        Ok(duplicate_keys) => {
-            result.duplicate_keys = duplicate_keys;
+        Ok(validation) => {
+            result.duplicate_keys = validation.duplicate_keys;
+            result.warnings = validation.warnings;
         }
         Err(e) => {
             result.valid_syntax = false;
@@ -118,19 +119,25 @@ pub fn validate_all_configs(home: &Path, workspaces: &[PathBuf]) -> Vec<ConfigVa
 /// JSON parsers silently deduplicate object keys, so we walk the stream with a
 /// custom visitor and track duplicates per `mcpServers` map rather than across
 /// the whole document.
-fn scan_json_duplicate_mcp_keys(content: &str) -> Result<Vec<String>, serde_json::Error> {
+fn scan_json_duplicate_mcp_keys(content: &str) -> Result<JsonMcpValidation, serde_json::Error> {
     let mut duplicates = BTreeSet::new();
+    let mut warnings = BTreeSet::new();
     let mut deserializer = serde_json::Deserializer::from_str(content);
     JsonValueSeed {
         duplicates: &mut duplicates,
+        warnings: &mut warnings,
     }
     .deserialize(&mut deserializer)?;
     deserializer.end()?;
-    Ok(duplicates.into_iter().collect())
+    Ok(JsonMcpValidation {
+        duplicate_keys: duplicates.into_iter().collect(),
+        warnings: warnings.into_iter().collect(),
+    })
 }
 
 struct JsonValueSeed<'a> {
     duplicates: &'a mut BTreeSet<String>,
+    warnings: &'a mut BTreeSet<String>,
 }
 
 impl<'de> DeserializeSeed<'de> for JsonValueSeed<'_> {
@@ -142,12 +149,14 @@ impl<'de> DeserializeSeed<'de> for JsonValueSeed<'_> {
     {
         deserializer.deserialize_any(JsonValueVisitor {
             duplicates: self.duplicates,
+            warnings: self.warnings,
         })
     }
 }
 
 struct JsonValueVisitor<'a> {
     duplicates: &'a mut BTreeSet<String>,
+    warnings: &'a mut BTreeSet<String>,
 }
 
 impl<'de> Visitor<'de> for JsonValueVisitor<'_> {
@@ -191,6 +200,7 @@ impl<'de> Visitor<'de> for JsonValueVisitor<'_> {
     {
         JsonValueSeed {
             duplicates: self.duplicates,
+            warnings: self.warnings,
         }
         .deserialize(deserializer)
     }
@@ -205,6 +215,7 @@ impl<'de> Visitor<'de> for JsonValueVisitor<'_> {
     {
         while let Some(()) = seq.next_element_seed(JsonValueSeed {
             duplicates: self.duplicates,
+            warnings: self.warnings,
         })? {}
         Ok(())
     }
@@ -213,14 +224,24 @@ impl<'de> Visitor<'de> for JsonValueVisitor<'_> {
     where
         A: MapAccess<'de>,
     {
+        let mut seen_mcp_servers = false;
         while let Some(key) = map.next_key::<String>()? {
             if key == "mcpServers" {
+                if seen_mcp_servers {
+                    self.warnings.insert(
+                        "Duplicate 'mcpServers' property found; later value overrides earlier MCP config"
+                            .to_string(),
+                    );
+                }
+                seen_mcp_servers = true;
                 map.next_value_seed(McpServersSeed {
                     duplicates: self.duplicates,
+                    warnings: self.warnings,
                 })?;
             } else {
                 map.next_value_seed(JsonValueSeed {
                     duplicates: self.duplicates,
+                    warnings: self.warnings,
                 })?;
             }
         }
@@ -230,6 +251,7 @@ impl<'de> Visitor<'de> for JsonValueVisitor<'_> {
 
 struct McpServersSeed<'a> {
     duplicates: &'a mut BTreeSet<String>,
+    warnings: &'a mut BTreeSet<String>,
 }
 
 impl<'de> DeserializeSeed<'de> for McpServersSeed<'_> {
@@ -241,12 +263,14 @@ impl<'de> DeserializeSeed<'de> for McpServersSeed<'_> {
     {
         deserializer.deserialize_any(McpServersVisitor {
             duplicates: self.duplicates,
+            warnings: self.warnings,
         })
     }
 }
 
 struct McpServersVisitor<'a> {
     duplicates: &'a mut BTreeSet<String>,
+    warnings: &'a mut BTreeSet<String>,
 }
 
 impl<'de> Visitor<'de> for McpServersVisitor<'_> {
@@ -276,6 +300,7 @@ impl<'de> Visitor<'de> for McpServersVisitor<'_> {
     {
         while let Some(()) = seq.next_element_seed(JsonValueSeed {
             duplicates: self.duplicates,
+            warnings: self.warnings,
         })? {}
         Ok(())
     }
@@ -314,6 +339,7 @@ impl<'de> Visitor<'de> for McpServersVisitor<'_> {
     {
         JsonValueSeed {
             duplicates: self.duplicates,
+            warnings: self.warnings,
         }
         .deserialize(deserializer)
     }
@@ -321,6 +347,11 @@ impl<'de> Visitor<'de> for McpServersVisitor<'_> {
     fn visit_unit<E>(self) -> Result<Self::Value, E> {
         Ok(())
     }
+}
+
+struct JsonMcpValidation {
+    duplicate_keys: Vec<String>,
+    warnings: Vec<String>,
 }
 
 #[cfg(test)]
@@ -544,6 +575,34 @@ url = "http://localhost:1234"
         let result = validate_claude_config(home).unwrap();
         assert!(result.valid_syntax);
         assert_eq!(result.duplicate_keys, vec!["exa"]);
+    }
+
+    #[test]
+    fn validate_claude_warns_on_duplicate_mcp_servers_property() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path();
+        fs::write(
+            home.join(".claude.json"),
+            r#"{
+  "mcpServers": {
+    "exa": { "command": "first" }
+  },
+  "mcpServers": {
+    "sentry": { "command": "second" }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let result = validate_claude_config(home).unwrap();
+        assert!(result.valid_syntax);
+        assert!(result.duplicate_keys.is_empty());
+        assert_eq!(
+            result.warnings,
+            vec![String::from(
+                "Duplicate 'mcpServers' property found; later value overrides earlier MCP config"
+            )]
+        );
     }
 
     #[test]
