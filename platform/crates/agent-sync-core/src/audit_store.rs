@@ -1,4 +1,4 @@
-use crate::error::{write_json_pretty, SyncEngineError};
+use crate::error::{load_json_or_default, write_json_pretty, SyncEngineError};
 use crate::models::{AuditEvent, AuditEventStatus};
 use crate::paths::SyncPaths;
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ pub struct SyncAuditStore {
     paths: SyncPaths,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct AuditLogPayload {
     version: u32,
     #[serde(default)]
@@ -31,16 +31,7 @@ impl SyncAuditStore {
     }
 
     pub fn load_events(&self) -> Vec<AuditEvent> {
-        let Ok(data) = std::fs::read(&self.paths.audit_log_path) else {
-            return Vec::new();
-        };
-
-        serde_json::from_slice::<AuditLogPayload>(&data)
-            .map(|payload| payload.events)
-            .unwrap_or_else(|error| {
-                tracing::warn!("corrupt audit log {:?}: {error}", self.paths.audit_log_path);
-                Vec::new()
-            })
+        load_json_or_default::<AuditLogPayload>(&self.paths.audit_log_path, "audit log").events
     }
 
     pub fn append_event(
@@ -110,6 +101,7 @@ mod tests {
     use super::SyncAuditStore;
     use crate::models::{AuditEvent, AuditEventStatus};
     use crate::paths::SyncPaths;
+    use std::fs;
     use tempfile::tempdir;
 
     fn event(id: usize, action: &str, status: AuditEventStatus) -> AuditEvent {
@@ -189,5 +181,17 @@ mod tests {
             .expect("read payload after clear");
         assert!(payload.contains("\"version\": 1"));
         assert!(payload.contains("\"events\": []"));
+    }
+
+    #[test]
+    fn load_events_returns_empty_when_audit_log_is_corrupt() {
+        let dir = tempdir().expect("tempdir");
+        let paths = SyncPaths::from_runtime(dir.path().to_path_buf());
+        fs::create_dir_all(&paths.runtime_directory).expect("create runtime dir");
+        fs::write(&paths.audit_log_path, b"{not valid json").expect("write corrupt json");
+
+        let store = SyncAuditStore::new(paths);
+
+        assert!(store.load_events().is_empty());
     }
 }

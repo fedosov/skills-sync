@@ -1,9 +1,10 @@
-import { Button } from "../ui/button";
 import { CardContent } from "../ui/card";
 import { Input } from "../ui/input";
 import { compactPath, formatUnixTime } from "../../lib/formatting";
 import type { SkillDetails } from "../../types";
 import { EntityDetailHeader } from "./EntityDetailHeader";
+import { EntityActionMenus } from "./EntityActionMenus";
+import { Button } from "../ui/button";
 
 type SkillDetailsPanelProps = {
   details: SkillDetails;
@@ -53,102 +54,51 @@ export function SkillDetailsPanel({
         isFavorite={isFavorite}
         onToggleFavorite={onToggleFavorite}
         actions={
-          <div className="relative flex items-center gap-1.5">
-            <Button
-              size="sm"
-              variant="outline"
-              aria-expanded={openTargetMenu}
-              onClick={onToggleOpenTargetMenu}
-            >
-              Open…
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label="More actions"
-              disabled={busy}
-              aria-expanded={actionsMenuOpen}
-              onClick={onToggleActionsMenu}
-            >
-              ⋯
-            </Button>
-
-            {openTargetMenu ? (
-              <div
-                role="menu"
-                className="absolute right-14 top-8 z-20 min-w-36 rounded-md border border-border/70 bg-card p-1 shadow-sm"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent"
-                  onClick={() => onOpenPath("folder")}
-                >
-                  Open folder
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={!details.main_file_exists}
-                  className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50"
-                  onClick={() => onOpenPath("file")}
-                >
-                  Open file
-                </button>
-              </div>
-            ) : null}
-
-            {actionsMenuOpen ? (
-              <div
-                role="menu"
-                className="absolute right-0 top-8 z-20 min-w-36 rounded-md border border-border/70 bg-card p-1 shadow-sm"
-              >
-                {details.skill.status === "active" ? (
-                  <>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled={busy}
-                      className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={onArchive}
-                    >
-                      Archive
-                    </button>
-                    {details.skill.scope === "project" ? (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={busy}
-                        className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                        onClick={onMakeGlobal}
-                      >
-                        Make global
-                      </button>
-                    ) : null}
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={busy}
-                    className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={onRestore}
-                  >
-                    Restore
-                  </button>
-                )}
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={busy}
-                  className="block w-full rounded-sm px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={onRequestDelete}
-                >
-                  Delete
-                </button>
-              </div>
-            ) : null}
-          </div>
+          <EntityActionMenus
+            busy={busy}
+            openMenuExpanded={openTargetMenu}
+            actionsMenuExpanded={actionsMenuOpen}
+            onToggleOpenMenu={onToggleOpenTargetMenu}
+            onToggleActionsMenu={onToggleActionsMenu}
+            openItems={[
+              { label: "Open folder", onSelect: () => onOpenPath("folder") },
+              {
+                label: "Open file",
+                onSelect: () => onOpenPath("file"),
+                disabled: !details.main_file_exists,
+              },
+            ]}
+            actionItems={
+              details.skill.status === "active"
+                ? [
+                    { label: "Archive", onSelect: onArchive, disabled: busy },
+                    ...(details.skill.scope === "project"
+                      ? [
+                          {
+                            label: "Make global",
+                            onSelect: onMakeGlobal,
+                            disabled: busy,
+                          },
+                        ]
+                      : []),
+                    {
+                      label: "Delete",
+                      onSelect: onRequestDelete,
+                      disabled: busy,
+                      tone: "destructive" as const,
+                    },
+                  ]
+                : [
+                    { label: "Restore", onSelect: onRestore, disabled: busy },
+                    {
+                      label: "Delete",
+                      onSelect: onRequestDelete,
+                      disabled: busy,
+                      tone: "destructive" as const,
+                    },
+                  ]
+            }
+          />
         }
       />
 

@@ -6,6 +6,7 @@ import { getVisibleMcpAgents } from "../../lib/mcpAgents";
 import { mcpStatus, toTitleCase } from "../../lib/catalogUtils";
 import { cn } from "../../lib/utils";
 import type { McpServerRecord } from "../../types";
+import { EntityActionMenus } from "./EntityActionMenus";
 
 type McpDetailsPanelProps = {
   server: McpServerRecord;
@@ -68,68 +69,41 @@ export function McpDetailsPanel({
               </p>
             </div>
           </div>
-          <div className="relative">
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label="More actions"
-              disabled={busy}
-              aria-expanded={actionsMenuOpen}
-              onClick={onToggleActionsMenu}
-            >
-              ⋯
-            </Button>
-            {actionsMenuOpen ? (
-              <div
-                role="menu"
-                className="absolute right-0 top-8 z-20 min-w-36 rounded-md border border-border/70 bg-card p-1 shadow-sm"
-              >
-                {status === "active" ? (
-                  <>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled={busy}
-                      className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={onArchive}
-                    >
-                      Archive
-                    </button>
-                    {server.scope === "project" ? (
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={busy}
-                        className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                        onClick={onMakeGlobal}
-                      >
-                        Make global
-                      </button>
-                    ) : null}
-                  </>
-                ) : status === "archived" ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={busy}
-                    className="block w-full rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={onRestore}
-                  >
-                    Restore
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={busy}
-                  className="block w-full rounded-sm px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={onRequestDelete}
-                >
-                  Delete
-                </button>
-              </div>
-            ) : null}
-          </div>
+          <EntityActionMenus
+            busy={busy}
+            actionsMenuExpanded={actionsMenuOpen}
+            onToggleActionsMenu={onToggleActionsMenu}
+            actionItems={[
+              ...(status === "active"
+                ? [
+                    { label: "Archive", onSelect: onArchive, disabled: busy },
+                    ...(server.scope === "project"
+                      ? [
+                          {
+                            label: "Make global",
+                            onSelect: onMakeGlobal,
+                            disabled: busy,
+                          },
+                        ]
+                      : []),
+                  ]
+                : status === "archived"
+                  ? [
+                      {
+                        label: "Restore",
+                        onSelect: onRestore,
+                        disabled: busy,
+                      },
+                    ]
+                  : []),
+              {
+                label: "Delete",
+                onSelect: onRequestDelete,
+                disabled: busy,
+                tone: "destructive" as const,
+              },
+            ]}
+          />
         </div>
       </CardHeader>
       <CardContent className="space-y-3 p-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
