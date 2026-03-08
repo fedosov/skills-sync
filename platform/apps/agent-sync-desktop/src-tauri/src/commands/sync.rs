@@ -1,5 +1,6 @@
 use agent_sync_core::{
-    AgentsContextReport, McpAgent, SubagentRecord, SyncEngine, SyncState, SyncTrigger,
+    AgentsContextReport, ConfigValidationResult, McpAgent, SubagentRecord, SyncEngine, SyncState,
+    SyncTrigger,
 };
 
 use crate::{
@@ -101,4 +102,10 @@ pub fn delete_unmanaged_mcp(
     ensure_write_allowed(&engine, "delete_unmanaged_mcp")?;
     let _guard = runtime.acquire_sync_lock()?;
     engine.delete_unmanaged_mcp(&server_key).to_tauri()
+}
+
+#[tauri::command]
+pub fn validate_configs() -> Vec<ConfigValidationResult> {
+    let engine = SyncEngine::current();
+    engine.validate_configs()
 }

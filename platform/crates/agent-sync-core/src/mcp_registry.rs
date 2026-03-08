@@ -3,6 +3,9 @@ use crate::managed_block::{strip_managed_blocks, upsert_managed_block};
 use crate::models::{
     CatalogMutationAction, McpEnabledByAgent, McpServerRecord, McpTransport, SkillLifecycleStatus,
 };
+use crate::toml_scan::{
+    line_matches_mcp_server_subtable, scan_toml_mcp_server_keys, toml_line_outside_multiline_flags,
+};
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -61,6 +64,12 @@ impl std::str::FromStr for McpAgent {
 pub struct McpSyncOutcome {
     pub records: Vec<McpServerRecord>,
     pub warnings: Vec<String>,
+}
+
+/// Result of Codex TOML deduplication (pure function output).
+struct CodexDeduplicationResult {
+    cleaned: String,
+    duplicate_keys: Vec<String>,
 }
 
 fn status_sort_rank(s: &SkillLifecycleStatus) -> u8 {
@@ -1858,40 +1867,17 @@ impl McpRegistry {
             }
         }
 
-        // Defensive deduplication: remove from managed block any key that still
-        // exists in unmanaged text (catches edge cases the primary check may miss).
-        let filtered = {
-            let mut safe = filtered;
-            let keys_to_check: Vec<_> = safe
-                .keys()
-                .filter(|k| safe.get(*k).is_some_and(|e| e.enabled))
-                .cloned()
-                .collect();
-            for key in keys_to_check {
-                let still_in_unmanaged = unmanaged_table
-                    .as_ref()
-                    .map(|table| unmanaged_codex_contains_server(table, &key))
-                    .unwrap_or_else(|| text_contains_codex_server(&unmanaged_text, &key));
-                if still_in_unmanaged {
-                    safe.remove(&key);
-                }
-            }
-            safe
-        };
-
         let block = render_codex_block(&filtered);
         let mut updated = upsert_managed_block(&unmanaged_text, CODEX_BEGIN, CODEX_END, &block);
 
-        // Post-write TOML validation: if the combined output has duplicate keys,
-        // strip duplicates from the managed block to produce valid TOML.
         if toml::from_str::<toml::Table>(&updated).is_err() {
-            let managed_only_keys: Vec<_> = filtered.keys().cloned().collect();
             let mut safe_filtered = filtered.clone();
-            for key in &managed_only_keys {
+            for key in filtered.keys() {
                 if text_contains_codex_server(&unmanaged_text, key) {
                     safe_filtered.remove(key);
                 }
             }
+
             if safe_filtered.len() != filtered.len() {
                 let safe_block = render_codex_block(&safe_filtered);
                 updated =
@@ -2222,21 +2208,39 @@ impl McpRegistry {
 
     /// Final-pass deduplication for Codex `config.toml`.
     ///
-    /// Reads the file, finds any `[mcp_servers.*]` keys that appear both inside
-    /// and outside the managed block, and removes the **unmanaged** copy so that
-    /// the TOML remains valid (no duplicate keys).  Writes only when changed.
-    pub fn deduplicate_codex_toml_file(path: &Path) -> Result<(), SyncEngineError> {
+    /// Pure text/line-based scanning — no TOML parsing dependency.
+    /// Scans ALL `[mcp_servers.*]` headers, builds a key→occurrences map, and
+    /// removes **unmanaged** copies of any key that also appears in the managed
+    /// block.  Also removes pure unmanaged duplicates (keeps first occurrence).
+    /// Returns the list of duplicate keys that were removed.
+    pub fn deduplicate_codex_toml_file(path: &Path) -> Result<Vec<String>, SyncEngineError> {
         let content = match fs::read_to_string(path) {
             Ok(c) => c,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(SyncEngineError::io(path, e)),
         };
 
-        // Find managed block line range
+        let removed = Self::deduplicate_codex_toml_content(&content);
+        if removed.cleaned == content {
+            return Ok(Vec::new());
+        }
+
+        fs::write(path, &removed.cleaned).map_err(|e| SyncEngineError::io(path, e))?;
+        Ok(removed.duplicate_keys)
+    }
+
+    /// Pure function: deduplicate Codex TOML content without filesystem I/O.
+    fn deduplicate_codex_toml_content(content: &str) -> CodexDeduplicationResult {
         let lines: Vec<&str> = content.lines().collect();
+        let outside_multiline_flags = toml_line_outside_multiline_flags(content);
+
+        // 1. Find managed block line range
         let mut managed_start: Option<usize> = None;
         let mut managed_end: Option<usize> = None;
         for (i, line) in lines.iter().enumerate() {
+            if !outside_multiline_flags[i] {
+                continue;
+            }
             let trimmed = line.trim();
             for &(begin, _end) in &CODEX_MARKER_PAIRS {
                 if trimmed == begin && managed_start.is_none() {
@@ -2250,41 +2254,65 @@ impl McpRegistry {
             }
         }
 
-        // Collect all mcp_servers keys with their line indices and managed/unmanaged status
-        let mut keys_managed: HashSet<String> = HashSet::new();
-        let mut keys_unmanaged: HashSet<String> = HashSet::new();
+        // 2. Build key → Vec<(line_index, in_managed)> map
+        let mut key_occurrences: HashMap<String, Vec<(usize, bool)>> = HashMap::new();
         for (i, line) in lines.iter().enumerate() {
+            if !outside_multiline_flags[i] {
+                continue;
+            }
             if let Some(key) = extract_mcp_server_key(line) {
                 let in_managed = match (managed_start, managed_end) {
                     (Some(s), Some(e)) => i >= s && i <= e,
                     _ => false,
                 };
-                if in_managed {
-                    keys_managed.insert(key);
-                } else {
-                    keys_unmanaged.insert(key);
-                }
+                key_occurrences
+                    .entry(key)
+                    .or_default()
+                    .push((i, in_managed));
             }
         }
 
-        // Find duplicates: keys that appear in both managed and unmanaged
-        let duplicates: Vec<String> = keys_managed
-            .intersection(&keys_unmanaged)
-            .cloned()
-            .collect();
-        if duplicates.is_empty() {
-            return Ok(());
+        // 3. Determine which keys have duplicates and which unmanaged copies to remove
+        let mut managed_duplicate_keys = Vec::new();
+        let mut pure_unmanaged_duplicate_keys = Vec::new();
+        for (key, occurrences) in &key_occurrences {
+            if occurrences.len() <= 1 {
+                continue;
+            }
+            let has_managed = occurrences.iter().any(|&(_, m)| m);
+            let unmanaged_count = occurrences.iter().filter(|&&(_, m)| !m).count();
+
+            if has_managed && unmanaged_count > 0 {
+                // Key exists in managed block — remove ALL unmanaged copies
+                managed_duplicate_keys.push(key.clone());
+            } else if !has_managed && unmanaged_count > 1 {
+                // Pure unmanaged duplicate — remove all but the first occurrence
+                pure_unmanaged_duplicate_keys.push(key.clone());
+            }
         }
 
-        // Remove unmanaged copies of duplicated keys.
-        // Strategy: split content into unmanaged text and managed block,
-        // remove duplicate sections from unmanaged, then reassemble.
-        let unmanaged_text = strip_managed_blocks(&content, &CODEX_MARKER_PAIRS);
-        let managed_block = extract_managed_block_from_markers(&content, &CODEX_MARKER_PAIRS);
+        if managed_duplicate_keys.is_empty() && pure_unmanaged_duplicate_keys.is_empty() {
+            return CodexDeduplicationResult {
+                cleaned: content.to_string(),
+                duplicate_keys: Vec::new(),
+            };
+        }
+
+        managed_duplicate_keys.sort();
+        pure_unmanaged_duplicate_keys.sort();
+
+        // 4. Split into unmanaged text and managed block, remove duplicates
+        //    from unmanaged, then reassemble.
+        let unmanaged_text = strip_managed_blocks(content, &CODEX_MARKER_PAIRS);
+        let managed_block = extract_managed_block_from_markers(content, &CODEX_MARKER_PAIRS);
 
         let mut cleaned_unmanaged = unmanaged_text;
-        for key in &duplicates {
+        for key in &managed_duplicate_keys {
             cleaned_unmanaged = text_remove_codex_server_section(&cleaned_unmanaged, key);
+        }
+        for key in &pure_unmanaged_duplicate_keys {
+            cleaned_unmanaged =
+                text_deduplicate_unmanaged_codex_server_sections(&cleaned_unmanaged, key);
         }
 
         let updated = if let Some(block) = &managed_block {
@@ -2293,11 +2321,14 @@ impl McpRegistry {
             cleaned_unmanaged
         };
 
-        if updated != content {
-            fs::write(path, &updated).map_err(|e| SyncEngineError::io(path, e))?;
-        }
+        let mut duplicate_keys = managed_duplicate_keys;
+        duplicate_keys.extend(pure_unmanaged_duplicate_keys);
+        duplicate_keys.sort();
 
-        Ok(())
+        CodexDeduplicationResult {
+            cleaned: updated,
+            duplicate_keys,
+        }
     }
 
     fn auto_clean_stale_entries(
@@ -3333,107 +3364,146 @@ fn read_toml_servers_from_str(raw: &str) -> Result<Vec<(String, McpDefinition, b
 /// Extracts the server key from a TOML section header like `[mcp_servers.KEY]`
 /// or `[mcp_servers."KEY"]`.  Returns `None` if the line is not such a header.
 fn extract_mcp_server_key(line: &str) -> Option<String> {
-    let trimmed = line.trim();
-    let inner = trimmed.strip_prefix('[')?.strip_suffix(']')?;
-    // Must not be a sub-table like [mcp_servers.key.env]
-    let rest = inner.strip_prefix("mcp_servers.")?;
-    // Reject sub-tables (contains another dot outside quotes)
-    let key = if rest.starts_with('"') {
-        let key = rest.strip_prefix('"')?.strip_suffix('"')?;
-        // After closing quote there should be nothing left
-        key.to_string()
-    } else if rest.starts_with('\'') {
-        let key = rest.strip_prefix('\'')?.strip_suffix('\'')?;
-        key.to_string()
-    } else {
-        // Bare key — must not contain dots (sub-table)
-        if rest.contains('.') {
-            return None;
-        }
-        rest.to_string()
-    };
-    if key.is_empty() {
-        return None;
-    }
-    Some(key)
-}
-
-/// Returns all text forms of a TOML section header for `[mcp_servers.{key}]`,
-/// including both quoted and unquoted variants.
-fn codex_server_headers(key: &str) -> Vec<String> {
-    vec![
-        format!("[mcp_servers.{}]", key),
-        format!("[mcp_servers.\"{}\"]", key),
-        format!("[mcp_servers.'{}']", key),
-    ]
-}
-
-/// Returns all text prefixes for sub-sections of `[mcp_servers.{key}.*]`.
-fn codex_server_sub_prefixes(key: &str) -> Vec<String> {
-    vec![
-        format!("[mcp_servers.{}.", key),
-        format!("[mcp_servers.\"{}\".", key),
-        format!("[mcp_servers.'{}\'.", key),
-    ]
+    crate::toml_scan::extract_mcp_server_key(line)
 }
 
 /// Checks if `[mcp_servers.{key}]` header exists in raw TOML text.
 /// Used as a fallback when structured TOML parsing fails.
 fn text_contains_codex_server(text: &str, key: &str) -> bool {
-    let headers = codex_server_headers(key);
-    text.lines()
-        .any(|line| headers.iter().any(|h| line.trim() == *h))
+    scan_toml_mcp_server_keys(text)
+        .iter()
+        .any(|item| item == key)
+        || text_contains_codex_server_in_root_table(text, key)
 }
 
-/// Removes `[mcp_servers.{key}]` section (and its sub-sections like `.env`)
-/// from raw TOML text, preserving all comments and other content.
-fn text_remove_codex_server_section(text: &str, key: &str) -> String {
-    let headers = codex_server_headers(key);
-    let sub_prefixes = codex_server_sub_prefixes(key);
-    let mut result = Vec::new();
-    let mut skipping = false;
+fn text_contains_codex_server_in_root_table(text: &str, key: &str) -> bool {
+    let lines: Vec<&str> = text.lines().collect();
+    let outside_multiline_flags = toml_line_outside_multiline_flags(text);
+    let mut index = 0usize;
 
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if skipping {
-            // Check if this line is a new section header that is NOT a sub-section
-            if trimmed.starts_with('[')
-                && !sub_prefixes.iter().any(|p| trimmed.starts_with(p.as_str()))
-            {
-                skipping = false;
-                result.push(line);
+    while index < lines.len() {
+        if !outside_multiline_flags[index] || !line_matches_mcp_servers_root_header(lines[index]) {
+            index += 1;
+            continue;
+        }
+
+        let mut section = String::from("[mcp_servers]\n");
+        index += 1;
+        while index < lines.len() {
+            if outside_multiline_flags[index] && lines[index].trim().starts_with('[') {
+                break;
             }
-            // else: skip this line (part of removed section or sub-section)
-        } else if headers.iter().any(|h| trimmed == *h)
-            || sub_prefixes.iter().any(|p| trimmed.starts_with(p.as_str()))
-        {
-            skipping = true;
-            // skip this line
-        } else {
-            result.push(line);
+            section.push_str(lines[index]);
+            section.push('\n');
+            index += 1;
+        }
+
+        if section_contains_codex_server_key(&section, key) {
+            return true;
         }
     }
 
-    // Collapse runs of >2 blank lines into at most 1 blank line
+    false
+}
+
+fn line_matches_mcp_servers_root_header(line: &str) -> bool {
+    let sanitized = strip_toml_inline_comment_for_registry(line);
+    let trimmed = sanitized.trim();
+    let inner = match trimmed
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    {
+        Some(value) => value,
+        None => return false,
+    };
+
+    let probe_key = "__agent_sync_probe__";
+    let probe = format!("[{inner}]\n{probe_key} = true\n");
+    let Ok(parsed) = toml::from_str::<toml::Table>(&probe) else {
+        return false;
+    };
+
+    parsed
+        .get("mcp_servers")
+        .and_then(toml::Value::as_table)
+        .is_some_and(|table| table.contains_key(probe_key))
+}
+
+fn section_contains_codex_server_key(section: &str, key: &str) -> bool {
+    toml::from_str::<toml::Table>(section)
+        .ok()
+        .and_then(|parsed| {
+            parsed
+                .get("mcp_servers")
+                .and_then(toml::Value::as_table)
+                .cloned()
+        })
+        .is_some_and(|table| table.contains_key(key))
+}
+
+fn strip_toml_inline_comment_for_registry(line: &str) -> String {
+    let bytes = line.as_bytes();
+    let mut index = 0usize;
+    let mut in_basic_string = false;
+    let mut in_literal_string = false;
+
+    while index < bytes.len() {
+        if in_basic_string {
+            match bytes[index] {
+                b'\\' => index = (index + 2).min(bytes.len()),
+                b'"' => {
+                    in_basic_string = false;
+                    index += 1;
+                }
+                _ => index += 1,
+            }
+            continue;
+        }
+
+        if in_literal_string {
+            if bytes[index] == b'\'' {
+                in_literal_string = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        match bytes[index] {
+            b'#' => return line[..index].trim_end().to_string(),
+            b'"' => {
+                in_basic_string = true;
+                index += 1;
+            }
+            b'\'' => {
+                in_literal_string = true;
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+
+    line.trim_end().to_string()
+}
+
+fn normalize_codex_section_text(lines: Vec<&str>) -> String {
     let mut collapsed = Vec::new();
     let mut blank_run = 0;
-    for line in &result {
+    for line in lines {
         if line.trim().is_empty() {
             blank_run += 1;
             if blank_run <= 1 {
-                collapsed.push(*line);
+                collapsed.push(line);
             }
         } else {
             blank_run = 0;
-            collapsed.push(*line);
+            collapsed.push(line);
         }
     }
 
-    // Trim leading/trailing blank lines
-    while collapsed.first().is_some_and(|l| l.trim().is_empty()) {
+    while collapsed.first().is_some_and(|line| line.trim().is_empty()) {
         collapsed.remove(0);
     }
-    while collapsed.last().is_some_and(|l| l.trim().is_empty()) {
+    while collapsed.last().is_some_and(|line| line.trim().is_empty()) {
         collapsed.pop();
     }
 
@@ -3442,6 +3512,90 @@ fn text_remove_codex_server_section(text: &str, key: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+fn line_matches_codex_server_header(line: &str, key: &str) -> bool {
+    extract_mcp_server_key(line).as_deref() == Some(key)
+}
+
+/// Removes `[mcp_servers.{key}]` section (and its sub-sections like `.env`)
+/// from raw TOML text, preserving all comments and other content.
+fn text_remove_codex_server_section(text: &str, key: &str) -> String {
+    let outside_multiline_flags = toml_line_outside_multiline_flags(text);
+    let mut result = Vec::new();
+    let mut skipping = false;
+
+    for (line, outside_multiline) in text.lines().zip(outside_multiline_flags) {
+        let trimmed = line.trim();
+        if skipping {
+            if outside_multiline
+                && trimmed.starts_with('[')
+                && !line_matches_mcp_server_subtable(line, key)
+            {
+                skipping = false;
+                result.push(line);
+            }
+        } else if outside_multiline
+            && (line_matches_codex_server_header(line, key)
+                || line_matches_mcp_server_subtable(line, key))
+        {
+            skipping = true;
+        } else {
+            result.push(line);
+        }
+    }
+
+    normalize_codex_section_text(result)
+}
+
+/// Removes duplicate unmanaged `[mcp_servers.{key}]` sections, keeping the first
+/// occurrence and preserving unrelated content and sub-sections.
+fn text_deduplicate_unmanaged_codex_server_sections(text: &str, key: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let outside_multiline_flags = toml_line_outside_multiline_flags(text);
+    let mut skip = vec![false; lines.len()];
+    let mut seen_first = false;
+    let mut index = 0usize;
+
+    while index < lines.len() {
+        if !outside_multiline_flags[index] {
+            index += 1;
+            continue;
+        }
+        if !line_matches_codex_server_header(lines[index], key) {
+            index += 1;
+            continue;
+        }
+
+        let start = index;
+        index += 1;
+        while index < lines.len() {
+            if !outside_multiline_flags[index] {
+                index += 1;
+                continue;
+            }
+            let next = lines[index].trim();
+            if next.starts_with('[') && !line_matches_mcp_server_subtable(lines[index], key) {
+                break;
+            }
+            index += 1;
+        }
+
+        if seen_first {
+            for item in skip.iter_mut().take(index).skip(start) {
+                *item = true;
+            }
+        } else {
+            seen_first = true;
+        }
+    }
+
+    let filtered = lines
+        .into_iter()
+        .enumerate()
+        .filter_map(|(line_index, line)| (!skip[line_index]).then_some(line))
+        .collect::<Vec<_>>();
+    normalize_codex_section_text(filtered)
 }
 
 fn parse_unmanaged_codex_table(
@@ -4166,6 +4320,52 @@ API_KEY = "${API_KEY}"
     }
 
     #[test]
+    fn apply_codex_catalog_path_text_fallback_detects_root_table_duplicate_on_parse_failure() {
+        let (_temp, registry, home, _runtime) = registry_in_temp();
+        let codex_path = home.join(".codex").join("config.toml");
+        std::fs::create_dir_all(codex_path.parent().expect("parent")).expect("mkdir parent");
+        std::fs::write(
+            &codex_path,
+            "!!! invalid toml syntax !!!\n\n\
+             [mcp_servers]\n\
+             exa = { command = \"npx\", args = [\"-y\", \"mcp-remote@latest\"] }\n",
+        )
+        .expect("write codex");
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            String::from("exa"),
+            CodexCatalogEntry {
+                definition: McpDefinition {
+                    transport: McpTransport::Stdio,
+                    command: Some(String::from("npx")),
+                    args: vec![String::from("-y"), String::from("mcp-remote@latest")],
+                    url: None,
+                    env: BTreeMap::new(),
+                },
+                enabled: true,
+            },
+        );
+
+        let mut warnings = Vec::new();
+        registry
+            .apply_codex_catalog_path(&codex_path, &entries, true, &mut warnings)
+            .expect("apply codex");
+
+        let codex_raw = std::fs::read_to_string(&codex_path).expect("read codex");
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("Skipped managed Codex MCP 'exa'")),
+            "should skip duplicate root-table entry via text fallback: {warnings:?}"
+        );
+        assert!(
+            !codex_raw.contains("[mcp_servers.exa]"),
+            "managed table should not be added when root-table duplicate exists:\n{codex_raw}"
+        );
+    }
+
+    #[test]
     fn text_remove_codex_server_section_removes_with_subtables() {
         let input = "\
 [mcp_servers.foo]\n\
@@ -4193,6 +4393,33 @@ command = \"bar-cmd\"\n";
         assert!(
             result.contains("bar-cmd"),
             "bar content should be preserved"
+        );
+    }
+
+    #[test]
+    fn text_remove_codex_server_section_removes_whitespace_formatted_subtables() {
+        let input = "\
+[ mcp_servers.foo ]\n\
+command = \"foo-cmd\"\n\
+\n\
+[ mcp_servers.foo . env ]\n\
+API_KEY = \"secret\"\n\
+\n\
+[mcp_servers.bar]\n\
+command = \"bar-cmd\"\n";
+
+        let result = text_remove_codex_server_section(input, "foo");
+        assert!(
+            !result.contains("[ mcp_servers.foo ]"),
+            "foo section should be removed"
+        );
+        assert!(
+            !result.contains("[ mcp_servers.foo . env ]"),
+            "whitespace-formatted foo.env sub-section should be removed"
+        );
+        assert!(
+            result.contains("[mcp_servers.bar]"),
+            "bar section should be preserved"
         );
     }
 
@@ -4940,6 +5167,51 @@ enabled = true\n\
     }
 
     #[test]
+    fn apply_codex_catalog_path_post_write_guard_skips_disabled_root_table_duplicate() {
+        let (_temp, registry, home, _runtime) = registry_in_temp();
+        let codex_path = home.join(".codex").join("config.toml");
+        std::fs::create_dir_all(codex_path.parent().expect("parent")).expect("mkdir parent");
+
+        std::fs::write(
+            &codex_path,
+            "\
+[mcp_servers]\n\
+exa = { command = \"npx\", args = [\"-y\", \"mcp-remote@latest\"] }\n",
+        )
+        .expect("write codex");
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            String::from("exa"),
+            CodexCatalogEntry {
+                definition: McpDefinition {
+                    transport: McpTransport::Stdio,
+                    command: Some(String::from("npx")),
+                    args: vec![String::from("-y"), String::from("mcp-remote@latest")],
+                    url: None,
+                    env: BTreeMap::new(),
+                },
+                enabled: false,
+            },
+        );
+
+        let mut warnings = Vec::new();
+        registry
+            .apply_codex_catalog_path(&codex_path, &entries, true, &mut warnings)
+            .expect("apply codex");
+
+        let codex_raw = std::fs::read_to_string(&codex_path).expect("read codex");
+        assert!(
+            !codex_raw.contains("[mcp_servers.exa]"),
+            "post-write guard should remove unresolved managed duplicate:\n{codex_raw}"
+        );
+        assert!(
+            toml::from_str::<toml::Table>(&codex_raw).is_ok(),
+            "output must remain valid TOML; got:\n{codex_raw}"
+        );
+    }
+
+    #[test]
     fn apply_codex_catalog_path_no_duplicate_when_skills_block_between_mcp_entries() {
         let (_temp, registry, home, _runtime) = registry_in_temp();
         let codex_path = home.join(".codex").join("config.toml");
@@ -5068,7 +5340,7 @@ url = "http://localhost:5678"
 "#;
         std::fs::write(&config_path, content).expect("write");
 
-        McpRegistry::deduplicate_codex_toml_file(&config_path).expect("dedup");
+        let removed = McpRegistry::deduplicate_codex_toml_file(&config_path).expect("dedup");
 
         let result = std::fs::read_to_string(&config_path).expect("read");
         // exa should appear exactly once
@@ -5087,6 +5359,45 @@ url = "http://localhost:5678"
             toml::from_str::<toml::Table>(&result).is_ok(),
             "output must be valid TOML; got:\n{result}"
         );
+        // Should report exa as duplicate
+        assert!(
+            removed.contains(&"exa".to_string()),
+            "should report exa as removed duplicate"
+        );
+    }
+
+    #[test]
+    fn deduplicate_codex_toml_file_removes_unmanaged_duplicate_with_inline_comment() {
+        let (_temp, _registry, home, _runtime) = registry_in_temp();
+        let codex_dir = home.join(".codex");
+        std::fs::create_dir_all(&codex_dir).expect("create codex dir");
+        let config_path = codex_dir.join("config.toml");
+
+        let content = r#"[mcp_servers.exa] # manual copy
+type = "sse"
+url = "http://localhost:1234"
+
+# agent-sync:mcp:codex:begin
+[mcp_servers.exa]
+type = "sse"
+url = "http://localhost:1234"
+# agent-sync:mcp:codex:end
+"#;
+        std::fs::write(&config_path, content).expect("write");
+
+        let removed = McpRegistry::deduplicate_codex_toml_file(&config_path).expect("dedup");
+
+        let result = std::fs::read_to_string(&config_path).expect("read");
+        assert_eq!(
+            count_occurrences(&result, "[mcp_servers.exa]"),
+            1,
+            "inline-commented unmanaged duplicate should be removed; got:\n{result}"
+        );
+        assert!(
+            toml::from_str::<toml::Table>(&result).is_ok(),
+            "output must remain valid TOML; got:\n{result}"
+        );
+        assert_eq!(removed, vec!["exa"]);
     }
 
     #[test]
@@ -5108,10 +5419,317 @@ url = "http://localhost:2222"
 "#;
         std::fs::write(&config_path, content).expect("write");
 
-        McpRegistry::deduplicate_codex_toml_file(&config_path).expect("dedup");
+        let removed = McpRegistry::deduplicate_codex_toml_file(&config_path).expect("dedup");
 
         let result = std::fs::read_to_string(&config_path).expect("read");
-        // Content should be unchanged
         assert_eq!(result, content, "file should not be modified");
+        assert!(removed.is_empty(), "no duplicates should be reported");
+    }
+
+    /// Reproduces the real-world scenario: 50+ [[skills.config]] entries
+    /// interleaved with [mcp_servers.*] sections, including manual entries
+    /// with .env sub-sections, and a managed block containing duplicates.
+    #[test]
+    fn deduplicate_codex_toml_handles_large_interleaved_file() {
+        let (_temp, _registry, home, _runtime) = registry_in_temp();
+        let codex_dir = home.join(".codex");
+        std::fs::create_dir_all(&codex_dir).expect("create codex dir");
+        let config_path = codex_dir.join("config.toml");
+
+        // Build a realistic 3000+ line config.toml
+        let mut content = String::new();
+
+        // 1. 50 [[skills.config]] entries before MCP servers
+        for i in 0..50 {
+            content.push_str(&format!(
+                "[[skills.config]]\n\
+                 name = \"skill-{i}\"\n\
+                 command = \"run-skill-{i}\"\n\
+                 enabled = true\n\n"
+            ));
+        }
+
+        // 2. Manual (unmanaged) MCP entries including daisyui-blueprint with .env
+        content.push_str(
+            "[mcp_servers.daisyui-blueprint]\n\
+             command = \"npx\"\n\
+             args = [\"-y\", \"daisyui-mcp\"]\n\n\
+             [mcp_servers.daisyui-blueprint.env]\n\
+             API_KEY = \"secret-key-123\"\n\
+             THEME = \"dark\"\n\n\
+             [mcp_servers.sentry]\n\
+             command = \"npx\"\n\
+             args = [\"-y\", \"sentry-mcp\"]\n\n",
+        );
+
+        // 3. More [[skills.config]] entries AFTER MCP servers
+        for i in 50..80 {
+            content.push_str(&format!(
+                "[[skills.config]]\n\
+                 name = \"skill-{i}\"\n\
+                 command = \"run-skill-{i}\"\n\
+                 enabled = true\n\n"
+            ));
+        }
+
+        // 4. Manual unique server (should be preserved)
+        content.push_str(
+            "[mcp_servers.custom-local]\n\
+             command = \"my-local-server\"\n\n",
+        );
+
+        // 5. Managed MCP block with duplicates of daisyui-blueprint and sentry
+        content.push_str(
+            "# agent-sync:mcp:codex:begin\n\
+             [mcp_servers.daisyui-blueprint]\n\
+             command = \"npx\"\n\
+             args = [\"-y\", \"daisyui-mcp\"]\n\n\
+             [mcp_servers.sentry]\n\
+             command = \"npx\"\n\
+             args = [\"-y\", \"sentry-mcp\"]\n\n\
+             [mcp_servers.exa]\n\
+             type = \"sse\"\n\
+             url = \"http://localhost:1234\"\n\
+             # agent-sync:mcp:codex:end\n",
+        );
+
+        // Verify the content is large enough
+        assert!(
+            content.lines().count() > 300,
+            "test file should have 300+ lines"
+        );
+
+        std::fs::write(&config_path, &content).expect("write");
+
+        let removed = McpRegistry::deduplicate_codex_toml_file(&config_path).expect("dedup");
+
+        let result = std::fs::read_to_string(&config_path).expect("read");
+
+        // Each key should appear exactly once
+        assert_eq!(
+            count_occurrences(&result, "[mcp_servers.daisyui-blueprint]"),
+            1,
+            "daisyui-blueprint should appear exactly once; got:\n{}",
+            &result[result.len().saturating_sub(500)..]
+        );
+        assert_eq!(
+            count_occurrences(&result, "[mcp_servers.sentry]"),
+            1,
+            "sentry should appear exactly once"
+        );
+        assert_eq!(
+            count_occurrences(&result, "[mcp_servers.exa]"),
+            1,
+            "exa should appear exactly once (only in managed)"
+        );
+        assert_eq!(
+            count_occurrences(&result, "[mcp_servers.custom-local]"),
+            1,
+            "custom-local should be preserved (only in unmanaged)"
+        );
+
+        // Managed block should still exist
+        assert!(
+            result.contains("# agent-sync:mcp:codex:begin"),
+            "managed block begin marker should be preserved"
+        );
+        assert!(
+            result.contains("# agent-sync:mcp:codex:end"),
+            "managed block end marker should be preserved"
+        );
+
+        // [[skills.config]] entries should all be preserved
+        for i in 0..80 {
+            assert!(
+                result.contains(&format!("name = \"skill-{i}\"")),
+                "skill-{i} should be preserved"
+            );
+        }
+
+        // Unmanaged .env sub-section of daisyui-blueprint should be removed
+        // (since the unmanaged copy was removed in favor of managed)
+        assert!(
+            !result.contains("[mcp_servers.daisyui-blueprint.env]"),
+            "unmanaged .env sub-section should be removed with its parent"
+        );
+
+        // Must be valid TOML
+        assert!(
+            toml::from_str::<toml::Table>(&result).is_ok(),
+            "output must be valid TOML; got (last 1000 chars):\n{}",
+            &result[result.len().saturating_sub(1000)..]
+        );
+
+        // Should report both duplicates
+        assert!(
+            removed.contains(&"daisyui-blueprint".to_string()),
+            "should report daisyui-blueprint; got: {:?}",
+            removed
+        );
+        assert!(
+            removed.contains(&"sentry".to_string()),
+            "should report sentry; got: {:?}",
+            removed
+        );
+    }
+
+    /// Test the pure function variant directly.
+    #[test]
+    fn deduplicate_codex_toml_content_pure_function() {
+        let content = "\
+[mcp_servers.foo]\n\
+command = \"foo-cmd\"\n\
+\n\
+# agent-sync:mcp:codex:begin\n\
+[mcp_servers.foo]\n\
+command = \"foo-cmd\"\n\
+\n\
+[mcp_servers.bar]\n\
+command = \"bar-cmd\"\n\
+# agent-sync:mcp:codex:end\n";
+
+        let result = McpRegistry::deduplicate_codex_toml_content(content);
+        assert_eq!(
+            count_occurrences(&result.cleaned, "[mcp_servers.foo]"),
+            1,
+            "foo should appear exactly once"
+        );
+        assert!(
+            result.cleaned.contains("[mcp_servers.bar]"),
+            "bar should be preserved"
+        );
+        assert_eq!(result.duplicate_keys, vec!["foo"]);
+    }
+
+    #[test]
+    fn deduplicate_codex_toml_content_removes_pure_unmanaged_duplicates() {
+        let content = "\
+[mcp_servers.foo]\n\
+command = \"first\"\n\
+\n\
+[mcp_servers.bar]\n\
+command = \"bar\"\n\
+\n\
+[mcp_servers.foo]\n\
+command = \"second\"\n";
+
+        let result = McpRegistry::deduplicate_codex_toml_content(content);
+        assert_eq!(
+            count_occurrences(&result.cleaned, "[mcp_servers.foo]"),
+            1,
+            "duplicate unmanaged foo entries should be collapsed"
+        );
+        assert!(
+            result.cleaned.contains("command = \"first\""),
+            "first unmanaged occurrence should be preserved"
+        );
+        assert!(
+            !result.cleaned.contains("command = \"second\""),
+            "later unmanaged duplicate should be removed"
+        );
+        assert!(
+            result.cleaned.contains("[mcp_servers.bar]"),
+            "unrelated unmanaged sections should be preserved"
+        );
+        assert!(
+            toml::from_str::<toml::Table>(&result.cleaned).is_ok(),
+            "deduplicated output must remain valid TOML"
+        );
+        assert_eq!(result.duplicate_keys, vec!["foo"]);
+    }
+
+    #[test]
+    fn deduplicate_codex_toml_content_removes_pure_unmanaged_duplicates_with_inline_comment() {
+        let content = "\
+[mcp_servers.foo] # first copy\n\
+command = \"first\"\n\
+\n\
+[mcp_servers.bar]\n\
+command = \"bar\"\n\
+\n\
+[mcp_servers.foo]\n\
+command = \"second\"\n";
+
+        let result = McpRegistry::deduplicate_codex_toml_content(content);
+        assert_eq!(
+            count_occurrences(&result.cleaned, "[mcp_servers.foo]"),
+            1,
+            "inline-commented first occurrence should be preserved"
+        );
+        assert!(
+            !result.cleaned.contains("command = \"second\""),
+            "later duplicate should still be removed"
+        );
+        assert!(
+            toml::from_str::<toml::Table>(&result.cleaned).is_ok(),
+            "deduplicated output must remain valid TOML"
+        );
+        assert_eq!(result.duplicate_keys, vec!["foo"]);
+    }
+
+    #[test]
+    fn deduplicate_codex_toml_content_preserves_multiline_string_header_text() {
+        let content = r#"notes = """
+[mcp_servers.foo]
+command = "keep me"
+"""
+
+[mcp_servers.foo]
+command = "first"
+
+# agent-sync:mcp:codex:begin
+[mcp_servers.foo]
+command = "managed"
+# agent-sync:mcp:codex:end
+"#;
+
+        let result = McpRegistry::deduplicate_codex_toml_content(content);
+        assert!(
+            result
+                .cleaned
+                .contains("notes = \"\"\"\n[mcp_servers.foo]\ncommand = \"keep me\"\n\"\"\""),
+            "multiline string content should be preserved"
+        );
+        assert!(
+            !result.cleaned.contains("command = \"first\""),
+            "real unmanaged duplicate should still be removed"
+        );
+        assert!(
+            result.cleaned.contains("command = \"managed\""),
+            "managed definition should be preserved"
+        );
+        assert!(
+            toml::from_str::<toml::Table>(&result.cleaned).is_ok(),
+            "deduplicated output must remain valid TOML"
+        );
+        assert_eq!(result.duplicate_keys, vec!["foo"]);
+    }
+
+    #[test]
+    fn deduplicate_codex_toml_content_removes_whitespace_formatted_duplicate() {
+        let content = "\
+[ mcp_servers.foo ]\n\
+command = \"first\"\n\
+\n\
+# agent-sync:mcp:codex:begin\n\
+[mcp_servers.foo]\n\
+command = \"managed\"\n\
+# agent-sync:mcp:codex:end\n";
+
+        let result = McpRegistry::deduplicate_codex_toml_content(content);
+        assert_eq!(
+            count_occurrences(&result.cleaned, "[mcp_servers.foo]"),
+            1,
+            "whitespace-formatted duplicate should be removed"
+        );
+        assert!(
+            !result.cleaned.contains("[ mcp_servers.foo ]"),
+            "unmanaged whitespace-formatted duplicate should be removed"
+        );
+        assert!(
+            result.cleaned.contains("command = \"managed\""),
+            "managed definition should be preserved"
+        );
+        assert_eq!(result.duplicate_keys, vec!["foo"]);
     }
 }

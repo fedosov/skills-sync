@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -28,6 +29,8 @@ pub struct SyncState {
     pub top_skills: Vec<String>,
     #[serde(default, rename = "top_subagents")]
     pub top_subagents: Vec<String>,
+    #[serde(default, rename = "config_validations")]
+    pub config_validations: Vec<ConfigValidationResult>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +68,7 @@ impl Default for SyncState {
             mcp_servers: Vec::new(),
             top_skills: Vec::new(),
             top_subagents: Vec::new(),
+            config_validations: Vec::new(),
         }
     }
 }
@@ -339,6 +343,31 @@ impl TryFrom<&str> for SyncTrigger {
             other => Err(format!("unsupported trigger: {other}")),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigFormat {
+    Toml,
+    Json,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigValidationResult {
+    pub path: PathBuf,
+    pub format: ConfigFormat,
+    #[serde(rename = "valid_syntax")]
+    pub valid_syntax: bool,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "syntax_error"
+    )]
+    pub syntax_error: Option<String>,
+    #[serde(default, rename = "duplicate_keys")]
+    pub duplicate_keys: Vec<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
