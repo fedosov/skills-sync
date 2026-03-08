@@ -5474,4 +5474,32 @@ command = "managed"
         );
         assert_eq!(result.duplicate_keys, vec!["foo"]);
     }
+
+    #[test]
+    fn deduplicate_codex_toml_content_removes_whitespace_formatted_duplicate() {
+        let content = "\
+[ mcp_servers.foo ]\n\
+command = \"first\"\n\
+\n\
+# agent-sync:mcp:codex:begin\n\
+[mcp_servers.foo]\n\
+command = \"managed\"\n\
+# agent-sync:mcp:codex:end\n";
+
+        let result = McpRegistry::deduplicate_codex_toml_content(content);
+        assert_eq!(
+            count_occurrences(&result.cleaned, "[mcp_servers.foo]"),
+            1,
+            "whitespace-formatted duplicate should be removed"
+        );
+        assert!(
+            !result.cleaned.contains("[ mcp_servers.foo ]"),
+            "unmanaged whitespace-formatted duplicate should be removed"
+        );
+        assert!(
+            result.cleaned.contains("command = \"managed\""),
+            "managed definition should be preserved"
+        );
+        assert_eq!(result.duplicate_keys, vec!["foo"]);
+    }
 }

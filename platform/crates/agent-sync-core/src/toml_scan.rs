@@ -33,21 +33,16 @@ pub(crate) fn extract_mcp_server_key(line: &str) -> Option<String> {
     let sanitized = strip_toml_inline_comment(line);
     let trimmed = sanitized.trim();
     let inner = trimmed.strip_prefix('[')?.strip_suffix(']')?;
-    let rest = inner.strip_prefix("mcp_servers.")?;
-    let key = if rest.starts_with('"') {
-        rest.strip_prefix('"')?.strip_suffix('"')?.to_string()
-    } else if rest.starts_with('\'') {
-        rest.strip_prefix('\'')?.strip_suffix('\'')?.to_string()
-    } else {
-        if rest.contains('.') {
-            return None;
-        }
-        rest.to_string()
-    };
-    if key.is_empty() {
+    let probe_key = "__agent_sync_probe__";
+    let probe = format!("[{inner}]\n{probe_key} = true\n");
+    let parsed: toml::Table = toml::from_str(&probe).ok()?;
+    let root = parsed.get("mcp_servers")?.as_table()?;
+    if root.len() != 1 {
         return None;
     }
-    Some(key)
+    let (key, value) = root.iter().next()?;
+    let server_table = value.as_table()?;
+    server_table.contains_key(probe_key).then(|| key.clone())
 }
 
 fn multiline_state_after_line(
@@ -195,5 +190,27 @@ command = "npx"
             extract_mcp_server_key(r#"[mcp_servers."exa#prod"] # keep"#),
             Some(String::from("exa#prod"))
         );
+    }
+
+    #[test]
+    fn extract_mcp_server_key_supports_legal_header_whitespace() {
+        assert_eq!(
+            extract_mcp_server_key("[ mcp_servers.exa ]"),
+            Some(String::from("exa"))
+        );
+        assert_eq!(
+            extract_mcp_server_key("[mcp_servers . exa]"),
+            Some(String::from("exa"))
+        );
+        assert_eq!(
+            extract_mcp_server_key(r#"[ mcp_servers . "exa prod" ]"#),
+            Some(String::from("exa prod"))
+        );
+    }
+
+    #[test]
+    fn extract_mcp_server_key_rejects_subtables_with_legal_header_whitespace() {
+        assert_eq!(extract_mcp_server_key("[ mcp_servers.exa.env ]"), None);
+        assert_eq!(extract_mcp_server_key("[mcp_servers . exa . env]"), None);
     }
 }

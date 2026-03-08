@@ -6,6 +6,9 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const INVALID_MCP_SERVERS_WARNING: &str =
+    "'mcpServers' must be a JSON object; non-object value will be ignored";
+
 /// Validate Codex `~/.codex/config.toml` for syntax and duplicate MCP keys.
 pub fn validate_codex_config(home: &Path) -> Option<ConfigValidationResult> {
     validate_codex_config_path(home.join(".codex").join("config.toml"))
@@ -298,6 +301,8 @@ impl<'de> Visitor<'de> for McpServersVisitor<'_> {
     where
         A: SeqAccess<'de>,
     {
+        self.warnings
+            .insert(String::from(INVALID_MCP_SERVERS_WARNING));
         while let Some(()) = seq.next_element_seed(JsonValueSeed {
             duplicates: self.duplicates,
             warnings: self.warnings,
@@ -306,30 +311,44 @@ impl<'de> Visitor<'de> for McpServersVisitor<'_> {
     }
 
     fn visit_bool<E>(self, _value: bool) -> Result<Self::Value, E> {
+        self.warnings
+            .insert(String::from(INVALID_MCP_SERVERS_WARNING));
         Ok(())
     }
 
     fn visit_i64<E>(self, _value: i64) -> Result<Self::Value, E> {
+        self.warnings
+            .insert(String::from(INVALID_MCP_SERVERS_WARNING));
         Ok(())
     }
 
     fn visit_u64<E>(self, _value: u64) -> Result<Self::Value, E> {
+        self.warnings
+            .insert(String::from(INVALID_MCP_SERVERS_WARNING));
         Ok(())
     }
 
     fn visit_f64<E>(self, _value: f64) -> Result<Self::Value, E> {
+        self.warnings
+            .insert(String::from(INVALID_MCP_SERVERS_WARNING));
         Ok(())
     }
 
     fn visit_str<E>(self, _value: &str) -> Result<Self::Value, E> {
+        self.warnings
+            .insert(String::from(INVALID_MCP_SERVERS_WARNING));
         Ok(())
     }
 
     fn visit_string<E>(self, _value: String) -> Result<Self::Value, E> {
+        self.warnings
+            .insert(String::from(INVALID_MCP_SERVERS_WARNING));
         Ok(())
     }
 
     fn visit_none<E>(self) -> Result<Self::Value, E> {
+        self.warnings
+            .insert(String::from(INVALID_MCP_SERVERS_WARNING));
         Ok(())
     }
 
@@ -345,6 +364,8 @@ impl<'de> Visitor<'de> for McpServersVisitor<'_> {
     }
 
     fn visit_unit<E>(self) -> Result<Self::Value, E> {
+        self.warnings
+            .insert(String::from(INVALID_MCP_SERVERS_WARNING));
         Ok(())
     }
 }
@@ -603,6 +624,68 @@ url = "http://localhost:1234"
                 "Duplicate 'mcpServers' property found; later value overrides earlier MCP config"
             )]
         );
+    }
+
+    #[test]
+    fn validate_claude_warns_when_mcp_servers_is_not_an_object() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path();
+        fs::write(home.join(".claude.json"), r#"{"mcpServers": []}"#).unwrap();
+
+        let result = validate_claude_config(home).unwrap();
+        assert!(result.valid_syntax);
+        assert!(result.duplicate_keys.is_empty());
+        assert_eq!(
+            result.warnings,
+            vec![String::from(
+                "'mcpServers' must be a JSON object; non-object value will be ignored"
+            )]
+        );
+    }
+
+    #[test]
+    fn validate_claude_warns_when_project_mcp_servers_is_not_an_object() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path();
+        fs::write(
+            home.join(".claude.json"),
+            r#"{"projects":{"ws":{"mcpServers":false}}}"#,
+        )
+        .unwrap();
+
+        let result = validate_claude_config(home).unwrap();
+        assert!(result.valid_syntax);
+        assert!(result.duplicate_keys.is_empty());
+        assert_eq!(
+            result.warnings,
+            vec![String::from(
+                "'mcpServers' must be a JSON object; non-object value will be ignored"
+            )]
+        );
+    }
+
+    #[test]
+    fn validate_codex_detects_duplicate_keys_with_legal_header_whitespace() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path();
+        let codex_dir = home.join(".codex");
+        fs::create_dir_all(&codex_dir).unwrap();
+        fs::write(
+            codex_dir.join("config.toml"),
+            r#"[ mcp_servers.exa ]
+type = "sse"
+url = "http://localhost:1234"
+
+[mcp_servers . exa]
+type = "sse"
+url = "http://localhost:5678"
+"#,
+        )
+        .unwrap();
+
+        let result = validate_codex_config(home).unwrap();
+        assert!(!result.valid_syntax, "duplicate keys make TOML invalid");
+        assert_eq!(result.duplicate_keys, vec!["exa"]);
     }
 
     #[test]
