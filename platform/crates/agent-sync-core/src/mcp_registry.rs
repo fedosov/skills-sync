@@ -3350,16 +3350,6 @@ fn extract_mcp_server_key(line: &str) -> Option<String> {
     crate::toml_scan::extract_mcp_server_key(line)
 }
 
-/// Returns all text forms of a TOML section header for `[mcp_servers.{key}]`,
-/// including both quoted and unquoted variants.
-fn codex_server_headers(key: &str) -> Vec<String> {
-    vec![
-        format!("[mcp_servers.{}]", key),
-        format!("[mcp_servers.\"{}\"]", key),
-        format!("[mcp_servers.'{}']", key),
-    ]
-}
-
 /// Returns all text prefixes for sub-sections of `[mcp_servers.{key}.*]`.
 fn codex_server_sub_prefixes(key: &str) -> Vec<String> {
     vec![
@@ -3406,10 +3396,13 @@ fn normalize_codex_section_text(lines: Vec<&str>) -> String {
     out
 }
 
+fn line_matches_codex_server_header(line: &str, key: &str) -> bool {
+    extract_mcp_server_key(line).as_deref() == Some(key)
+}
+
 /// Removes `[mcp_servers.{key}]` section (and its sub-sections like `.env`)
 /// from raw TOML text, preserving all comments and other content.
 fn text_remove_codex_server_section(text: &str, key: &str) -> String {
-    let headers = codex_server_headers(key);
     let sub_prefixes = codex_server_sub_prefixes(key);
     let outside_multiline_flags = toml_line_outside_multiline_flags(text);
     let mut result = Vec::new();
@@ -3426,7 +3419,7 @@ fn text_remove_codex_server_section(text: &str, key: &str) -> String {
                 result.push(line);
             }
         } else if outside_multiline
-            && (headers.iter().any(|h| trimmed == *h)
+            && (line_matches_codex_server_header(line, key)
                 || sub_prefixes.iter().any(|p| trimmed.starts_with(p.as_str())))
         {
             skipping = true;
@@ -3441,7 +3434,6 @@ fn text_remove_codex_server_section(text: &str, key: &str) -> String {
 /// Removes duplicate unmanaged `[mcp_servers.{key}]` sections, keeping the first
 /// occurrence and preserving unrelated content and sub-sections.
 fn text_deduplicate_unmanaged_codex_server_sections(text: &str, key: &str) -> String {
-    let headers = codex_server_headers(key);
     let sub_prefixes = codex_server_sub_prefixes(key);
     let lines: Vec<&str> = text.lines().collect();
     let outside_multiline_flags = toml_line_outside_multiline_flags(text);
@@ -3454,8 +3446,7 @@ fn text_deduplicate_unmanaged_codex_server_sections(text: &str, key: &str) -> St
             index += 1;
             continue;
         }
-        let trimmed = lines[index].trim();
-        if !headers.iter().any(|header| trimmed == *header) {
+        if !line_matches_codex_server_header(lines[index], key) {
             index += 1;
             continue;
         }
@@ -5146,6 +5137,40 @@ url = "http://localhost:5678"
     }
 
     #[test]
+    fn deduplicate_codex_toml_file_removes_unmanaged_duplicate_with_inline_comment() {
+        let (_temp, _registry, home, _runtime) = registry_in_temp();
+        let codex_dir = home.join(".codex");
+        std::fs::create_dir_all(&codex_dir).expect("create codex dir");
+        let config_path = codex_dir.join("config.toml");
+
+        let content = r#"[mcp_servers.exa] # manual copy
+type = "sse"
+url = "http://localhost:1234"
+
+# agent-sync:mcp:codex:begin
+[mcp_servers.exa]
+type = "sse"
+url = "http://localhost:1234"
+# agent-sync:mcp:codex:end
+"#;
+        std::fs::write(&config_path, content).expect("write");
+
+        let removed = McpRegistry::deduplicate_codex_toml_file(&config_path).expect("dedup");
+
+        let result = std::fs::read_to_string(&config_path).expect("read");
+        assert_eq!(
+            count_occurrences(&result, "[mcp_servers.exa]"),
+            1,
+            "inline-commented unmanaged duplicate should be removed; got:\n{result}"
+        );
+        assert!(
+            toml::from_str::<toml::Table>(&result).is_ok(),
+            "output must remain valid TOML; got:\n{result}"
+        );
+        assert_eq!(removed, vec!["exa"]);
+    }
+
+    #[test]
     fn deduplicate_codex_toml_file_noop_when_no_duplicates() {
         let (_temp, _registry, home, _runtime) = registry_in_temp();
         let codex_dir = home.join(".codex");
@@ -5375,6 +5400,35 @@ command = \"second\"\n";
         assert!(
             result.cleaned.contains("[mcp_servers.bar]"),
             "unrelated unmanaged sections should be preserved"
+        );
+        assert!(
+            toml::from_str::<toml::Table>(&result.cleaned).is_ok(),
+            "deduplicated output must remain valid TOML"
+        );
+        assert_eq!(result.duplicate_keys, vec!["foo"]);
+    }
+
+    #[test]
+    fn deduplicate_codex_toml_content_removes_pure_unmanaged_duplicates_with_inline_comment() {
+        let content = "\
+[mcp_servers.foo] # first copy\n\
+command = \"first\"\n\
+\n\
+[mcp_servers.bar]\n\
+command = \"bar\"\n\
+\n\
+[mcp_servers.foo]\n\
+command = \"second\"\n";
+
+        let result = McpRegistry::deduplicate_codex_toml_content(content);
+        assert_eq!(
+            count_occurrences(&result.cleaned, "[mcp_servers.foo]"),
+            1,
+            "inline-commented first occurrence should be preserved"
+        );
+        assert!(
+            !result.cleaned.contains("command = \"second\""),
+            "later duplicate should still be removed"
         );
         assert!(
             toml::from_str::<toml::Table>(&result.cleaned).is_ok(),
