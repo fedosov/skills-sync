@@ -48,7 +48,7 @@ function parseFavoritesData(value: unknown): FavoritesData {
   };
 }
 
-function loadFromStorage(): FavoritesData {
+function readFavoritesFromStorage(): FavoritesData {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return emptyFavoritesData();
@@ -58,7 +58,7 @@ function loadFromStorage(): FavoritesData {
   }
 }
 
-function saveToStorage(data: FavoritesData): void {
+function writeFavoritesToStorage(data: FavoritesData): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch {
@@ -75,7 +75,7 @@ function toSets(data: FavoritesData): Record<FavoritesKind, Set<string>> {
 }
 
 export function useFavorites(): UseFavoritesResult {
-  const [data, setData] = useState<FavoritesData>(loadFromStorage);
+  const [data, setData] = useState<FavoritesData>(readFavoritesFromStorage);
 
   const toggleFavorite = useCallback((kind: FavoritesKind, id: string) => {
     setData((prev) => {
@@ -84,7 +84,7 @@ export function useFavorites(): UseFavoritesResult {
         ? list.filter((item) => item !== id)
         : [...list, id];
       const updated = { ...prev, [kind]: next };
-      saveToStorage(updated);
+      writeFavoritesToStorage(updated);
       return updated;
     });
   }, []);

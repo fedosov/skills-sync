@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   mcpSelectionKey,
+  readStoredFocusKind,
   sortAndFilter,
   sortAndFilterAgentEntries,
   sortAndFilterMcpServers,
   sortAndFilterSubagents,
+  writeStoredFocusKind,
+  CATALOG_FOCUS_STORAGE_KEY,
 } from "./catalogUtils";
 import type {
   AgentContextEntry,
@@ -28,6 +31,10 @@ const compareFn = (a: Item, b: Item) =>
   a.rank - b.rank || a.name.localeCompare(b.name);
 
 const searchFields = (item: Item) => [item.name, item.tag];
+
+beforeEach(() => {
+  window.localStorage.clear();
+});
 
 function makeSubagent(overrides: Partial<SubagentRecord> = {}): SubagentRecord {
   return {
@@ -162,6 +169,27 @@ describe("mcpSelectionKey", () => {
     expect(mcpSelectionKey(makeMcpServer({ server_key: "github" }))).toBe(
       "global::global::github",
     );
+  });
+});
+
+describe("focus storage helpers", () => {
+  it("writes the selected focus kind to localStorage", () => {
+    writeStoredFocusKind("mcp");
+
+    expect(window.localStorage.getItem(CATALOG_FOCUS_STORAGE_KEY)).toBe("mcp");
+    expect(readStoredFocusKind()).toBe("mcp");
+  });
+
+  it("swallows localStorage write failures", () => {
+    const setItemSpy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("quota exceeded");
+      });
+
+    expect(() => writeStoredFocusKind("agents")).not.toThrow();
+
+    setItemSpy.mockRestore();
   });
 });
 

@@ -127,12 +127,85 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-function parseJsonFile(filePath) {
+function isRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isStringRecord(value) {
+  return (
+    isRecord(value) &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  );
+}
+
+function readPreparedMarker(filePath) {
   if (!fs.existsSync(filePath)) {
     return null;
   }
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (!isRecord(parsed)) {
+      return null;
+    }
+
+    const {
+      target,
+      nodePackage,
+      dotagentsVersion,
+      nodeVersion,
+      nodeBinaryRelativePath,
+      dotagentsCliRelativePath,
+    } = parsed;
+
+    if (
+      typeof target !== "string" ||
+      typeof nodePackage !== "string" ||
+      typeof dotagentsVersion !== "string" ||
+      typeof nodeVersion !== "string" ||
+      typeof nodeBinaryRelativePath !== "string" ||
+      typeof dotagentsCliRelativePath !== "string"
+    ) {
+      return null;
+    }
+
+    return {
+      target,
+      nodePackage,
+      dotagentsVersion,
+      nodeVersion,
+      nodeBinaryRelativePath,
+      dotagentsCliRelativePath,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readChecksumsManifest(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (!isRecord(parsed) || !isStringRecord(parsed.checksums)) {
+      return null;
+    }
+
+    const { version, dotagentsVersion, nodeVersion, checksums } = parsed;
+    if (
+      typeof version !== "number" ||
+      typeof dotagentsVersion !== "string" ||
+      typeof nodeVersion !== "string"
+    ) {
+      return null;
+    }
+
+    return {
+      version,
+      dotagentsVersion,
+      nodeVersion,
+      checksums: { ...checksums },
+    };
   } catch {
     return null;
   }
@@ -235,7 +308,7 @@ function installRuntimeDependencies(cacheInstallDir, target) {
 function ensureCacheReady(cacheInstallDir, target) {
   const targetConfig = TARGETS[target];
   const markerPath = path.join(cacheInstallDir, ".prepared.json");
-  const marker = parseJsonFile(markerPath);
+  const marker = readPreparedMarker(markerPath);
   const nodeBinaryRelativePath = resolveNodeBinaryRelativePath(
     cacheInstallDir,
     target,
@@ -428,15 +501,10 @@ function materializeRuntimeRoot(
   );
   const launcherChecksum = sha256OfFile(launcherPath);
 
-  const existingManifest = parseJsonFile(path.join(rootDir, "checksums.json"));
-  const checksums =
-    existingManifest &&
-    typeof existingManifest === "object" &&
-    existingManifest.checksums &&
-    typeof existingManifest.checksums === "object" &&
-    !Array.isArray(existingManifest.checksums)
-      ? { ...existingManifest.checksums }
-      : {};
+  const existingManifest = readChecksumsManifest(
+    path.join(rootDir, "checksums.json"),
+  );
+  const checksums = existingManifest ? { ...existingManifest.checksums } : {};
   checksums[target] = launcherChecksum;
 
   writeJson(path.join(rootDir, "checksums.json"), {

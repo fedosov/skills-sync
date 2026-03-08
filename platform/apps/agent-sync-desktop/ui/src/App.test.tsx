@@ -889,6 +889,57 @@ describe("App quiet redesign", () => {
     ).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("keeps tab switching functional when focus persistence fails", async () => {
+    const state = buildState(
+      [projectSkill],
+      [
+        {
+          server_key: "exa",
+          scope: "project",
+          workspace: "/tmp/workspace-a",
+          transport: "http",
+          command: null,
+          args: [],
+          url: "https://mcp.exa.ai/mcp",
+          env: {},
+          enabled_by_agent: {
+            codex: true,
+            claude: true,
+            project: true,
+          },
+          targets: ["/tmp/workspace-a/.mcp.json"],
+          warnings: [],
+        },
+      ],
+    );
+    setApiDefaults(state, {
+      [projectSkill.skill_key]: buildDetails(projectSkill),
+    });
+
+    const setItemSpy = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("quota exceeded");
+      });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("heading", { name: projectSkill.name });
+
+    await user.click(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "exa" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Switch catalog to MCP" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    setItemSpy.mockRestore();
+  });
+
   it("shows overview and details together by default", async () => {
     const state = buildState([projectSkill]);
     setApiDefaults(state, {

@@ -187,6 +187,17 @@ export function readStoredFocusKind(): FocusKind {
   }
 }
 
+export function writeStoredFocusKind(focusKind: FocusKind): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(CATALOG_FOCUS_STORAGE_KEY, focusKind);
+  } catch {
+    // Ignore storage errors in restricted environments.
+  }
+}
+
 export function mcpTarget(server: McpServerRecord): CatalogMutationTarget {
   return {
     kind: "mcp",

@@ -25,12 +25,12 @@ import { useAppMenuState } from "./hooks/useAppMenuState";
 import {
   mcpStatus,
   readStoredFocusKind,
+  writeStoredFocusKind,
   mcpTarget,
   mcpDeleteLabel,
   sortAndFilterAgentEntries,
   sortAndFilterMcpServers,
   sortAndFilterSubagents,
-  CATALOG_FOCUS_STORAGE_KEY,
 } from "./lib/catalogUtils";
 import { cn, errorMessage } from "./lib/utils";
 import { getSubagentDetails } from "./tauriApi";
@@ -190,11 +190,7 @@ export function App() {
   });
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(CATALOG_FOCUS_STORAGE_KEY, focusKind);
-    } catch {
-      // Ignore storage errors in restricted environments.
-    }
+    writeStoredFocusKind(focusKind);
   }, [focusKind]);
 
   useEffect(() => {
