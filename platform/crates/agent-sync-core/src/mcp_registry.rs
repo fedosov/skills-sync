@@ -1868,7 +1868,22 @@ impl McpRegistry {
         }
 
         let block = render_codex_block(&filtered);
-        let updated = upsert_managed_block(&unmanaged_text, CODEX_BEGIN, CODEX_END, &block);
+        let mut updated = upsert_managed_block(&unmanaged_text, CODEX_BEGIN, CODEX_END, &block);
+
+        if toml::from_str::<toml::Table>(&updated).is_err() {
+            let mut safe_filtered = filtered.clone();
+            for key in filtered.keys() {
+                if text_contains_codex_server(&unmanaged_text, key) {
+                    safe_filtered.remove(key);
+                }
+            }
+
+            if safe_filtered.len() != filtered.len() {
+                let safe_block = render_codex_block(&safe_filtered);
+                updated =
+                    upsert_managed_block(&unmanaged_text, CODEX_BEGIN, CODEX_END, &safe_block);
+            }
+        }
 
         if updated != existing {
             fs::write(path, &updated).map_err(|error| SyncEngineError::io(path, error))?;
@@ -3358,6 +3373,116 @@ fn text_contains_codex_server(text: &str, key: &str) -> bool {
     scan_toml_mcp_server_keys(text)
         .iter()
         .any(|item| item == key)
+        || text_contains_codex_server_in_root_table(text, key)
+}
+
+fn text_contains_codex_server_in_root_table(text: &str, key: &str) -> bool {
+    let lines: Vec<&str> = text.lines().collect();
+    let outside_multiline_flags = toml_line_outside_multiline_flags(text);
+    let mut index = 0usize;
+
+    while index < lines.len() {
+        if !outside_multiline_flags[index] || !line_matches_mcp_servers_root_header(lines[index]) {
+            index += 1;
+            continue;
+        }
+
+        let mut section = String::from("[mcp_servers]\n");
+        index += 1;
+        while index < lines.len() {
+            if outside_multiline_flags[index] && lines[index].trim().starts_with('[') {
+                break;
+            }
+            section.push_str(lines[index]);
+            section.push('\n');
+            index += 1;
+        }
+
+        if section_contains_codex_server_key(&section, key) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn line_matches_mcp_servers_root_header(line: &str) -> bool {
+    let sanitized = strip_toml_inline_comment_for_registry(line);
+    let trimmed = sanitized.trim();
+    let inner = match trimmed
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    {
+        Some(value) => value,
+        None => return false,
+    };
+
+    let probe_key = "__agent_sync_probe__";
+    let probe = format!("[{inner}]\n{probe_key} = true\n");
+    let Ok(parsed) = toml::from_str::<toml::Table>(&probe) else {
+        return false;
+    };
+
+    parsed
+        .get("mcp_servers")
+        .and_then(toml::Value::as_table)
+        .is_some_and(|table| table.contains_key(probe_key))
+}
+
+fn section_contains_codex_server_key(section: &str, key: &str) -> bool {
+    toml::from_str::<toml::Table>(section)
+        .ok()
+        .and_then(|parsed| {
+            parsed
+                .get("mcp_servers")
+                .and_then(toml::Value::as_table)
+                .cloned()
+        })
+        .is_some_and(|table| table.contains_key(key))
+}
+
+fn strip_toml_inline_comment_for_registry(line: &str) -> String {
+    let bytes = line.as_bytes();
+    let mut index = 0usize;
+    let mut in_basic_string = false;
+    let mut in_literal_string = false;
+
+    while index < bytes.len() {
+        if in_basic_string {
+            match bytes[index] {
+                b'\\' => index = (index + 2).min(bytes.len()),
+                b'"' => {
+                    in_basic_string = false;
+                    index += 1;
+                }
+                _ => index += 1,
+            }
+            continue;
+        }
+
+        if in_literal_string {
+            if bytes[index] == b'\'' {
+                in_literal_string = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        match bytes[index] {
+            b'#' => return line[..index].trim_end().to_string(),
+            b'"' => {
+                in_basic_string = true;
+                index += 1;
+            }
+            b'\'' => {
+                in_literal_string = true;
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+
+    line.trim_end().to_string()
 }
 
 fn normalize_codex_section_text(lines: Vec<&str>) -> String {
@@ -4195,6 +4320,52 @@ API_KEY = "${API_KEY}"
     }
 
     #[test]
+    fn apply_codex_catalog_path_text_fallback_detects_root_table_duplicate_on_parse_failure() {
+        let (_temp, registry, home, _runtime) = registry_in_temp();
+        let codex_path = home.join(".codex").join("config.toml");
+        std::fs::create_dir_all(codex_path.parent().expect("parent")).expect("mkdir parent");
+        std::fs::write(
+            &codex_path,
+            "!!! invalid toml syntax !!!\n\n\
+             [mcp_servers]\n\
+             exa = { command = \"npx\", args = [\"-y\", \"mcp-remote@latest\"] }\n",
+        )
+        .expect("write codex");
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            String::from("exa"),
+            CodexCatalogEntry {
+                definition: McpDefinition {
+                    transport: McpTransport::Stdio,
+                    command: Some(String::from("npx")),
+                    args: vec![String::from("-y"), String::from("mcp-remote@latest")],
+                    url: None,
+                    env: BTreeMap::new(),
+                },
+                enabled: true,
+            },
+        );
+
+        let mut warnings = Vec::new();
+        registry
+            .apply_codex_catalog_path(&codex_path, &entries, true, &mut warnings)
+            .expect("apply codex");
+
+        let codex_raw = std::fs::read_to_string(&codex_path).expect("read codex");
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("Skipped managed Codex MCP 'exa'")),
+            "should skip duplicate root-table entry via text fallback: {warnings:?}"
+        );
+        assert!(
+            !codex_raw.contains("[mcp_servers.exa]"),
+            "managed table should not be added when root-table duplicate exists:\n{codex_raw}"
+        );
+    }
+
+    #[test]
     fn text_remove_codex_server_section_removes_with_subtables() {
         let input = "\
 [mcp_servers.foo]\n\
@@ -4992,6 +5163,51 @@ enabled = true\n\
         assert!(
             toml::from_str::<toml::Table>(&codex_raw).is_ok(),
             "output must be valid TOML; got:\n{codex_raw}"
+        );
+    }
+
+    #[test]
+    fn apply_codex_catalog_path_post_write_guard_skips_disabled_root_table_duplicate() {
+        let (_temp, registry, home, _runtime) = registry_in_temp();
+        let codex_path = home.join(".codex").join("config.toml");
+        std::fs::create_dir_all(codex_path.parent().expect("parent")).expect("mkdir parent");
+
+        std::fs::write(
+            &codex_path,
+            "\
+[mcp_servers]\n\
+exa = { command = \"npx\", args = [\"-y\", \"mcp-remote@latest\"] }\n",
+        )
+        .expect("write codex");
+
+        let mut entries = BTreeMap::new();
+        entries.insert(
+            String::from("exa"),
+            CodexCatalogEntry {
+                definition: McpDefinition {
+                    transport: McpTransport::Stdio,
+                    command: Some(String::from("npx")),
+                    args: vec![String::from("-y"), String::from("mcp-remote@latest")],
+                    url: None,
+                    env: BTreeMap::new(),
+                },
+                enabled: false,
+            },
+        );
+
+        let mut warnings = Vec::new();
+        registry
+            .apply_codex_catalog_path(&codex_path, &entries, true, &mut warnings)
+            .expect("apply codex");
+
+        let codex_raw = std::fs::read_to_string(&codex_path).expect("read codex");
+        assert!(
+            !codex_raw.contains("[mcp_servers.exa]"),
+            "post-write guard should remove unresolved managed duplicate:\n{codex_raw}"
+        );
+        assert!(
+            toml::from_str::<toml::Table>(&codex_raw).is_ok(),
+            "output must remain valid TOML; got:\n{codex_raw}"
         );
     }
 
