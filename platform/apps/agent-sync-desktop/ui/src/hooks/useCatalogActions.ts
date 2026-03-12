@@ -15,7 +15,7 @@ import type {
   RuntimeControls,
   SyncState,
 } from "../types";
-import type { OpenTargetMenu } from "./useAppMenuState";
+import type { OpenTargetMenu } from "../lib/uiStateTypes";
 
 type RunAppAction = (
   action: () => Promise<void>,

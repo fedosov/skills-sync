@@ -7,7 +7,7 @@ import {
   syncStatusVariant,
   severityDotClass,
 } from "../lib/catalogUtils";
-import type { DotagentsProofStatus } from "../hooks/useDotagentsVerification";
+import type { DotagentsProofStatus } from "../lib/uiStateTypes";
 import type { AgentsContextReport, RuntimeControls, SyncState } from "../types";
 
 type AppHeaderProps = {

@@ -59,6 +59,18 @@ if [ "$EXIT_CODE" -eq 0 ]; then
     echo "  All shared types present in both Rust and TS."
 fi
 
+# --- Tauri command locking guard ---
+echo ""
+echo "=== Tauri command locking guard ==="
+TAURI_COMMANDS="$ROOT_DIR/platform/apps/agent-sync-desktop/src-tauri/src/commands"
+if grep -R -nE 'acquire_sync_lock|sync_lock\.lock' "$TAURI_COMMANDS"/*.rs >/dev/null 2>&1; then
+    echo "DRIFT: Tauri commands must route locking through AppRuntime/command_support helpers"
+    grep -R -nE 'acquire_sync_lock|sync_lock\.lock' "$TAURI_COMMANDS"/*.rs || true
+    EXIT_CODE=1
+else
+    echo "  Tauri commands route locking through AppRuntime helpers."
+fi
+
 # --- State schema version check ---
 echo ""
 echo "=== State schema version check ==="
@@ -73,6 +85,54 @@ if [ -f "$SCHEMA" ]; then
 else
     echo "WARNING: state.schema.json not found"
     EXIT_CODE=1
+fi
+
+# --- Design decision docs check ---
+echo ""
+echo "=== Design decision docs check ==="
+DECISION_INDEX="$ROOT_DIR/docs/design-docs/index.md"
+indexed_decisions=()
+while IFS= read -r decision; do
+    indexed_decisions+=("$decision")
+done < <(
+    grep '^| DD-' "$DECISION_INDEX" 2>/dev/null |
+        sed -En 's/.*\((DD-[^)]+\.md)\).*/\1/p' |
+        sort -u
+)
+
+documented_decisions=()
+while IFS= read -r decision; do
+    documented_decisions+=("$decision")
+done < <(
+    find "$ROOT_DIR/docs/design-docs" -maxdepth 1 -type f -name 'DD-*.md' -exec basename {} \; |
+        sort -u
+)
+
+if [ "${#indexed_decisions[@]}" -eq 0 ]; then
+    echo "WARNING: design decision index has no active DD entries"
+    EXIT_CODE=1
+else
+    missing_files=$(comm -23 \
+        <(printf '%s\n' "${indexed_decisions[@]}") \
+        <(printf '%s\n' "${documented_decisions[@]}"))
+    missing_index_entries=$(comm -13 \
+        <(printf '%s\n' "${indexed_decisions[@]}") \
+        <(printf '%s\n' "${documented_decisions[@]}"))
+
+    if [ -n "$missing_files" ] || [ -n "$missing_index_entries" ]; then
+        echo "DRIFT: design decision index/file set mismatch"
+        if [ -n "$missing_files" ]; then
+            echo "  Indexed but missing file(s):"
+            printf '%s\n' "$missing_files" | sed 's/^/    - /'
+        fi
+        if [ -n "$missing_index_entries" ]; then
+            echo "  File(s) missing from index:"
+            printf '%s\n' "$missing_index_entries" | sed 's/^/    - /'
+        fi
+        EXIT_CODE=1
+    else
+        echo "  ${#documented_decisions[@]} DD files match indexed decisions."
+    fi
 fi
 
 echo ""

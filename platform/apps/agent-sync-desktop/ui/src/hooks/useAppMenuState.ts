@@ -1,14 +1,9 @@
 import { useEffect, useState } from "react";
-import type { CatalogMutationRequest } from "../types";
-
-export type DeleteDialogState = {
-  request: CatalogMutationRequest | null;
-  label: string;
-  onConfirmOverride?: () => Promise<void>;
-} | null;
-
-export type OpenTargetMenu = "skill" | "subagent" | null;
-export type ActionsMenuTarget = "skill" | "subagent" | "mcp" | null;
+import type {
+  ActionsMenuTarget,
+  DeleteDialogState,
+  OpenTargetMenu,
+} from "../lib/uiStateTypes";
 
 export function useAppMenuState() {
   const [openTargetMenu, setOpenTargetMenu] = useState<OpenTargetMenu>(null);

@@ -1,5 +1,5 @@
 import { Button } from "./ui/button";
-import type { DeleteDialogState } from "../hooks/useAppMenuState";
+import type { DeleteDialogState } from "../lib/uiStateTypes";
 import type { CatalogMutationRequest } from "../types";
 
 type DeleteConfirmDialogProps = {

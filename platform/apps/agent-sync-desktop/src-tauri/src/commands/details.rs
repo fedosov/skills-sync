@@ -2,9 +2,12 @@ use agent_sync_core::SyncEngine;
 use std::path::{Path, PathBuf};
 
 use crate::{
-    build_platform_context, find_skill, find_subagent, last_modified_seconds, normalize_os_name,
-    open_path, read_preview, read_skill_dir_tree, resolve_main_skill_file, resolve_skill_root_dir,
-    PlatformContext, SkillDetails, SubagentDetails, MAX_MAIN_FILE_PREVIEW_CHARS, MAX_TREE_ENTRIES,
+    catalog_support::{find_skill, find_subagent},
+    details_support::{
+        build_platform_context, last_modified_seconds, normalize_os_name, open_path, read_preview,
+        read_skill_dir_tree, resolve_main_skill_file, resolve_skill_root_dir, PlatformContext,
+        SkillDetails, SubagentDetails, MAX_MAIN_FILE_PREVIEW_CHARS, MAX_TREE_ENTRIES,
+    },
 };
 
 #[tauri::command]

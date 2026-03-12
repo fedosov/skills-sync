@@ -5,8 +5,7 @@ import {
   migrateDotagents,
   runDotagentsSync,
 } from "../tauriApi";
-
-export type DotagentsProofStatus = "idle" | "running" | "ok" | "error";
+import type { DotagentsProofStatus } from "../lib/uiStateTypes";
 
 const DOTAGENTS_MIGRATION_REQUIRED =
   "migration required before strict dotagents sync";

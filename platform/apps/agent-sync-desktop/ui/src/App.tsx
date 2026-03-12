@@ -1,18 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { AgentsListPanel } from "./components/catalog/AgentsListPanel";
-import { McpListPanel } from "./components/catalog/McpListPanel";
-import { SkillListPanel } from "./components/catalog/SkillListPanel";
-import { SubagentListPanel } from "./components/catalog/SubagentListPanel";
+import { CatalogPane } from "./components/app/CatalogPane";
+import { buildDetailsPaneProps } from "./components/app/buildDetailsPaneProps";
+import { DetailsPane } from "./components/app/DetailsPane";
 import { AuditLogDialog } from "./components/AuditLogDialog";
 import { AppHeader } from "./components/AppHeader";
 import { SyncWarningsBanner } from "./components/SyncWarningsBanner";
 import { DeleteConfirmDialog } from "./components/DeleteConfirmDialog";
-import { AgentsDetailsPanel } from "./components/details/AgentsDetailsPanel";
-import { McpDetailsPanel } from "./components/details/McpDetailsPanel";
-import { SkillDetailsPanel } from "./components/details/SkillDetailsPanel";
-import { SubagentDetailsPanel } from "./components/details/SubagentDetailsPanel";
-import { Button } from "./components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+import { Card, CardContent } from "./components/ui/card";
 import { useCatalogActions } from "./hooks/useCatalogActions";
 import { useCatalogCounts } from "./hooks/useCatalogCounts";
 import { useSkillDetails } from "./hooks/useSkillDetails";
@@ -23,24 +17,17 @@ import { useDotagentsVerification } from "./hooks/useDotagentsVerification";
 import { useSyncWarnings } from "./hooks/useSyncWarnings";
 import { useAppMenuState } from "./hooks/useAppMenuState";
 import {
-  mcpStatus,
   readStoredFocusKind,
   writeStoredFocusKind,
-  mcpTarget,
-  mcpDeleteLabel,
   sortAndFilterAgentEntries,
   sortAndFilterMcpServers,
   sortAndFilterSubagents,
 } from "./lib/catalogUtils";
-import { cn, errorMessage } from "./lib/utils";
+import type { CatalogProjectGroupState } from "./lib/uiStateTypes";
+import { errorMessage } from "./lib/utils";
 import { getSubagentDetails } from "./tauriApi";
 import { sortAndFilterSkills } from "./skillUtils";
 import type { FocusKind } from "./types";
-
-type CatalogProjectGroupState = Record<
-  FocusKind,
-  Record<string, boolean | undefined>
->;
 type AppActionOptions = {
   clearError?: boolean;
   onError?: (message: string) => void | Promise<void>;
@@ -335,10 +322,37 @@ export function App() {
     filteredAgentEntries,
   });
 
-  const showSkill = focusKind === "skills" && details;
-  const showSubagent = focusKind === "subagents" && subagentDetails;
-  const showMcp = focusKind === "mcp" && selectedMcpServer;
-  const showAgents = focusKind === "agents" && selectedAgentEntry;
+  const detailsPaneProps = buildDetailsPaneProps({
+    focusKind,
+    busy,
+    details,
+    renameDraft,
+    subagentDetails,
+    selectedMcpServer,
+    selectedMcpWarnings,
+    selectedMcpKey,
+    selectedAgentEntry,
+    selectedAgentTopSegments,
+    actionsMenuTarget,
+    openTargetMenu,
+    fixingSyncWarning,
+    starredSkillSet,
+    favorites,
+    toggleFavorite,
+    setOpenTargetMenu,
+    setActionsMenuTarget,
+    setDeleteDialog,
+    setRenameDraft,
+    handleToggleSkillStar,
+    handleRenameSkill,
+    handleOpenSkillPath,
+    handleOpenSubagentPath,
+    handleSetMcpEnabled,
+    handleDeleteUnmanagedMcp,
+    handleFixSyncWarning,
+    executeCatalogMutation,
+    copyPath,
+  });
 
   return (
     <div className="min-h-full bg-background text-foreground lg:h-screen lg:overflow-hidden">
@@ -396,379 +410,49 @@ export function App() {
         />
 
         <main className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <Card className="min-h-[520px] overflow-hidden lg:flex lg:h-full lg:min-h-0 lg:flex-col">
-            <CardHeader className="pb-2">
-              <CardTitle>Catalog</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 p-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-              <div className="flex flex-wrap items-center gap-1.5">
-                {(
-                  [
-                    ["skills", "Skills"],
-                    ["subagents", "Subagents"],
-                    ["mcp", "MCP"],
-                    ["agents", "Agents.md"],
-                  ] as const
-                ).map(([kind, label]) => {
-                  const isActive = focusKind === kind;
-                  return (
-                    <Button
-                      key={kind}
-                      type="button"
-                      size="sm"
-                      variant={isActive ? "outline" : "ghost"}
-                      aria-label={`Switch catalog to ${label}`}
-                      aria-pressed={isActive}
-                      className={cn(
-                        "h-6 px-2 text-[11px]",
-                        isActive ? "bg-accent/70" : "text-muted-foreground",
-                      )}
-                      onClick={() => handleCatalogTabChange(kind)}
-                    >
-                      {`${label} (${catalogTabCounts[kind]})`}
-                    </Button>
-                  );
-                })}
-              </div>
+          <CatalogPane
+            focusKind={focusKind}
+            catalogTabCounts={catalogTabCounts}
+            activeCatalogTitle={activeCatalogTitle}
+            activeCatalogCount={activeCatalogCount}
+            activeCatalogTotal={activeCatalogTotal}
+            activeCatalogEmptyText={activeCatalogEmptyText}
+            query={query}
+            filteredSkills={filteredSkills}
+            filteredSubagents={filteredSubagents}
+            filteredMcpServers={filteredMcpServers}
+            filteredAgentEntries={filteredAgentEntries}
+            selectedSkillKey={selectedSkillKey}
+            selectedSubagentId={selectedSubagentId}
+            selectedMcpKey={selectedMcpKey}
+            selectedAgentEntryId={selectedAgentEntryId}
+            starredSkillSet={starredSkillSet}
+            subagentFavorites={favorites.subagents}
+            mcpFavorites={favorites.mcp}
+            agentFavorites={favorites.agents}
+            expandedProjectGroups={expandedProjectGroups}
+            onTabChange={handleCatalogTabChange}
+            onToggleProjectGroup={toggleProjectGroup}
+            onSelectSkill={(skillKey) => {
+              setSelectedSkillKey(skillKey);
+              closeMenus();
+            }}
+            onSelectSubagent={(subagentId) => {
+              setSelectedSubagentId(subagentId);
+              closeMenus();
+            }}
+            onSelectMcp={(selectionKey) => {
+              setSelectedMcpKey(selectionKey);
+              closeMenus();
+            }}
+            onSelectAgent={(entryId) => {
+              setSelectedAgentEntryId(entryId);
+              closeMenus();
+            }}
+            onCloseMenus={closeMenus}
+          />
 
-              <section
-                className="space-y-1.5 border-t border-border/50 pt-3"
-                data-testid="active-catalog-panel"
-              >
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-muted-foreground">
-                    {activeCatalogTitle}
-                  </p>
-                  <span className="text-[11px] text-muted-foreground">
-                    {activeCatalogCount}/{activeCatalogTotal}
-                  </span>
-                </div>
-
-                {focusKind === "skills" ? (
-                  <SkillListPanel
-                    skills={filteredSkills}
-                    query={query}
-                    selectedSkillKey={selectedSkillKey}
-                    favorites={starredSkillSet}
-                    emptyText={activeCatalogEmptyText}
-                    expandedProjectGroups={expandedProjectGroups.skills}
-                    onSelect={(skillKey) => {
-                      setSelectedSkillKey(skillKey);
-                      closeMenus();
-                    }}
-                    onToggleProjectGroup={(groupKey, currentExpanded) =>
-                      toggleProjectGroup("skills", groupKey, currentExpanded)
-                    }
-                    onCloseMenus={closeMenus}
-                  />
-                ) : null}
-
-                {focusKind === "subagents" ? (
-                  <SubagentListPanel
-                    subagents={filteredSubagents}
-                    query={query}
-                    selectedSubagentId={selectedSubagentId}
-                    favorites={favorites.subagents}
-                    emptyText={activeCatalogEmptyText}
-                    expandedProjectGroups={expandedProjectGroups.subagents}
-                    onSelect={(subagentId) => {
-                      setSelectedSubagentId(subagentId);
-                      closeMenus();
-                    }}
-                    onToggleProjectGroup={(groupKey, currentExpanded) =>
-                      toggleProjectGroup("subagents", groupKey, currentExpanded)
-                    }
-                    onCloseMenus={closeMenus}
-                  />
-                ) : null}
-
-                {focusKind === "mcp" ? (
-                  <McpListPanel
-                    servers={filteredMcpServers}
-                    query={query}
-                    selectedMcpKey={selectedMcpKey}
-                    favorites={favorites.mcp}
-                    emptyText={activeCatalogEmptyText}
-                    expandedProjectGroups={expandedProjectGroups.mcp}
-                    onSelect={(key) => {
-                      setSelectedMcpKey(key);
-                      closeMenus();
-                    }}
-                    onToggleProjectGroup={(groupKey, currentExpanded) =>
-                      toggleProjectGroup("mcp", groupKey, currentExpanded)
-                    }
-                    onCloseMenus={closeMenus}
-                  />
-                ) : null}
-
-                {focusKind === "agents" ? (
-                  <AgentsListPanel
-                    entries={filteredAgentEntries}
-                    query={query}
-                    selectedAgentEntryId={selectedAgentEntryId}
-                    favorites={favorites.agents}
-                    emptyText={activeCatalogEmptyText}
-                    expandedProjectGroups={expandedProjectGroups.agents}
-                    onSelect={(entryId) => {
-                      setSelectedAgentEntryId(entryId);
-                      closeMenus();
-                    }}
-                    onToggleProjectGroup={(groupKey, currentExpanded) =>
-                      toggleProjectGroup("agents", groupKey, currentExpanded)
-                    }
-                    onCloseMenus={closeMenus}
-                  />
-                ) : null}
-              </section>
-            </CardContent>
-          </Card>
-
-          <Card className="min-h-[520px] overflow-hidden lg:flex lg:h-full lg:min-h-0 lg:flex-col">
-            {!showSkill && !showSubagent && !showMcp && !showAgents ? (
-              <CardContent className="flex h-full items-center justify-center text-sm text-muted-foreground lg:min-h-0 lg:flex-1">
-                Select an item to view details.
-              </CardContent>
-            ) : null}
-
-            {showSkill ? (
-              <SkillDetailsPanel
-                details={details}
-                busy={busy}
-                isFavorite={starredSkillSet.has(details.skill.id)}
-                onToggleFavorite={() =>
-                  void handleToggleSkillStar(details.skill.id)
-                }
-                renameDraft={renameDraft}
-                openTargetMenu={openTargetMenu === "skill"}
-                actionsMenuOpen={actionsMenuTarget === "skill"}
-                onRenameDraftChange={setRenameDraft}
-                onRenameSubmit={() =>
-                  void handleRenameSkill(details.skill.skill_key, renameDraft)
-                }
-                onToggleOpenTargetMenu={() => {
-                  setOpenTargetMenu((prev) =>
-                    prev === "skill" ? null : "skill",
-                  );
-                  setActionsMenuTarget(null);
-                }}
-                onToggleActionsMenu={() => {
-                  setActionsMenuTarget((prev) =>
-                    prev === "skill" ? null : "skill",
-                  );
-                  setOpenTargetMenu(null);
-                }}
-                onOpenPath={(target) =>
-                  void handleOpenSkillPath(details.skill.skill_key, target)
-                }
-                onArchive={() => {
-                  setActionsMenuTarget(null);
-                  void executeCatalogMutation(
-                    {
-                      action: "archive",
-                      target: {
-                        kind: "skill",
-                        skillKey: details.skill.skill_key,
-                      },
-                      confirmed: true,
-                    },
-                    details.skill.skill_key,
-                  );
-                }}
-                onMakeGlobal={() => {
-                  setActionsMenuTarget(null);
-                  void executeCatalogMutation(
-                    {
-                      action: "make_global",
-                      target: {
-                        kind: "skill",
-                        skillKey: details.skill.skill_key,
-                      },
-                      confirmed: true,
-                    },
-                    details.skill.skill_key,
-                  );
-                }}
-                onRestore={() => {
-                  setActionsMenuTarget(null);
-                  void executeCatalogMutation(
-                    {
-                      action: "restore",
-                      target: {
-                        kind: "skill",
-                        skillKey: details.skill.skill_key,
-                      },
-                      confirmed: true,
-                    },
-                    details.skill.skill_key,
-                  );
-                }}
-                onRequestDelete={() => {
-                  setActionsMenuTarget(null);
-                  setDeleteDialog({
-                    request: {
-                      action: "delete",
-                      target: {
-                        kind: "skill",
-                        skillKey: details.skill.skill_key,
-                      },
-                      confirmed: true,
-                    },
-                    label: `skill "${details.skill.name}"`,
-                  });
-                }}
-                onCopyPath={(path, errorLabel) =>
-                  void copyPath(path, errorLabel)
-                }
-              />
-            ) : null}
-
-            {showMcp ? (
-              <McpDetailsPanel
-                server={selectedMcpServer}
-                warnings={selectedMcpWarnings}
-                busy={busy}
-                fixingWarning={fixingSyncWarning}
-                isFavorite={favorites.mcp.has(selectedMcpKey!)}
-                onToggleFavorite={() => toggleFavorite("mcp", selectedMcpKey!)}
-                actionsMenuOpen={actionsMenuTarget === "mcp"}
-                onToggleActionsMenu={() => {
-                  setActionsMenuTarget((prev) =>
-                    prev === "mcp" ? null : "mcp",
-                  );
-                  setOpenTargetMenu(null);
-                }}
-                onSetEnabled={(agent, enabled) =>
-                  void handleSetMcpEnabled(selectedMcpServer, agent, enabled)
-                }
-                onFixWarning={(warning) => void handleFixSyncWarning(warning)}
-                onArchive={() => {
-                  setActionsMenuTarget(null);
-                  void executeCatalogMutation({
-                    action: "archive",
-                    target: mcpTarget(selectedMcpServer),
-                    confirmed: true,
-                  });
-                }}
-                onMakeGlobal={() => {
-                  setActionsMenuTarget(null);
-                  void executeCatalogMutation({
-                    action: "make_global",
-                    target: mcpTarget(selectedMcpServer),
-                    confirmed: true,
-                  });
-                }}
-                onRestore={() => {
-                  setActionsMenuTarget(null);
-                  void executeCatalogMutation({
-                    action: "restore",
-                    target: mcpTarget(selectedMcpServer),
-                    confirmed: true,
-                  });
-                }}
-                onRequestDelete={() => {
-                  setActionsMenuTarget(null);
-                  if (mcpStatus(selectedMcpServer) === "unmanaged") {
-                    const serverKey = selectedMcpServer.server_key;
-                    setDeleteDialog({
-                      request: null,
-                      label: mcpDeleteLabel(selectedMcpServer),
-                      onConfirmOverride: async () =>
-                        handleDeleteUnmanagedMcp(serverKey),
-                    });
-                  } else {
-                    setDeleteDialog({
-                      request: {
-                        action: "delete",
-                        target: mcpTarget(selectedMcpServer),
-                        confirmed: true,
-                      },
-                      label: mcpDeleteLabel(selectedMcpServer),
-                    });
-                  }
-                }}
-              />
-            ) : null}
-
-            {showAgents ? (
-              <AgentsDetailsPanel
-                entry={selectedAgentEntry}
-                topSegments={selectedAgentTopSegments}
-                isFavorite={favorites.agents.has(selectedAgentEntry.id)}
-                onToggleFavorite={() =>
-                  toggleFavorite("agents", selectedAgentEntry.id)
-                }
-              />
-            ) : null}
-
-            {showSubagent ? (
-              <SubagentDetailsPanel
-                subagentDetails={subagentDetails}
-                busy={busy}
-                isFavorite={favorites.subagents.has(
-                  subagentDetails.subagent.id,
-                )}
-                onToggleFavorite={() =>
-                  toggleFavorite("subagents", subagentDetails.subagent.id)
-                }
-                openTargetMenu={openTargetMenu === "subagent"}
-                actionsMenuOpen={actionsMenuTarget === "subagent"}
-                onToggleOpenTargetMenu={() => {
-                  setOpenTargetMenu((prev) =>
-                    prev === "subagent" ? null : "subagent",
-                  );
-                  setActionsMenuTarget(null);
-                }}
-                onToggleActionsMenu={() => {
-                  setActionsMenuTarget((prev) =>
-                    prev === "subagent" ? null : "subagent",
-                  );
-                  setOpenTargetMenu(null);
-                }}
-                onOpenPath={(target) =>
-                  void handleOpenSubagentPath(
-                    subagentDetails.subagent.id,
-                    target,
-                  )
-                }
-                onArchive={() => {
-                  setActionsMenuTarget(null);
-                  void executeCatalogMutation({
-                    action: "archive",
-                    target: {
-                      kind: "subagent",
-                      subagentId: subagentDetails.subagent.id,
-                    },
-                    confirmed: true,
-                  });
-                }}
-                onRestore={() => {
-                  setActionsMenuTarget(null);
-                  void executeCatalogMutation({
-                    action: "restore",
-                    target: {
-                      kind: "subagent",
-                      subagentId: subagentDetails.subagent.id,
-                    },
-                    confirmed: true,
-                  });
-                }}
-                onRequestDelete={() => {
-                  setActionsMenuTarget(null);
-                  setDeleteDialog({
-                    request: {
-                      action: "delete",
-                      target: {
-                        kind: "subagent",
-                        subagentId: subagentDetails.subagent.id,
-                      },
-                      confirmed: true,
-                    },
-                    label: `subagent "${subagentDetails.subagent.name}"`,
-                  });
-                }}
-              />
-            ) : null}
-          </Card>
+          <DetailsPane {...detailsPaneProps} />
         </main>
       </div>
 

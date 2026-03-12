@@ -1,699 +1,28 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app_runtime;
+mod catalog_support;
+mod command_support;
 mod commands;
+mod details_support;
 
-use agent_sync_core::{
-    watch::SyncWatchStream, AuditEventStatus, CatalogMutationAction, CatalogMutationTarget,
-    DotagentsScope, ScopeFilter, SkillLifecycleStatus, SkillLocator, SkillRecord, SubagentRecord,
-    SyncEngine, SyncState, SyncTrigger,
-};
+use agent_sync_core::SyncEngine;
+use app_runtime::AppRuntime;
 use commands::*;
-use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::{mpsc, Arc, Mutex};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant, UNIX_EPOCH};
 use tauri::Manager;
 
-pub(crate) trait IntoTauriResult<T> {
-    fn to_tauri(self) -> Result<T, String>;
-}
-
-impl<T, E: std::fmt::Display> IntoTauriResult<T> for Result<T, E> {
-    fn to_tauri(self) -> Result<T, String> {
-        self.map_err(|e| e.to_string())
-    }
-}
-
-pub(crate) const MAX_MAIN_FILE_PREVIEW_CHARS: usize = 50_000;
-pub(crate) const MAX_TREE_ENTRIES: usize = 500;
-const AUTO_WATCH_DEBOUNCE_MS: u64 = 800;
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct RuntimeControls {
-    pub(crate) allow_filesystem_changes: bool,
-    pub(crate) auto_watch_active: bool,
-}
-
-#[derive(Debug, Default)]
-struct WatchRuntime {
-    active: bool,
-    stop_tx: Option<mpsc::Sender<()>>,
-    handle: Option<JoinHandle<()>>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct RuntimeState {
-    pub(crate) watch: Arc<Mutex<WatchRuntime>>,
-    pub(crate) sync_lock: Arc<Mutex<()>>,
-}
-
-impl RuntimeState {
-    pub(crate) fn acquire_sync_lock(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
-        self.sync_lock
-            .lock()
-            .map_err(|_| String::from("internal lock error"))
-    }
-}
-
-impl Default for RuntimeState {
-    fn default() -> Self {
-        Self {
-            watch: Arc::new(Mutex::new(WatchRuntime::default())),
-            sync_lock: Arc::new(Mutex::new(())),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(crate) struct PlatformContext {
-    pub(crate) os: String,
-    pub(crate) linux_desktop: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct SkillDetails {
-    pub(crate) skill: SkillRecord,
-    pub(crate) main_file_path: String,
-    pub(crate) main_file_exists: bool,
-    pub(crate) main_file_body_preview: Option<String>,
-    pub(crate) skill_dir_tree_preview: Option<String>,
-    pub(crate) last_modified_unix_seconds: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct SubagentDetails {
-    pub(crate) subagent: SubagentRecord,
-    pub(crate) main_file_path: String,
-    pub(crate) main_file_exists: bool,
-    pub(crate) main_file_body_preview: Option<String>,
-    pub(crate) last_modified_unix_seconds: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(crate) struct RenameSkillResponse {
-    pub(crate) state: SyncState,
-    pub(crate) renamed_skill_key: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum CatalogMutationActionPayload {
-    Archive,
-    Restore,
-    Delete,
-    MakeGlobal,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "kind")]
-pub(crate) enum CatalogMutationTargetPayload {
-    #[serde(rename = "skill")]
-    Skill {
-        #[serde(rename = "skillKey")]
-        skill_key: String,
-    },
-    #[serde(rename = "subagent")]
-    Subagent {
-        #[serde(rename = "subagentId")]
-        subagent_id: String,
-    },
-    #[serde(rename = "mcp")]
-    Mcp {
-        #[serde(rename = "serverKey")]
-        server_key: String,
-        scope: String,
-        workspace: Option<String>,
-    },
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CatalogMutationRequestPayload {
-    pub(crate) action: CatalogMutationActionPayload,
-    pub(crate) target: CatalogMutationTargetPayload,
-    pub(crate) confirmed: bool,
-}
-
-pub(crate) fn ensure_write_allowed(engine: &SyncEngine, action: &str) -> Result<(), String> {
-    if engine.allow_filesystem_changes() {
-        return Ok(());
-    }
-    Err(format!(
-        "Filesystem changes are disabled. Enable 'Allow filesystem changes' to run {action}."
-    ))
-}
-
-pub(crate) fn last_modified_seconds(path: &Path) -> Option<u64> {
-    fs::metadata(path)
-        .ok()
-        .and_then(|meta| meta.modified().ok())
-        .and_then(|ts| ts.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_secs())
-}
-
-pub(crate) fn parse_audit_status(value: Option<&str>) -> Result<Option<AuditEventStatus>, String> {
-    let Some(raw) = value else {
-        return Ok(None);
-    };
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "success" => Ok(Some(AuditEventStatus::Success)),
-        "failed" => Ok(Some(AuditEventStatus::Failed)),
-        "blocked" => Ok(Some(AuditEventStatus::Blocked)),
-        other => Err(format!(
-            "unsupported audit status: {other} (success|failed|blocked)"
-        )),
-    }
-}
-
-pub(crate) fn parse_scope_filter(scope: Option<&str>) -> Result<ScopeFilter, String> {
-    let Some(value) = scope else {
-        return Ok(ScopeFilter::All);
-    };
-    value
-        .parse::<ScopeFilter>()
-        .map_err(|_| format!("unsupported scope: {value}"))
-}
-
-pub(crate) fn parse_dotagents_scope(value: Option<&str>) -> Result<DotagentsScope, String> {
-    let normalized = value.unwrap_or("all");
-    normalized
-        .parse::<DotagentsScope>()
-        .map_err(|_| format!("unsupported scope: {normalized} (all|user|project)"))
-}
-
-pub(crate) fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value
-        .map(|item| item.trim().to_string())
-        .filter(|item| !item.is_empty())
-}
-
-impl From<CatalogMutationActionPayload> for CatalogMutationAction {
-    fn from(value: CatalogMutationActionPayload) -> Self {
-        match value {
-            CatalogMutationActionPayload::Archive => Self::Archive,
-            CatalogMutationActionPayload::Restore => Self::Restore,
-            CatalogMutationActionPayload::Delete => Self::Delete,
-            CatalogMutationActionPayload::MakeGlobal => Self::MakeGlobal,
-        }
-    }
-}
-
-pub(crate) fn validate_catalog_mutation_target(
-    target: &CatalogMutationTargetPayload,
-) -> Result<(), String> {
-    match target {
-        CatalogMutationTargetPayload::Skill { skill_key } => {
-            if skill_key.trim().is_empty() {
-                return Err(String::from("skillKey must be non-empty"));
-            }
-            Ok(())
-        }
-        CatalogMutationTargetPayload::Subagent { subagent_id } => {
-            if subagent_id.trim().is_empty() {
-                return Err(String::from("subagentId must be non-empty"));
-            }
-            Ok(())
-        }
-        CatalogMutationTargetPayload::Mcp {
-            server_key,
-            scope,
-            workspace,
-        } => {
-            if server_key.trim().is_empty() {
-                return Err(String::from("serverKey must be non-empty"));
-            }
-            let scope_value = scope.trim().to_ascii_lowercase();
-            if scope_value != "global" && scope_value != "project" {
-                return Err(format!("unsupported mcp scope: {scope} (global|project)"));
-            }
-            let workspace_present = workspace
-                .as_ref()
-                .map(|value| !value.trim().is_empty())
-                .unwrap_or(false);
-            if scope_value == "global" && workspace_present {
-                return Err(String::from(
-                    "workspace must be omitted for mcp scope=global",
-                ));
-            }
-            if scope_value == "project" && !workspace_present {
-                return Err(String::from(
-                    "workspace must be provided for mcp scope=project",
-                ));
-            }
-            Ok(())
-        }
-    }
-}
-
-pub(crate) fn to_catalog_mutation_target(
-    value: CatalogMutationTargetPayload,
-) -> Result<CatalogMutationTarget, String> {
-    validate_catalog_mutation_target(&value)?;
-    match value {
-        CatalogMutationTargetPayload::Skill { skill_key } => Ok(CatalogMutationTarget::Skill {
-            skill_key: skill_key.trim().to_string(),
-        }),
-        CatalogMutationTargetPayload::Subagent { subagent_id } => {
-            Ok(CatalogMutationTarget::Subagent {
-                subagent_id: subagent_id.trim().to_string(),
-            })
-        }
-        CatalogMutationTargetPayload::Mcp {
-            server_key,
-            scope,
-            workspace,
-        } => Ok(CatalogMutationTarget::Mcp {
-            server_key: server_key.trim().to_string(),
-            scope: scope.trim().to_ascii_lowercase(),
-            workspace: normalize_optional_string(workspace),
-        }),
-    }
-}
-
-pub(crate) fn runtime_controls(engine: &SyncEngine, runtime: &RuntimeState) -> RuntimeControls {
-    let auto_watch_active = runtime
-        .watch
-        .lock()
-        .map(|state| state.active)
-        .unwrap_or(false);
-    RuntimeControls {
-        allow_filesystem_changes: engine.allow_filesystem_changes(),
-        auto_watch_active,
-    }
-}
-
-pub(crate) fn run_sync_with_lock(
-    engine: &SyncEngine,
-    runtime: &RuntimeState,
-    trigger: SyncTrigger,
-) -> Result<SyncState, String> {
-    let _guard = runtime.acquire_sync_lock()?;
-    engine.run_sync(trigger).to_tauri()
-}
-
-fn enable_auto_watch_and_initial_sync(
-    runtime: &RuntimeState,
-    engine: &SyncEngine,
-) -> Result<(), String> {
-    if !engine.allow_filesystem_changes() {
-        return Ok(());
-    }
-
-    run_sync_with_lock(engine, runtime, SyncTrigger::Manual).map(|_| ())?;
-
-    if !engine.allow_filesystem_changes() {
-        return Ok(());
-    }
-
-    start_auto_watch(runtime, engine)?;
-
-    if !engine.allow_filesystem_changes() {
-        stop_auto_watch(runtime);
-    }
-
-    Ok(())
-}
-
-fn stop_auto_watch(runtime: &RuntimeState) {
-    let mut handle_to_join: Option<JoinHandle<()>> = None;
-    if let Ok(mut state) = runtime.watch.lock() {
-        if !state.active {
-            return;
-        }
-        if let Some(stop_tx) = state.stop_tx.take() {
-            let _ = stop_tx.send(());
-        }
-        handle_to_join = state.handle.take();
-        state.active = false;
-    }
-
-    if let Some(handle) = handle_to_join {
-        let _ = handle.join();
-    }
-}
-
-fn start_auto_watch(runtime: &RuntimeState, engine: &SyncEngine) -> Result<(), String> {
-    if runtime
-        .watch
-        .lock()
-        .map(|state| state.active)
-        .unwrap_or(false)
-    {
-        return Ok(());
-    }
-
-    let watch_paths = engine.watch_paths();
-    let stream = SyncWatchStream::new(&watch_paths)
-        .map_err(|error| format!("failed to start filesystem watcher: {error}"))?;
-    let sync_lock = Arc::clone(&runtime.sync_lock);
-    let thread_engine = engine.clone();
-    let (stop_tx, stop_rx) = mpsc::channel::<()>();
-
-    let handle = std::thread::spawn(move || {
-        let mut pending_since: Option<Instant> = None;
-
-        loop {
-            if stop_rx.try_recv().is_ok() {
-                break;
-            }
-
-            match stream.recv_timeout(Duration::from_millis(250)) {
-                Some(Ok(_)) => {
-                    pending_since = Some(Instant::now());
-                }
-                Some(Err(_)) => {}
-                None => {}
-            }
-
-            let should_sync = pending_since
-                .map(|started| started.elapsed() >= Duration::from_millis(AUTO_WATCH_DEBOUNCE_MS))
-                .unwrap_or(false);
-            if !should_sync {
-                continue;
-            }
-
-            pending_since = None;
-            if let Ok(_guard) = sync_lock.lock() {
-                let _ = thread_engine.run_sync(SyncTrigger::AutoFilesystem);
-            }
-        }
-    });
-
-    if let Ok(mut state) = runtime.watch.lock() {
-        state.stop_tx = Some(stop_tx);
-        state.handle = Some(handle);
-        state.active = true;
-        return Ok(());
-    }
-
-    Err(String::from("failed to update watcher runtime state"))
-}
-
-pub(crate) fn set_allow_filesystem_changes_inner_with<F>(
-    allow: bool,
-    runtime: &RuntimeState,
-    engine: &SyncEngine,
-    enable_when_allowed: F,
-) -> Result<RuntimeControls, String>
-where
-    F: Fn(&RuntimeState, &SyncEngine) -> Result<(), String>,
-{
-    engine.set_allow_filesystem_changes(allow).to_tauri()?;
-
-    if allow {
-        if let Err(error) = enable_when_allowed(runtime, engine) {
-            stop_auto_watch(runtime);
-            if let Err(rollback_error) = engine.set_allow_filesystem_changes(false) {
-                return Err(format!(
-                    "{error}; failed to revert filesystem write mode: {rollback_error}"
-                ));
-            }
-            return Err(error);
-        }
-    } else {
-        stop_auto_watch(runtime);
-    }
-
-    Ok(runtime_controls(engine, runtime))
-}
-
-pub(crate) fn set_allow_filesystem_changes_inner(
-    allow: bool,
-    runtime: &RuntimeState,
-    engine: &SyncEngine,
-) -> Result<RuntimeControls, String> {
-    set_allow_filesystem_changes_inner_with(
-        allow,
-        runtime,
-        engine,
-        enable_auto_watch_and_initial_sync,
-    )
-}
-
-pub(crate) fn mutate_catalog_item_inner(
-    request: CatalogMutationRequestPayload,
-    action_name: &str,
-    runtime: &RuntimeState,
-    engine: &SyncEngine,
-) -> Result<SyncState, String> {
-    validate_catalog_mutation_target(&request.target)?;
-    ensure_write_allowed(engine, action_name)?;
-    let _guard = runtime.acquire_sync_lock()?;
-    let action = CatalogMutationAction::from(request.action);
-    let target = to_catalog_mutation_target(request.target)?;
-    engine
-        .mutate_catalog_item(action, target, request.confirmed)
-        .to_tauri()
-}
-
-pub(crate) fn normalize_os_name(raw_os: &str) -> &'static str {
-    match raw_os {
-        "macos" => "macos",
-        "windows" => "windows",
-        "linux" => "linux",
-        _ => "unknown",
-    }
-}
-
-fn normalize_linux_desktop(raw: Option<&str>) -> Option<String> {
-    raw.map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-}
-
-pub(crate) fn build_platform_context(
-    raw_os: &str,
-    linux_desktop_raw: Option<&str>,
-) -> PlatformContext {
-    let os = normalize_os_name(raw_os);
-    let linux_desktop = if os == "linux" {
-        normalize_linux_desktop(linux_desktop_raw)
-    } else {
-        None
-    };
-    PlatformContext {
-        os: os.to_owned(),
-        linux_desktop,
-    }
-}
-
-pub(crate) fn find_skill(
-    engine: &SyncEngine,
-    skill_key: &str,
-    status: Option<SkillLifecycleStatus>,
-) -> Result<SkillRecord, String> {
-    engine
-        .find_skill(&SkillLocator {
-            skill_key: skill_key.to_owned(),
-            status,
-        })
-        .ok_or_else(|| format!("skill not found: {skill_key}"))
-}
-
-pub(crate) fn find_subagent(
-    engine: &SyncEngine,
-    subagent_id: &str,
-) -> Result<SubagentRecord, String> {
-    engine
-        .find_subagent_by_id(subagent_id)
-        .ok_or_else(|| format!("subagent not found: {subagent_id}"))
-}
-
-pub(crate) fn resolve_main_skill_file(skill: &SkillRecord) -> PathBuf {
-    let source = PathBuf::from(&skill.canonical_source_path);
-    if skill.package_type == "dir" {
-        source.join("SKILL.md")
-    } else {
-        source
-    }
-}
-
-pub(crate) fn resolve_skill_root_dir(skill: &SkillRecord, main_file: &Path) -> PathBuf {
-    if skill.package_type == "dir" {
-        return PathBuf::from(&skill.canonical_source_path);
-    }
-    main_file
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from(&skill.canonical_source_path))
-}
-
-pub(crate) fn read_preview(path: &Path, max_chars: usize) -> (Option<String>, bool) {
-    let Ok(contents) = fs::read_to_string(path) else {
-        return (None, false);
-    };
-
-    let total_chars = contents.chars().count();
-    if total_chars <= max_chars {
-        return (Some(contents), false);
-    }
-
-    let preview = contents.chars().take(max_chars).collect::<String>();
-    (Some(preview), true)
-}
-
-pub(crate) fn read_skill_dir_tree(root: &Path, max_entries: usize) -> (Option<String>, bool) {
-    if max_entries == 0 {
-        return (None, false);
-    }
-
-    let Ok(metadata) = fs::symlink_metadata(root) else {
-        return (None, false);
-    };
-    if !metadata.file_type().is_dir() {
-        return (None, false);
-    }
-
-    let mut lines = Vec::new();
-    let root_label = root
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| root.display().to_string());
-    lines.push(format!("{root_label}/"));
-
-    let mut emitted_entries: usize = 0;
-    let mut truncated = false;
-    render_tree_entries(
-        root,
-        "",
-        &mut lines,
-        max_entries,
-        &mut emitted_entries,
-        &mut truncated,
-    );
-
-    (Some(lines.join("\n")), truncated)
-}
-
-fn render_tree_entries(
-    dir: &Path,
-    prefix: &str,
-    lines: &mut Vec<String>,
-    max_entries: usize,
-    emitted_entries: &mut usize,
-    truncated: &mut bool,
-) {
-    if *truncated {
-        return;
-    }
-
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-
-    let mut children: Vec<(String, bool, PathBuf)> = entries
-        .filter_map(Result::ok)
-        .map(|entry| {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            let is_dir = fs::symlink_metadata(&path)
-                .map(|meta| meta.file_type().is_dir())
-                .unwrap_or(false);
-            (name, is_dir, path)
-        })
-        .collect();
-
-    children.sort_by(|lhs, rhs| match (lhs.1, rhs.1) {
-        (true, false) => Ordering::Less,
-        (false, true) => Ordering::Greater,
-        _ => lhs
-            .0
-            .to_lowercase()
-            .cmp(&rhs.0.to_lowercase())
-            .then_with(|| lhs.0.cmp(&rhs.0)),
-    });
-
-    let child_count = children.len();
-    for (index, (name, is_dir, path)) in children.into_iter().enumerate() {
-        if *emitted_entries >= max_entries {
-            *truncated = true;
-            return;
-        }
-
-        let is_last = index + 1 == child_count;
-        let branch = if is_last { "`-- " } else { "|-- " };
-        let label = if is_dir { format!("{name}/") } else { name };
-        lines.push(format!("{prefix}{branch}{label}"));
-        *emitted_entries += 1;
-
-        if is_dir {
-            let next_prefix = if is_last {
-                format!("{prefix}    ")
-            } else {
-                format!("{prefix}|   ")
-            };
-            render_tree_entries(
-                &path,
-                &next_prefix,
-                lines,
-                max_entries,
-                emitted_entries,
-                truncated,
-            );
-            if *truncated {
-                return;
-            }
-        }
-    }
-}
-
-pub(crate) fn open_path(path: &Path) -> Result<(), String> {
-    if !path.exists() {
-        return Err(format!("path does not exist: {}", path.display()));
-    }
-
-    #[cfg(target_os = "macos")]
-    let mut cmd = {
-        let mut cmd = Command::new("open");
-        cmd.arg(path);
-        cmd
-    };
-
-    #[cfg(target_os = "linux")]
-    let mut cmd = {
-        let mut cmd = Command::new("xdg-open");
-        cmd.arg(path);
-        cmd
-    };
-
-    #[cfg(target_os = "windows")]
-    let mut cmd = {
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/C").arg("start").arg("").arg(path);
-        cmd
-    };
-
-    let status = cmd
-        .status()
-        .map_err(|error| format!("failed to launch opener for {}: {}", path.display(), error))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "opener exited with status {} for {}",
-            status,
-            path.display()
-        ))
-    }
-}
-
 fn main() {
-    let runtime_state = RuntimeState::default();
+    let runtime_state = AppRuntime::default();
     tauri::Builder::default()
         .manage(runtime_state)
         .setup(|app| {
-            let runtime = app.state::<RuntimeState>();
+            let runtime = app.state::<AppRuntime>();
             let engine = SyncEngine::current();
             if engine.allow_filesystem_changes() {
-                if let Err(error) = enable_auto_watch_and_initial_sync(&runtime, &engine) {
+                if let Err(error) = runtime.enable_auto_watch_and_initial_sync(&engine) {
                     eprintln!("failed to start auto watch on startup: {error}");
                     let _ = engine.set_allow_filesystem_changes(false);
-                    stop_auto_watch(&runtime);
+                    runtime.stop_auto_watch();
                 }
             }
             Ok(())
@@ -737,12 +66,17 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_platform_context, enable_auto_watch_and_initial_sync, ensure_write_allowed,
-        normalize_os_name, read_skill_dir_tree, set_allow_filesystem_changes_inner,
-        set_allow_filesystem_changes_inner_with, stop_auto_watch, validate_catalog_mutation_target,
-        CatalogMutationActionPayload, CatalogMutationRequestPayload, CatalogMutationTargetPayload,
-        RenameSkillResponse, RuntimeState, SkillDetails, SubagentDetails,
+    use crate::{
+        app_runtime::AppRuntime,
+        catalog_support::{
+            validate_catalog_mutation_target, CatalogMutationActionPayload,
+            CatalogMutationRequestPayload, CatalogMutationTargetPayload, RenameSkillResponse,
+        },
+        command_support::ensure_write_allowed,
+        details_support::{
+            build_platform_context, normalize_os_name, read_skill_dir_tree, SkillDetails,
+            SubagentDetails,
+        },
     };
     use agent_sync_core::{
         AuditEventStatus, CatalogMutationAction, SkillLifecycleStatus, SkillRecord, SubagentRecord,
@@ -1044,18 +378,32 @@ mod tests {
         engine
             .set_allow_filesystem_changes(true)
             .expect("enable filesystem changes");
-        let runtime = RuntimeState::default();
+        let runtime = AppRuntime::default();
 
-        let guard = runtime
-            .sync_lock
-            .lock()
-            .expect("lock sync mutex to block initial sync");
+        let (lock_acquired_tx, lock_acquired_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let held_runtime = runtime.clone();
+        let hold_join = std::thread::spawn(move || {
+            held_runtime
+                .with_sync_lock(|| {
+                    lock_acquired_tx
+                        .send(())
+                        .expect("signal held sync lock acquired");
+                    release_rx
+                        .recv_timeout(Duration::from_secs(30))
+                        .map_err(|_| String::from("timed out waiting to release sync lock"))?;
+                    Ok(())
+                })
+                .expect("hold sync lock")
+        });
+        lock_acquired_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("sync lock should be held");
         let (tx, rx) = mpsc::channel();
         let runtime_for_thread = runtime.clone();
         let engine_for_thread = engine.clone();
         let join = std::thread::spawn(move || {
-            let result =
-                enable_auto_watch_and_initial_sync(&runtime_for_thread, &engine_for_thread);
+            let result = runtime_for_thread.enable_auto_watch_and_initial_sync(&engine_for_thread);
             tx.send(result).expect("send startup result");
         });
 
@@ -1064,23 +412,26 @@ mod tests {
             "startup should wait for initial sync lock"
         );
 
-        drop(guard);
+        release_tx
+            .send(())
+            .expect("release held sync lock for startup");
         let result = rx
             .recv_timeout(Duration::from_secs(30))
             .expect("startup should finish once lock is released");
         assert!(result.is_ok());
 
-        stop_auto_watch(&runtime);
+        runtime.stop_auto_watch();
         join.join().expect("join startup thread");
+        hold_join.join().expect("join sync-lock holder");
     }
 
     #[test]
     fn set_allow_filesystem_changes_reports_startup_errors_and_reverts_writes() {
         let temp = tempdir().expect("create tempdir");
         let engine = engine_in_temp(&temp);
-        let runtime = RuntimeState::default();
+        let runtime = AppRuntime::default();
 
-        let result = set_allow_filesystem_changes_inner_with(true, &runtime, &engine, |_r, _e| {
+        let result = runtime.set_allow_filesystem_changes_with(&engine, true, |_r, _e| {
             Err(String::from("watch startup failed"))
         });
 
@@ -1093,7 +444,7 @@ mod tests {
     fn set_allow_filesystem_changes_reverts_write_mode_when_initial_sync_fails() {
         let temp = tempdir().expect("create tempdir");
         let engine = engine_in_temp(&temp);
-        let runtime = RuntimeState::default();
+        let runtime = AppRuntime::default();
         let home = engine.environment().home_directory.clone();
 
         let claude_skill = home.join(".claude").join("skills").join("duplicate");
@@ -1104,7 +455,7 @@ mod tests {
         fs::create_dir_all(&agents_skill).expect("create agents skill dir");
         fs::write(agents_skill.join("SKILL.md"), "# B").expect("write agents skill");
 
-        let result = set_allow_filesystem_changes_inner(true, &runtime, &engine);
+        let result = runtime.set_allow_filesystem_changes(&engine, true);
 
         assert!(matches!(result, Err(error) if error.contains("Detected 1 conflict")));
         assert!(!engine.allow_filesystem_changes());
