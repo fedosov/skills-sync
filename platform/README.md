@@ -1,20 +1,15 @@
-# Agent Sync Platform Workspace
+# Dotagents Desktop Platform Workspace
 
-This workspace contains the multiplatform sync engine for `skills` and `subagents`:
+This workspace contains the desktop app only:
 
-- `crates/agent-sync-core`: shared domain engine and file-sync use-cases
-- `crates/agent-sync-cli`: `agent-sync` CLI on top of `agent-sync-core`
-- `apps/agent-sync-desktop/src-tauri`: Tauri shell exposing core commands
-- `apps/agent-sync-desktop/ui`: React + Vite frontend for desktop app
-- `spec/`: `state.json` schema, fixtures, CLI contract, and platform capability matrix
+- `apps/agent-sync-desktop/src-tauri`: Tauri backend that resolves the bundled runtime, persists app settings, and runs vendor commands.
+- `apps/agent-sync-desktop/ui`: React + Vite control plane for skills, MCP servers, and command transcripts.
 
 ## Quick start
 
 ```bash
 cd platform
 cargo test
-cargo run -p agent-sync-cli -- sync --scope all --json
-cargo run -p agent-sync-cli -- skills list --scope all --json
 ```
 
 ## Desktop

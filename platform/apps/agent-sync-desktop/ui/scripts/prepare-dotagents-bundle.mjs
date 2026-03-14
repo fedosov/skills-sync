@@ -275,7 +275,7 @@ function installRuntimeDependencies(cacheInstallDir, target) {
   const packageJsonPath = path.join(cacheInstallDir, "package.json");
   if (!fs.existsSync(packageJsonPath)) {
     writeJson(packageJsonPath, {
-      name: "agent-sync-dotagents-runtime-cache",
+      name: "dotagents-desktop-runtime-cache",
       private: true,
       version: "1.0.0",
       type: "module",

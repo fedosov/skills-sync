@@ -1,267 +1,54 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
-  AgentsContextReport,
-  AuditEvent,
-  AuditQuery,
-  CatalogMutationRequest,
-  ConfigValidationResult,
-  DashboardSnapshot,
+  AppContext,
+  DotagentsCommandRequest,
+  DotagentsCommandResult,
+  DotagentsMcpListItem,
+  DotagentsRuntimeStatus,
   DotagentsScope,
-  McpServerRecord,
-  PlatformContext,
-  RenameSkillResult,
-  RuntimeControls,
-  SubagentDetails,
-  SubagentRecord,
-  SkillDetails,
-  SkillRecord,
-  SyncState,
+  DotagentsSkillListItem,
 } from "./types";
 
-export async function getState(): Promise<SyncState> {
-  return invoke<SyncState>("get_state");
+export async function getRuntimeStatus(): Promise<DotagentsRuntimeStatus> {
+  return invoke<DotagentsRuntimeStatus>("get_runtime_status");
 }
 
-export async function getAgentsContextReport(): Promise<AgentsContextReport> {
-  return invoke<AgentsContextReport>("get_agents_context_report");
+export async function getAppContext(): Promise<AppContext> {
+  return invoke<AppContext>("get_app_context");
 }
 
-export async function getStarredSkillIds(): Promise<string[]> {
-  return invoke<string[]>("get_starred_skill_ids");
+export async function setScope(scope: DotagentsScope): Promise<AppContext> {
+  return invoke<AppContext>("set_scope", { scope });
 }
 
-export async function loadDashboardSnapshot(): Promise<DashboardSnapshot> {
-  const [stateResult, starredResult, subagentsResult, agentsReportResult] =
-    await Promise.allSettled([
-      getState(),
-      getStarredSkillIds(),
-      listSubagents("all"),
-      getAgentsContextReport(),
-    ]);
-
-  if (stateResult.status === "rejected") {
-    throw stateResult.reason;
-  }
-  if (subagentsResult.status === "rejected") {
-    throw subagentsResult.reason;
-  }
-
-  return {
-    state: stateResult.value,
-    starredSkillIds:
-      starredResult.status === "fulfilled" ? starredResult.value : [],
-    subagents: subagentsResult.value,
-    agentsReport:
-      agentsReportResult.status === "fulfilled"
-        ? agentsReportResult.value
-        : null,
-  };
+export async function setProjectRoot(
+  projectRoot: string | null,
+): Promise<AppContext> {
+  return invoke<AppContext>("set_project_root", { projectRoot });
 }
 
-export async function setSkillStarred(
-  skillId: string,
-  starred: boolean,
-): Promise<string[]> {
-  return invoke<string[]>("set_skill_starred", {
-    skillId,
-    starred,
-  });
+export async function listSkills(): Promise<DotagentsSkillListItem[]> {
+  return invoke<DotagentsSkillListItem[]>("list_skills");
 }
 
-export async function runSync(): Promise<SyncState> {
-  return invoke<SyncState>("run_sync", { trigger: "manual" });
+export async function listMcpServers(): Promise<DotagentsMcpListItem[]> {
+  return invoke<DotagentsMcpListItem[]>("list_mcp_servers");
 }
 
-export async function fixSyncWarning(warning: string): Promise<void> {
-  return invoke<void>("fix_sync_warning", { warning });
+export async function runDotagentsCommand(
+  request: DotagentsCommandRequest,
+): Promise<DotagentsCommandResult> {
+  return invoke<DotagentsCommandResult>("run_dotagents_command", { request });
 }
 
-export async function runDotagentsSync(
-  scope: DotagentsScope = "all",
-): Promise<void> {
-  return invoke<void>("run_dotagents_sync", { scope });
+export async function openAgentsToml(): Promise<void> {
+  return invoke<void>("open_agents_toml");
 }
 
-export async function getRuntimeControls(): Promise<RuntimeControls> {
-  return invoke<RuntimeControls>("get_runtime_controls");
+export async function openAgentsDir(): Promise<void> {
+  return invoke<void>("open_agents_dir");
 }
 
-export async function setAllowFilesystemChanges(
-  allow: boolean,
-): Promise<RuntimeControls> {
-  return invoke<RuntimeControls>("set_allow_filesystem_changes", { allow });
-}
-
-export async function listAuditEvents(
-  query?: AuditQuery,
-): Promise<AuditEvent[]> {
-  const payload: {
-    limit?: number;
-    status?: string;
-    action?: string;
-  } = {};
-  if (query?.limit) {
-    payload.limit = query.limit;
-  }
-  if (query?.status) {
-    payload.status = query.status;
-  }
-  if (query?.action?.trim()) {
-    payload.action = query.action.trim();
-  }
-  return invoke<AuditEvent[]>("list_audit_events", payload);
-}
-
-export async function clearAuditEvents(): Promise<void> {
-  return invoke<void>("clear_audit_events");
-}
-
-export async function getSkillDetails(skillKey: string): Promise<SkillDetails> {
-  return invoke<SkillDetails>("get_skill_details", { skillKey });
-}
-
-export async function getSubagentDetails(
-  subagentId: string,
-): Promise<SubagentDetails> {
-  return invoke<SubagentDetails>("get_subagent_details", { subagentId });
-}
-
-export async function listSubagents(scope?: string): Promise<SubagentRecord[]> {
-  return invoke<SubagentRecord[]>("list_subagents", { scope });
-}
-
-export async function listDotagentsSkills(
-  scope: DotagentsScope = "all",
-): Promise<SkillRecord[]> {
-  return invoke<SkillRecord[]>("list_dotagents_skills", { scope });
-}
-
-export async function listDotagentsMcp(
-  scope: DotagentsScope = "all",
-): Promise<McpServerRecord[]> {
-  return invoke<McpServerRecord[]>("list_dotagents_mcp", { scope });
-}
-
-export async function dotagentsSkillsInstall(
-  scope: DotagentsScope = "all",
-): Promise<void> {
-  return invoke<void>("dotagents_skills_install", { scope });
-}
-
-export async function dotagentsSkillsAdd(
-  packageName: string,
-  scope: DotagentsScope = "all",
-): Promise<void> {
-  return invoke<void>("dotagents_skills_add", {
-    package: packageName,
-    scope,
-  });
-}
-
-export async function dotagentsSkillsRemove(
-  packageName: string,
-  scope: DotagentsScope = "all",
-): Promise<void> {
-  return invoke<void>("dotagents_skills_remove", {
-    package: packageName,
-    scope,
-  });
-}
-
-export async function dotagentsSkillsUpdate(
-  packageName?: string,
-  scope: DotagentsScope = "all",
-): Promise<void> {
-  return invoke<void>("dotagents_skills_update", {
-    package: packageName,
-    scope,
-  });
-}
-
-export async function dotagentsMcpAdd(
-  args: string[],
-  scope: DotagentsScope = "all",
-): Promise<void> {
-  return invoke<void>("dotagents_mcp_add", { args, scope });
-}
-
-export async function dotagentsMcpRemove(
-  args: string[],
-  scope: DotagentsScope = "all",
-): Promise<void> {
-  return invoke<void>("dotagents_mcp_remove", { args, scope });
-}
-
-export async function migrateDotagents(
-  scope: DotagentsScope = "all",
-): Promise<void> {
-  return invoke<void>("migrate_dotagents", { scope });
-}
-
-export async function deleteUnmanagedMcp(
-  serverKey: string,
-): Promise<SyncState> {
-  return invoke<SyncState>("delete_unmanaged_mcp", { serverKey });
-}
-
-export async function setMcpServerEnabled(
-  serverKey: string,
-  agent: "codex" | "claude",
-  enabled: boolean,
-  scope?: "global" | "project",
-  workspace?: string | null,
-): Promise<SyncState> {
-  return invoke<SyncState>("set_mcp_server_enabled", {
-    serverKey,
-    agent,
-    enabled,
-    ...(scope ? { scope } : {}),
-    ...(workspace ? { workspace } : {}),
-  });
-}
-
-export async function mutateCatalogItem(
-  request: CatalogMutationRequest,
-): Promise<SyncState> {
-  return invoke<SyncState>("mutate_catalog_item", {
-    request,
-  });
-}
-
-export async function renameSkill(
-  skillKey: string,
-  newTitle: string,
-): Promise<RenameSkillResult> {
-  return invoke<RenameSkillResult>("rename_skill", {
-    skillKey,
-    newTitle,
-  });
-}
-
-export async function openSkillPath(
-  skillKey: string,
-  target: "folder" | "file",
-): Promise<void> {
-  return invoke<void>("open_skill_path", {
-    skillKey,
-    target,
-  });
-}
-
-export async function openSubagentPath(
-  subagentId: string,
-  target: "folder" | "file",
-): Promise<void> {
-  return invoke<void>("open_subagent_path", {
-    subagentId,
-    target,
-  });
-}
-
-export async function getPlatformContext(): Promise<PlatformContext> {
-  return invoke<PlatformContext>("get_platform_context");
-}
-
-export async function validateConfigs(): Promise<ConfigValidationResult[]> {
-  return invoke<ConfigValidationResult[]>("validate_configs");
+export async function openUserHome(): Promise<void> {
+  return invoke<void>("open_user_home");
 }

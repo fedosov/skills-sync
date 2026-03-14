@@ -1,55 +1,33 @@
 import { test, expect } from "./fixtures";
 
 test.describe("Smoke tests", () => {
-  test("app loads and shows header with sync status", async ({
+  test("app loads with runtime and user scope", async ({ tauriPage: page }) => {
+    await expect(page.locator("h1")).toHaveText("Dotagents Desktop");
+    await expect(page.getByText("Bundled runtime ready")).toBeVisible();
+    await expect(page.getByText("User scope")).toBeVisible();
+  });
+
+  test("skills tab renders vendor list rows", async ({ tauriPage: page }) => {
+    await expect(page.getByText("lint")).toBeVisible();
+    await expect(page.getByText("shared")).toBeVisible();
+    await expect(page.getByText("Managed by wildcard source")).toBeVisible();
+  });
+
+  test("project scope requires an explicit folder", async ({
     tauriPage: page,
   }) => {
-    await expect(page.locator("h1")).toHaveText("Agent Sync");
-    await expect(page.getByText("Ok")).toBeVisible();
-  });
-
-  test("header shows skill and MCP counts", async ({ tauriPage: page }) => {
-    // Summary line: "Active 2 · Archived 0 · Skills 2 · Subagents 1 · MCP N"
-    const summary = page.locator("header p").first();
-    await expect(summary).toContainText("Skills");
-    await expect(summary).toContainText("MCP");
-  });
-
-  test("search input is visible and functional", async ({
-    tauriPage: page,
-  }) => {
-    const search = page.getByPlaceholder(
-      "Search by name, key, scope or workspace",
-    );
-    await expect(search).toBeVisible();
-    await search.fill("global");
-    await expect(search).toHaveValue("global");
-  });
-
-  test("skills are listed in catalog", async ({ tauriPage: page }) => {
-    await expect(page.getByText("Global Skill")).toBeVisible();
-    await expect(page.getByText("Project Skill")).toBeVisible();
-  });
-
-  test("audit log button opens dialog", async ({ tauriPage: page }) => {
-    await page.getByRole("button", { name: "Audit log" }).click();
-    // The audit log dialog heading should appear
+    await page.getByRole("button", { name: "Project" }).click();
     await expect(
-      page.getByRole("heading", { name: "Audit log" }),
+      page.getByRole("heading", { name: "Choose a project folder" }),
     ).toBeVisible();
   });
 
-  test("filesystem toggle shows read-only message by default", async ({
+  test("output tab shows the last command transcript", async ({
     tauriPage: page,
   }) => {
-    // Default: allow_filesystem_changes = false
-    await expect(page.getByText("Read-only mode")).toBeVisible();
-  });
-
-  test("sync button is disabled in read-only mode", async ({
-    tauriPage: page,
-  }) => {
-    const syncButton = page.getByRole("button", { name: "Sync" });
-    await expect(syncButton).toBeDisabled();
+    await page.getByRole("button", { name: "Sync" }).click();
+    await page.getByRole("button", { name: "Output" }).click();
+    await expect(page.getByText("dotagents sync --user")).toBeVisible();
+    await expect(page.getByText("done")).toBeVisible();
   });
 });

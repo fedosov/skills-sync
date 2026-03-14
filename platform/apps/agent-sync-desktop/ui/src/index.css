@@ -5,124 +5,63 @@
 @layer base {
   :root {
     color-scheme: light dark;
-    --background: 0 0% 95%;
-    --foreground: 0 0% 16%;
+    --background: 40 20% 96%;
+    --foreground: 24 10% 12%;
 
-    --card: 0 0% 98%;
-    --card-foreground: 0 0% 16%;
+    --card: 0 0% 100%;
+    --card-foreground: 24 10% 12%;
 
-    --primary: 0 0% 24%;
+    --primary: 24 8% 18%;
     --primary-foreground: 0 0% 100%;
 
-    --muted: 0 0% 92%;
-    --muted-foreground: 0 0% 38%;
+    --muted: 36 16% 91%;
+    --muted-foreground: 25 6% 36%;
 
-    --accent: 0 0% 89%;
-    --accent-foreground: 0 0% 16%;
+    --accent: 36 18% 88%;
+    --accent-foreground: 24 10% 12%;
 
-    --destructive: 0 72% 45%;
+    --destructive: 8 72% 46%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 74%;
-    --input: 0 0% 72%;
-    --ring: 0 0% 34%;
+    --border: 30 12% 78%;
+    --input: 30 12% 72%;
+    --ring: 24 8% 28%;
 
-    --radius-lg: 8px;
-    --radius-md: 6px;
-    --radius-sm: 4px;
-    --control-height: 28px;
-    --control-height-sm: 24px;
-    --focus-ring-width: 1px;
+    --radius-lg: 10px;
+    --radius-md: 8px;
+    --radius-sm: 6px;
+    --control-height: 36px;
+    --control-height-sm: 30px;
     --font-sans:
-      -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
-      "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+      -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable",
+      "Segoe UI", sans-serif;
     --font-mono:
-      "SF Mono", "Cascadia Code", "JetBrains Mono", "Consolas",
-      "Liberation Mono", Menlo, monospace;
-  }
-
-  :root[data-platform="macos"] {
-    --radius-lg: 8px;
-    --radius-md: 6px;
-    --radius-sm: 4px;
-    --control-height: 27px;
-    --control-height-sm: 23px;
-    --font-sans:
-      -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
-      "Helvetica Neue", Arial, sans-serif;
-    --font-mono: "SF Mono", Menlo, Monaco, "Courier New", monospace;
-  }
-
-  :root[data-platform="windows"] {
-    --radius-lg: 8px;
-    --radius-md: 6px;
-    --radius-sm: 4px;
-    --control-height: 28px;
-    --control-height-sm: 24px;
-    --font-sans: "Segoe UI Variable", "Segoe UI", Tahoma, Arial, sans-serif;
-    --font-mono: "Cascadia Code", Consolas, "Courier New", monospace;
-  }
-
-  :root[data-platform="linux"] {
-    --radius-lg: 8px;
-    --radius-md: 6px;
-    --radius-sm: 4px;
-    --control-height: 28px;
-    --control-height-sm: 24px;
-    --font-sans:
-      Cantarell, "Noto Sans", "DejaVu Sans", Ubuntu, Arial, sans-serif;
-    --font-mono:
-      "Noto Sans Mono", "DejaVu Sans Mono", "Liberation Mono", monospace;
+      "SF Mono", "Cascadia Code", "JetBrains Mono", "Menlo", monospace;
   }
 
   @media (prefers-color-scheme: dark) {
     :root {
-      --background: 0 0% 8%;
-      --foreground: 0 0% 90%;
+      --background: 32 8% 8%;
+      --foreground: 36 18% 90%;
 
-      --card: 0 0% 11%;
-      --card-foreground: 0 0% 90%;
+      --card: 28 8% 10%;
+      --card-foreground: 36 18% 90%;
 
-      --primary: 0 0% 82%;
-      --primary-foreground: 0 0% 8%;
+      --primary: 36 12% 84%;
+      --primary-foreground: 28 8% 10%;
 
-      --muted: 0 0% 15%;
-      --muted-foreground: 0 0% 67%;
+      --muted: 30 6% 15%;
+      --muted-foreground: 30 6% 68%;
 
-      --accent: 0 0% 17%;
-      --accent-foreground: 0 0% 90%;
+      --accent: 30 6% 18%;
+      --accent-foreground: 36 18% 90%;
 
-      --destructive: 0 70% 54%;
+      --destructive: 6 66% 56%;
       --destructive-foreground: 0 0% 100%;
 
-      --border: 0 0% 20%;
-      --input: 0 0% 21%;
-      --ring: 0 0% 66%;
-    }
-  }
-
-  @media (prefers-contrast: more) {
-    :root {
-      --border: 220 14% 50%;
-      --input: 220 14% 50%;
-    }
-  }
-
-  @media (forced-colors: active) {
-    :root {
-      --background: 0 0% 100%;
-      --foreground: 0 0% 0%;
-      --card: 0 0% 100%;
-      --card-foreground: 0 0% 0%;
-      --primary: 220 100% 45%;
-      --primary-foreground: 0 0% 100%;
-      --muted: 0 0% 95%;
-      --muted-foreground: 0 0% 0%;
-      --accent: 0 0% 90%;
-      --accent-foreground: 0 0% 0%;
-      --border: 0 0% 0%;
-      --input: 0 0% 0%;
-      --ring: 220 100% 45%;
+      --border: 30 5% 22%;
+      --input: 30 5% 24%;
+      --ring: 36 10% 72%;
     }
   }
 
@@ -139,16 +78,21 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
-    background-image: none;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  textarea {
+    resize: vertical;
   }
 
   ::selection {
-    background: hsl(var(--primary) / 0.26);
-  }
-
-  [data-contrast="more"] {
-    --border: 220 14% 50%;
-    --input: 220 14% 50%;
+    background: hsl(var(--primary) / 0.18);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -160,11 +104,5 @@
       scroll-behavior: auto !important;
       transition-duration: 0.01ms !important;
     }
-  }
-}
-
-@layer utilities {
-  .text-dense {
-    letter-spacing: -0.01em;
   }
 }

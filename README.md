@@ -1,50 +1,27 @@
-> [!CAUTION]
-> **Pre-alpha concept.**
-> This is my personal attempt to build tooling for myself.
-> I'm still putting it together, so it can break and change a lot.
-> I'll keep improving it step by step toward a real product.
-> Use it at your own risk.
+# Dotagents Desktop
 
-## What is this project?
-Agent Sync is a desktop app and CLI built on [Sentry dotagents](https://github.com/getsentry/dotagents) that keeps one canonical catalog of skills, subagents, and managed MCP servers synchronized across agent runtimes, and it is in active alpha development with daily real-world use by the developer.
+Dotagents Desktop is a desktop-only Tauri wrapper around bundled [`@sentry/dotagents` 0.10.0](https://www.npmjs.com/package/@sentry/dotagents/v/0.10.0). The app does not ship a custom sync engine, custom CLI, synthetic catalog, or migration layer. It exposes the vendor behavior directly with an explicit project-or-user context.
 
-## What problems does it solve?
-It stops configuration drift when the same assets live across Claude, Cursor, Codex, and shared agent directories.
-It removes repetitive manual copying and relinking by rebuilding managed links and managed config blocks from a single source of truth.
-It makes cross-agent behavior predictable by detecting conflicts and applying deterministic sync results.
+## What it does
 
-## Screenshot
-![](docs/images/agent-sync-screenshot-cd7349ba95f0.png)
+- Runs only against the bundled `dotagents` runtime.
+- Supports vendor reads for `list --json`, `mcp list --json`, and runtime `--version`.
+- Supports vendor mutations for `install`, `install --frozen`, `sync`, `add`, `remove`, `update`, `mcp add`, and `mcp remove`.
+- Keeps project scope explicit: the app only runs project commands after you pick a project folder.
 
-## Run on macOS / Windows / Linux
-### macOS
-GUI:
+## Quick start
+
 ```bash
+make lint
+make test
+cd platform/apps/agent-sync-desktop/ui && npm run test
 ./scripts/run-tauri-gui.sh
 ```
-CLI:
-```bash
-cd platform && cargo run -p agent-sync-cli -- sync --scope all --json
-```
 
-### Windows (PowerShell)
-GUI:
-```powershell
-cd platform/apps/agent-sync-desktop/ui; npm install; cd ../src-tauri; cargo tauri dev
-```
-CLI:
-```powershell
-cd platform; cargo run -p agent-sync-cli -- sync --scope all --json
-```
+## Product notes
 
-### Linux
-GUI:
-```bash
-./scripts/run-tauri-gui.sh
-```
-CLI:
-```bash
-cd platform && cargo run -p agent-sync-cli -- sync --scope all --json
-```
+- `project` scope uses the selected folder as command `cwd`.
+- `user` scope runs with `--user` and no project root.
+- `init`, `doctor`, trust editing, and PATH fallback are intentionally out of the v1 desktop flow.
 
-Details: [docs/SETUP.md](docs/SETUP.md)
+More setup and operational details live in [docs/SETUP.md](docs/SETUP.md).

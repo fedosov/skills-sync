@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Agent Sync Desktop",
+  "productName": "Dotagents Desktop",
   "version": "0.2.5",
-  "identifier": "dev.fedosov.agent-sync.desktop",
+  "identifier": "dev.fedosov.dotagents.desktop",
   "build": {
     "beforeDevCommand": "npm --prefix . run dev:tauri || npm --prefix ./ui run dev:tauri || npm --prefix ../ui run dev:tauri",
     "beforeBuildCommand": "npm --prefix . run build:tauri || npm --prefix ./ui run build:tauri || npm --prefix ../ui run build:tauri",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Agent Sync Desktop",
+        "title": "Dotagents Desktop",
         "width": 1280,
         "height": 820,
         "resizable": true

@@ -1,6 +1,6 @@
 # macOS Code Signing & Notarization
 
-Guide for setting up Apple code signing and notarization for Agent Sync Desktop.
+Guide for setting up Apple code signing and notarization for Dotagents Desktop.
 
 > **Status:** not yet configured. The app currently triggers Gatekeeper
 > ("damaged and can't be opened") because the `.app` bundle is unsigned.
@@ -94,22 +94,22 @@ environment variables are present.
 codesign --force --deep --options runtime \
   --entitlements platform/apps/agent-sync-desktop/src-tauri/Entitlements.plist \
   --sign "Developer ID Application: Your Name (TEAM_ID)" \
-  "target/release/bundle/macos/Agent Sync Desktop.app"
+  "target/release/bundle/macos/Dotagents Desktop.app"
 
 # Create ZIP for notarization
 ditto -c -k --keepParent \
-  "target/release/bundle/macos/Agent Sync Desktop.app" \
-  AgentSync.zip
+  "target/release/bundle/macos/Dotagents Desktop.app" \
+  DotagentsDesktop.zip
 
 # Submit for notarization
-xcrun notarytool submit AgentSync.zip \
+xcrun notarytool submit DotagentsDesktop.zip \
   --apple-id "$APPLE_ID" \
   --password "$APPLE_PASSWORD" \
   --team-id "$APPLE_TEAM_ID" \
   --wait
 
 # Staple the ticket
-xcrun stapler staple "target/release/bundle/macos/Agent Sync Desktop.app"
+xcrun stapler staple "target/release/bundle/macos/Dotagents Desktop.app"
 ```
 
 ## References

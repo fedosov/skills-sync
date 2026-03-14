@@ -69,4 +69,4 @@ Run desktop app:
 Use clear, imperative messages with an optional scope, for example:
 
 - `feat(ui): add validation status badge`
-- `fix(core): handle missing skill metadata`
+- `fix(tauri): handle runtime version mismatch`

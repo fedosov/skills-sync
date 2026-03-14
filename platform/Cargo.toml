@@ -1,16 +1,12 @@
 [workspace]
-members = [
-  "crates/agent-sync-core",
-  "crates/agent-sync-cli",
-  "apps/agent-sync-desktop/src-tauri",
-]
+members = ["apps/agent-sync-desktop/src-tauri"]
 resolver = "2"
 
 [workspace.package]
 edition = "2021"
 license = "MIT"
 version = "0.2.5"
-authors = ["Agent Sync Team"]
+authors = ["Dotagents Desktop Team"]
 
 [workspace.dependencies]
 anyhow = "1.0"

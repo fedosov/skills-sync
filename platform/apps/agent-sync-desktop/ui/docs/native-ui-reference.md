@@ -1,6 +1,6 @@
 # Native UI Reference
 
-This document maps official desktop design guidance to concrete Agent Sync UI rules.
+This document maps official desktop design guidance to concrete Dotagents Desktop UI rules.
 
 ## Sources
 
@@ -17,20 +17,18 @@ This document maps official desktop design guidance to concrete Agent Sync UI ru
 
 ## Rule Mapping
 
-| Guideline rule                                              | Agent Sync implementation                                                       |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Use system typography and control metrics                   | `src/index.css` platform font variables and control height variables            |
-| Respect system light/dark modes                             | `src/index.css` with `prefers-color-scheme` token overrides                     |
-| Keep controls compact and readable for desktop density      | `src/components/ui/button.tsx`, `src/components/ui/input.tsx`                   |
-| Preserve clear keyboard focus                               | shared focus ring tokens and component focus-visible classes                    |
-| Support high-contrast / accessibility modes                 | `src/index.css` with `forced-colors` and contrast overrides                     |
-| Use restrained visual treatment (avoid web-heavy gradients) | simplified background and muted card shadows in `src/index.css` and card styles |
-| Platform-specific feel without forking logic                | `src/lib/platform.ts` sets `data-platform` attributes used by CSS               |
+| Guideline rule                                    | Dotagents Desktop implementation                                            |
+| ------------------------------------------------- | --------------------------------------------------------------------------- |
+| Use system typography and compact desktop spacing | `src/index.css` font stack, spacing, and control-size variables             |
+| Keep primary actions obvious but restrained       | `src/components/ui/button.tsx` variants and `src/App.tsx` top-level actions |
+| Preserve visible keyboard focus                   | shared `focus-visible` ring styles in button and input primitives           |
+| Support high-contrast / accessibility modes       | `src/index.css` token choices and semantic color variables                  |
+| Avoid web-heavy visual noise                      | quiet card treatment and neutral surfaces in `src/index.css`                |
+| Keep command context legible                      | `src/App.tsx` runtime banner, scope summary, and output transcript layout   |
 
 ## UI Review Checklist
 
-- System theme switch updates the app palette without restart.
-- Controls (buttons, inputs, badges) keep native-feel size and contrast on all platforms.
-- Focus state is visible and consistent for keyboard navigation.
-- `forced-colors: active` remains usable on Windows high-contrast mode.
-- Linux degrades safely when desktop environment is unknown.
+- The runtime banner clearly distinguishes bundled-runtime success from failure.
+- Scope and project-root controls stay visible regardless of the active tab.
+- Form controls remain compact and readable on desktop window sizes.
+- The output transcript is scannable without hiding stdout or stderr details.
