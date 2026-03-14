@@ -2,6 +2,13 @@
 
 Dotagents Desktop is a desktop-only Tauri wrapper around bundled [`@sentry/dotagents` 0.10.0](https://www.npmjs.com/package/@sentry/dotagents/v/0.10.0). The app does not ship a custom sync engine, custom CLI, synthetic catalog, or migration layer. It exposes the vendor behavior directly with an explicit project-or-user context.
 
+> [!CAUTION]
+> **Pre-alpha concept.**
+> This is my personal attempt to build tooling for myself.
+> I'm still putting it together, so it can break and change a lot.
+> I'll keep improving it step by step toward a real product.
+> Use it at your own risk.
+
 ## What it does
 
 - Runs only against the bundled `dotagents` runtime.
