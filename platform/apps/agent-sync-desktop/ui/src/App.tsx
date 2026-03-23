@@ -413,24 +413,31 @@ export function App() {
     void refreshApp();
   }, [refreshApp]);
 
-  async function handleScopeChange(scope: DotagentsScope) {
-    setBusyAction(`scope:${scope}`);
+  async function runBusyAction(
+    actionName: string,
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    setBusyAction(actionName);
     setError(null);
     try {
-      const nextContext = await setScope(scope);
-      setAppContext(nextContext);
-      await refreshApp();
-    } catch (scopeError) {
-      setError(errorMessage(scopeError));
+      await fn();
+    } catch (caught) {
+      setError(errorMessage(caught));
     } finally {
       setBusyAction(null);
     }
   }
 
+  async function handleScopeChange(scope: DotagentsScope) {
+    await runBusyAction(`scope:${scope}`, async () => {
+      const nextContext = await setScope(scope);
+      setAppContext(nextContext);
+      await refreshApp();
+    });
+  }
+
   async function handleChooseProjectRoot() {
-    setBusyAction("projectRoot");
-    setError(null);
-    try {
+    await runBusyAction("projectRoot", async () => {
       const selected: unknown = await openDirectoryDialog({
         directory: true,
         multiple: false,
@@ -441,30 +448,18 @@ export function App() {
       }
       await setProjectRoot(pickedPath);
       await refreshApp();
-    } catch (pickerError) {
-      setError(errorMessage(pickerError));
-    } finally {
-      setBusyAction(null);
-    }
+    });
   }
 
   async function handleClearProjectRoot() {
-    setBusyAction("clearProjectRoot");
-    setError(null);
-    try {
+    await runBusyAction("clearProjectRoot", async () => {
       await setProjectRoot(null);
       await refreshApp();
-    } catch (clearError) {
-      setError(errorMessage(clearError));
-    } finally {
-      setBusyAction(null);
-    }
+    });
   }
 
   async function handleSync() {
-    setBusyAction("sync");
-    setError(null);
-    try {
+    await runBusyAction("sync", async () => {
       const result = await runDotagentsCommand({ kind: "sync" });
       setLastCommand(result);
       if (!result.success) {
@@ -472,11 +467,7 @@ export function App() {
         return;
       }
       await refreshApp();
-    } catch (commandError) {
-      setError(errorMessage(commandError));
-    } finally {
-      setBusyAction(null);
-    }
+    });
   }
 
   async function handleOpen(fn: () => Promise<void>) {
@@ -488,9 +479,7 @@ export function App() {
   }
 
   async function handleRemove(kind: "skill" | "mcp", name: string) {
-    setBusyAction(`${kind}:remove`);
-    setError(null);
-    try {
+    await runBusyAction(`${kind}:remove`, async () => {
       const result = await runDotagentsCommand(
         kind === "skill"
           ? { kind: "skillRemove", name }
@@ -502,12 +491,8 @@ export function App() {
         return;
       }
       await refreshApp();
-    } catch (commandError) {
-      setError(errorMessage(commandError));
-    } finally {
-      setBusyAction(null);
-      setPendingRemoval(null);
-    }
+    });
+    setPendingRemoval(null);
   }
 
   function toggleRemoval(kind: "skill" | "mcp", name: string) {
