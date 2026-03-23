@@ -103,7 +103,7 @@ impl AppState {
         let _guard = self
             .command_lock
             .lock()
-            .map_err(|_| String::from("failed to lock dotagents command runner"))?;
+            .map_err(|e| format!("failed to lock dotagents command runner: {e}"))?;
         self.runner.run_command(&context, &request)
     }
 
@@ -154,7 +154,7 @@ impl AppState {
         self.settings
             .lock()
             .map(|guard| guard.clone())
-            .map_err(|_| String::from("failed to read app settings"))
+            .map_err(|e| format!("failed to read app settings: {e}"))
     }
 
     fn save_settings(&self, settings: &PersistedSettings) -> Result<(), String> {
@@ -162,7 +162,7 @@ impl AppState {
         let mut guard = self
             .settings
             .lock()
-            .map_err(|_| String::from("failed to write app settings"))?;
+            .map_err(|e| format!("failed to write app settings: {e}"))?;
         *guard = settings.clone();
         Ok(())
     }
