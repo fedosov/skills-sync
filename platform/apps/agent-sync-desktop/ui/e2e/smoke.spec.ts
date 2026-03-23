@@ -7,7 +7,9 @@ test.describe("Smoke tests", () => {
     await expect(page.getByText("User scope")).toBeVisible();
   });
 
-  test("skills section renders vendor list rows", async ({ tauriPage: page }) => {
+  test("skills section renders vendor list rows", async ({
+    tauriPage: page,
+  }) => {
     await expect(page.getByText("lint")).toBeVisible();
     await expect(page.getByText("shared")).toBeVisible();
     await expect(page.getByText(/wildcard/i)).toBeVisible();

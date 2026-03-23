@@ -596,10 +596,8 @@ mod tests {
 
     #[test]
     fn dotagents_home_is_always_derived_from_user_home() {
-        let runner = DotagentsRunner::new(
-            PathBuf::from("/tmp/home"),
-            DotagentsRuntimeManager::new(),
-        );
+        let runner =
+            DotagentsRunner::new(PathBuf::from("/tmp/home"), DotagentsRuntimeManager::new());
 
         assert_eq!(runner.dotagents_home(), PathBuf::from("/tmp/home/.agents"));
     }

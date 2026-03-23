@@ -100,10 +100,6 @@ jobs:
         with:
           workspaces: platform
 
-      - name: Prepare bundled dotagents runtime
-        working-directory: platform/apps/agent-sync-desktop/ui
-        run: npm run dotagents:prepare
-
       - name: Create UI dist stub
         run: mkdir -p platform/apps/agent-sync-desktop/ui/dist
 

@@ -22,12 +22,12 @@ do
 done
 
 echo ""
-echo "=== Bundled runtime guard ==="
-if grep -q 'bundled dotagents binary not found; packaged runtime is required' \
+echo "=== npx-pinned runtime guard ==="
+if grep -q 'npx is not available' \
   "$ROOT_DIR/platform/apps/agent-sync-desktop/src-tauri/src/dotagents_runtime.rs"; then
-  echo "  Bundled runtime requirement is enforced."
+  echo "  npx-pinned runtime requirement is enforced."
 else
-  echo "DRIFT: dotagents_runtime.rs must require the bundled runtime"
+  echo "DRIFT: dotagents_runtime.rs must use npx-pinned runtime"
   EXIT_CODE=1
 fi
 
