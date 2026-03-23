@@ -1,6 +1,6 @@
 # Dotagents Desktop
 
-Dotagents Desktop is a desktop-only Tauri wrapper around bundled [`@sentry/dotagents` 0.10.0](https://www.npmjs.com/package/@sentry/dotagents/v/0.10.0). The app does not ship a custom sync engine, custom CLI, synthetic catalog, or migration layer. It exposes the vendor behavior directly with an explicit project-or-user context.
+UI for `dotagents` [`@sentry/dotagents` 1.4.0](https://dotagents.sentry.dev/cli).
 
 > [!CAUTION]
 > **Pre-alpha concept.**
@@ -9,26 +9,8 @@ Dotagents Desktop is a desktop-only Tauri wrapper around bundled [`@sentry/dotag
 > I'll keep improving it step by step toward a real product.
 > Use it at your own risk.
 
-## What it does
+![Dotagents Desktop](docs/images/agent-sync-screenshot-ba0b1635cdd5.png)
 
-- Runs only against the bundled `dotagents` runtime.
-- Supports vendor reads for `list --json`, `mcp list --json`, and runtime `--version`.
-- Supports vendor mutations for `install`, `install --frozen`, `sync`, `add`, `remove`, `update`, `mcp add`, and `mcp remove`.
-- Keeps project scope explicit: the app only runs project commands after you pick a project folder.
+## Why?
 
-## Quick start
-
-```bash
-make lint
-make test
-cd platform/apps/agent-sync-desktop/ui && npm run test
-./scripts/run-tauri-gui.sh
-```
-
-## Product notes
-
-- `project` scope uses the selected folder as command `cwd`.
-- `user` scope runs with `--user` and no project root.
-- `init`, `doctor`, trust editing, and PATH fallback are intentionally out of the v1 desktop flow.
-
-More setup and operational details live in [docs/SETUP.md](docs/SETUP.md).
+I find it easier to manage data when I can see it in the interface. I can add skills through the cli or create them in Claude Code, but I need to see a reference or cheat sheet with the available skills when I use them or decide to remove some of them.

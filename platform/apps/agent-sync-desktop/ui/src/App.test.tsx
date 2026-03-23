@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -30,12 +30,10 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 const runtimeReady: DotagentsRuntimeStatus = {
   available: true,
-  expectedVersion: "0.10.0",
-  actualVersion: "0.10.0",
-  binaryPath: "/tmp/bin/dotagents",
+  expectedVersion: "1.4.0",
 };
 
-function buildUserContext(overrides: Partial<AppContext> = {}): AppContext {
+function buildContext(overrides: Partial<AppContext> = {}): AppContext {
   return {
     activeProjectContext: {
       mode: "user",
@@ -53,14 +51,11 @@ function buildUserContext(overrides: Partial<AppContext> = {}): AppContext {
 
 function buildProjectContext(overrides: Partial<AppContext> = {}): AppContext {
   return {
+    ...buildContext(),
     activeProjectContext: {
       mode: "project",
       projectRoot: "/tmp/workspace",
     },
-    userHome: "/Users/tester",
-    userAgentsDir: "/Users/tester/.agents",
-    userAgentsTomlPath: "/Users/tester/.agents/agents.toml",
-    userInitialized: true,
     projectAgentsTomlPath: "/tmp/workspace/agents.toml",
     projectInitialized: true,
     ...overrides,
@@ -110,7 +105,7 @@ const sampleMcp: DotagentsMcpListItem[] = [
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(tauriApi.getRuntimeStatus).mockResolvedValue(runtimeReady);
-  vi.mocked(tauriApi.getAppContext).mockResolvedValue(buildUserContext());
+  vi.mocked(tauriApi.getAppContext).mockResolvedValue(buildContext());
   vi.mocked(tauriApi.setScope).mockResolvedValue(buildProjectContext());
   vi.mocked(tauriApi.setProjectRoot).mockResolvedValue(buildProjectContext());
   vi.mocked(tauriApi.listSkills).mockResolvedValue(sampleSkills);
@@ -124,7 +119,7 @@ beforeEach(() => {
 describe("Dotagents Desktop UI", () => {
   it("switches between user and project scope", async () => {
     const user = userEvent.setup();
-    let currentContext = buildUserContext();
+    let currentContext = buildContext();
     vi.mocked(tauriApi.getAppContext).mockImplementation(() =>
       Promise.resolve(currentContext),
     );
@@ -136,7 +131,7 @@ describe("Dotagents Desktop UI", () => {
               projectAgentsTomlPath: null,
               projectInitialized: null,
             })
-          : buildUserContext();
+          : buildContext();
       return Promise.resolve(currentContext);
     });
 
@@ -172,87 +167,146 @@ describe("Dotagents Desktop UI", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("renders skills and marks wildcard rows as non-removable", async () => {
+  it("renders skills list with status badges and MCP servers", async () => {
     render(<App />);
 
     expect(await screen.findByText("lint")).toBeInTheDocument();
-    const sharedRow = screen.getByText("shared").closest("div");
-    expect(sharedRow).not.toBeNull();
-    expect(screen.getByText(/managed by wildcard source/i)).toBeInTheDocument();
-    const removeButtons = screen.getAllByRole("button", { name: "Remove" });
-    expect(removeButtons[1]).toBeDisabled();
+    expect(screen.getByText("shared")).toBeInTheDocument();
+    expect(screen.getByText(/wildcard/i)).toBeInTheDocument();
+
+    expect(screen.getByText("github")).toBeInTheDocument();
+    expect(screen.getByText("stdio")).toBeInTheDocument();
+    expect(screen.getByText("npx")).toBeInTheDocument();
   });
 
-  it("requires source plus explicit name or wildcard mode for add skill", async () => {
+  it("shows sync button as disabled when all skills are ok", async () => {
     render(<App />);
 
-    const addSkillButton = await screen.findByRole("button", {
-      name: "Add skill",
+    const syncButtons = await screen.findAllByRole("button", {
+      name: "All synced",
     });
-    expect(addSkillButton).toBeDisabled();
-
-    fireEvent.change(screen.getByPlaceholderText(/owner\/repo/i), {
-      target: { value: "owner/repo" },
-    });
-    expect(addSkillButton).toBeDisabled();
-
-    fireEvent.change(await screen.findByPlaceholderText("skill-name"), {
-      target: { value: "lint" },
-    });
-    await waitFor(() => {
-      expect(screen.getByDisplayValue("lint")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Add skill" })).toBeEnabled();
-    });
-
-    fireEvent.change(screen.getByPlaceholderText("skill-name"), {
-      target: { value: "" },
-    });
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Wildcard --all" }),
-    );
-    await waitFor(() => {
-      expect(
-        screen.queryByPlaceholderText("skill-name"),
-      ).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Add skill" })).toBeEnabled();
-    });
+    expect(syncButtons[0]).toBeDisabled();
   });
 
-  it("runs MCP add and remove flows", async () => {
+  it("shows sync button as active when skills need sync", async () => {
+    vi.mocked(tauriApi.listSkills).mockResolvedValue([
+      { name: "lint", source: "owner/repo", status: "modified" },
+      { name: "missing-skill", source: "owner/repo", status: "missing" },
+    ]);
+
+    render(<App />);
+
+    const syncButton = await screen.findByRole("button", {
+      name: "Sync needed",
+    });
+    expect(syncButton).toBeEnabled();
+  });
+
+  it("shows fix hints for skills with non-ok status", async () => {
+    vi.mocked(tauriApi.listSkills).mockResolvedValue([
+      { name: "mod-skill", source: "owner/repo", status: "modified" },
+      { name: "miss-skill", source: "owner/repo", status: "missing" },
+      { name: "unlock-skill", source: "owner/repo", status: "unlocked" },
+    ]);
+
+    render(<App />);
+
+    expect(
+      await screen.findByText(
+        "Local changes — sync will reset to declared state",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Not installed — sync will install"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Not pinned — sync will lock to a commit"),
+    ).toBeInTheDocument();
+  });
+
+  it("runs sync when sync button is clicked", async () => {
     const user = userEvent.setup();
+    vi.mocked(tauriApi.listSkills).mockResolvedValue([
+      { name: "lint", source: "owner/repo", status: "modified" },
+    ]);
+
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "MCP" }));
-    fireEvent.change(screen.getByPlaceholderText("github"), {
-      target: { value: "remote" },
+    const syncButton = await screen.findByRole("button", {
+      name: "Sync needed",
     });
-    await user.click(await screen.findByRole("button", { name: "--url" }));
-    fireEvent.change(
-      screen.getByPlaceholderText("https://mcp.example.com/sse"),
-      {
-        target: { value: "https://mcp.example.com/sse" },
-      },
-    );
-    await waitFor(() => {
-      expect(screen.getByDisplayValue("remote")).toBeInTheDocument();
-      expect(
-        screen.getByDisplayValue("https://mcp.example.com/sse"),
-      ).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole("button", { name: "Add MCP server" }));
+    await user.click(syncButton);
 
     await waitFor(() => {
       expect(tauriApi.runDotagentsCommand).toHaveBeenCalledWith({
-        kind: "mcpAddHttp",
-        name: "remote",
-        url: "https://mcp.example.com/sse",
-        headers: [],
-        env: [],
+        kind: "sync",
       });
     });
 
-    await user.click(screen.getByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Output")).toBeInTheDocument();
+    expect(screen.getByText("dotagents sync")).toBeInTheDocument();
+    expect(screen.getByText("done")).toBeInTheDocument();
+  });
+
+  it("requires confirmation before removing a skill", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const removeButtons = await screen.findAllByRole("button", {
+      name: "Remove",
+    });
+    await user.click(removeButtons[0]);
+
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Confirm remove" }),
+    ).toBeInTheDocument();
+    expect(tauriApi.runDotagentsCommand).not.toHaveBeenCalledWith({
+      kind: "skillRemove",
+      name: "lint",
+    });
+
+    await user.click(screen.getByRole("button", { name: "Confirm remove" }));
+
+    await waitFor(() => {
+      expect(tauriApi.runDotagentsCommand).toHaveBeenCalledWith({
+        kind: "skillRemove",
+        name: "lint",
+      });
+    });
+  });
+
+  it("allows canceling a pending skill removal", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const removeButtons = await screen.findAllByRole("button", {
+      name: "Remove",
+    });
+    await user.click(removeButtons[0]);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(
+      screen.queryByRole("button", { name: "Confirm remove" }),
+    ).not.toBeInTheDocument();
+    expect(tauriApi.runDotagentsCommand).not.toHaveBeenCalledWith({
+      kind: "skillRemove",
+      name: "lint",
+    });
+  });
+
+  it("requires confirmation before removing an MCP server", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const removeButtons = await screen.findAllByRole("button", {
+      name: "Remove",
+    });
+    await user.click(removeButtons[2]);
+    await user.click(screen.getByRole("button", { name: "Confirm remove" }));
 
     await waitFor(() => {
       expect(tauriApi.runDotagentsCommand).toHaveBeenCalledWith({
@@ -260,41 +314,6 @@ describe("Dotagents Desktop UI", () => {
         name: "github",
       });
     });
-  });
-
-  it("renders output transcripts for success and failure", async () => {
-    const user = userEvent.setup();
-    vi.mocked(tauriApi.runDotagentsCommand)
-      .mockResolvedValueOnce(
-        commandResult({
-          command: "dotagents sync",
-          stdout: "synced",
-          stderr: "",
-        }),
-      )
-      .mockResolvedValueOnce(
-        commandResult({
-          success: false,
-          command: "dotagents remove broken",
-          exitCode: 1,
-          stdout: "",
-          stderr: "remove failed",
-        }),
-      );
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Sync" }));
-    await user.click(screen.getByRole("button", { name: "Output" }));
-    expect(await screen.findByText("dotagents sync")).toBeInTheDocument();
-    expect(screen.getByText("synced")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Skills" }));
-    await user.click(screen.getAllByRole("button", { name: "Remove" })[0]);
-    await waitFor(() => {
-      expect(screen.getAllByText("remove failed").length).toBeGreaterThan(0);
-    });
-    expect(screen.getByText("dotagents remove broken")).toBeInTheDocument();
   });
 
   it("shows missing-config empty states for project and user scopes", async () => {
@@ -306,7 +325,7 @@ describe("Dotagents Desktop UI", () => {
       Promise.resolve(currentContext),
     );
     vi.mocked(tauriApi.setScope).mockImplementation(() => {
-      currentContext = buildUserContext({
+      currentContext = buildContext({
         userInitialized: false,
       });
       return Promise.resolve(currentContext);

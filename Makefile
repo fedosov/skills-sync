@@ -21,7 +21,6 @@ build:
 		echo "Installing UI dependencies..."; \
 		(cd "$(UI_DIR)" && npm install); \
 	fi
-	"$(ROOT_DIR)/scripts/repair-tauri-cache.sh" "$(ROOT_DIR)"
 	cd "$(APP_DIR)" && cargo tauri build --debug
 
 run:
@@ -32,12 +31,10 @@ lint: lint-rust lint-ui
 lint-fix: lint-fix-rust lint-fix-ui lint
 
 prepare-dotagents-runtime:
-	@if ! command -v node >/dev/null 2>&1; then \
-		echo "Node.js is required to prepare bundled dotagents runtime. Install Node.js 22+." >&2; \
+	@if ! command -v npx >/dev/null 2>&1; then \
+		echo "npx is required (install Node.js and npm)." >&2; \
 		exit 1; \
 	fi
-	"$(ROOT_DIR)/scripts/repair-tauri-cache.sh" "$(ROOT_DIR)"
-	cd "$(UI_DIR)" && npm run dotagents:prepare
 
 ensure-ui-dist:
 	mkdir -p "$(UI_DIR)/dist"

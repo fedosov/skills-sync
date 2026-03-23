@@ -14,32 +14,31 @@ fn get_build_command(config: &serde_json::Value, key: &str) -> String {
         .to_string()
 }
 
+fn assert_supports_ui_prefix_fallbacks(command: &str, key: &str, script: &str) {
+    assert!(
+        command.contains(&format!("--prefix . run {script}"))
+            && command.contains(&format!("--prefix ./ui run {script}"))
+            && command.contains(&format!("--prefix ../ui run {script}")),
+        "{key} must support cwd fallbacks for ui package, got: {command}"
+    );
+}
+
 #[test]
 fn before_dev_command_targets_ui_package() {
     let config = read_tauri_config();
     let command = get_build_command(&config, "beforeDevCommand");
-    assert!(
-        command.contains("--prefix . run dev:tauri")
-            && command.contains("--prefix ./ui run dev:tauri")
-            && command.contains("--prefix ../ui run dev:tauri"),
-        "beforeDevCommand must support cwd fallbacks for ui package, got: {command}"
-    );
+    assert_supports_ui_prefix_fallbacks(&command, "beforeDevCommand", "dev:tauri");
 }
 
 #[test]
 fn before_build_command_targets_ui_package() {
     let config = read_tauri_config();
     let command = get_build_command(&config, "beforeBuildCommand");
-    assert!(
-        command.contains("--prefix . run build:tauri")
-            && command.contains("--prefix ./ui run build:tauri")
-            && command.contains("--prefix ../ui run build:tauri"),
-        "beforeBuildCommand must support cwd fallbacks for ui package, got: {command}"
-    );
+    assert_supports_ui_prefix_fallbacks(&command, "beforeBuildCommand", "build:tauri");
 }
 
 #[test]
-fn bundle_resources_include_dotagents_runtime_tree() {
+fn bundle_resources_do_not_include_dotagents_binary() {
     let config = read_tauri_config();
     let resources = config["bundle"]["resources"]
         .as_array()
@@ -49,10 +48,10 @@ fn bundle_resources_include_dotagents_runtime_tree() {
     let includes_dotagents = resources
         .iter()
         .filter_map(serde_json::Value::as_str)
-        .any(|item| item == "bin/dotagents");
+        .any(|item| item.contains("dotagents"));
 
     assert!(
-        includes_dotagents,
-        "bundle.resources must include bin/dotagents for bundled dotagents runtime"
+        !includes_dotagents,
+        "bundle.resources must not include dotagents — runtime is invoked via npx"
     );
 }

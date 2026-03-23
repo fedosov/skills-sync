@@ -6,6 +6,7 @@ export type DotagentsSkillListItem = {
   name: string;
   source: string;
   status: DotagentsSkillStatus;
+  description?: string | null;
   commit?: string | null;
   wildcard?: string | null;
 };
@@ -17,6 +18,7 @@ export type DotagentsMcpListItem = {
   transport: DotagentsMcpTransport;
   target: string;
   env: string[];
+  description?: string | null;
 };
 
 export type DotagentsCommandResult = {
@@ -33,8 +35,6 @@ export type DotagentsCommandResult = {
 export type DotagentsRuntimeStatus = {
   available: boolean;
   expectedVersion: string;
-  actualVersion?: string | null;
-  binaryPath?: string | null;
   error?: string | null;
 };
 

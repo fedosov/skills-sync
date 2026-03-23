@@ -15,7 +15,5 @@ if [[ ! -d "$UI_DIR/node_modules" ]]; then
   (cd "$UI_DIR" && npm install)
 fi
 
-"$ROOT_DIR/scripts/repair-tauri-cache.sh" "$ROOT_DIR"
-
 cd "$APP_DIR"
 cargo tauri dev

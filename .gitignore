@@ -5,8 +5,6 @@ platform/apps/agent-sync-desktop/ui/dist/
 platform/apps/agent-sync-desktop/ui/coverage/
 platform/apps/agent-sync-desktop/ui/test-results/
 platform/apps/agent-sync-desktop/ui/playwright-report/
-platform/apps/agent-sync-desktop/src-tauri/bin/dotagents/*
-!platform/apps/agent-sync-desktop/src-tauri/bin/dotagents/.gitkeep
 output/
 .env
 .env.*
@@ -22,3 +20,4 @@ output/
 .dolt/
 *.db
 .beads/dolt-monitor.pid.lock
+.beads/.beads-credential-key

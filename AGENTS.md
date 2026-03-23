@@ -1,6 +1,6 @@
 # Agent Instructions
 
-Dotagents Desktop is a desktop-only Tauri wrapper around bundled `@sentry/dotagents` 0.10.0.
+Dotagents Desktop is a desktop-only Tauri wrapper around pinned `@sentry/dotagents` 1.4.0 via `npx`.
 
 ## Quick Start
 
@@ -29,11 +29,10 @@ cd platform/apps/agent-sync-desktop/ui && npm run test
 
 ## Product Contract
 
-- The app wraps bundled `dotagents`; it does not own a custom sync engine or custom CLI surface.
+- The app wraps pinned vendor `dotagents` via `npx`; it does not own a custom sync engine or custom CLI surface.
 - The desktop scope model is only `project` or `user`.
 - `project` scope requires an explicit selected project folder.
 - `user` scope runs vendor commands with `--user`.
-- Packaged builds must not fall back to a globally installed `dotagents`.
 - `init`, `doctor`, `doctor --fix`, and trust editing are out of the main v1 UI flow.
 
 ## Source of Truth
@@ -83,7 +82,7 @@ Prefer Makefile targets over raw commands.
 - Keep changes focused; do not edit unrelated files.
 - Add or update tests for behavior changes.
 - Run validation appropriate to your change scope before finalizing.
-- See `CONTRIBUTING.md` for commit and PR expectations.
+- Use Conventional Commits and include concise user-visible impact in PR descriptions.
 
 ## Area-Specific Guidance
 
@@ -91,7 +90,7 @@ Prefer Makefile targets over raw commands.
 
 - Keep the command surface aligned with the desktop product contract.
 - Reuse only the app-owned helpers in this crate: runtime resolution, command runner, settings, and open-path helpers.
-- Do not reintroduce PATH fallback for packaged runtime resolution.
+- Keep the runtime pinned to the declared vendor version.
 - Keep command results transcript-friendly: always return command, cwd, scope, exit code, duration, stdout, and stderr.
 
 ### UI (`platform/apps/agent-sync-desktop/ui`)
@@ -111,7 +110,6 @@ Before merging changes that affect interfaces or behavior, verify impact in:
 - `platform/apps/agent-sync-desktop/src-tauri/src/dotagents_runtime.rs`
 - `platform/apps/agent-sync-desktop/ui/src/types.ts`
 - `platform/apps/agent-sync-desktop/ui/src/tauriApi.ts`
-- `docs/SETUP.md`
 
 <!-- BEGIN BEADS INTEGRATION -->
 ## Issue Tracking with bd (beads)

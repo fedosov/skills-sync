@@ -1,6 +1,7 @@
 use crate::dotagents_runtime::{DotagentsRuntimeManager, DotagentsRuntimeStatus};
 use crate::settings::DotagentsScope;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -17,6 +18,8 @@ pub struct DotagentsSkillListItem {
     pub name: String,
     pub source: String,
     pub status: DotagentsSkillStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -39,6 +42,8 @@ pub struct DotagentsMcpListItem {
     pub transport: DotagentsMcpTransport,
     pub target: String,
     pub env: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,67 +112,16 @@ impl DotagentsRunner {
         Self { runtime, home_dir }
     }
 
+    fn dotagents_home(&self) -> PathBuf {
+        self.home_dir.join(".agents")
+    }
+
     pub fn runtime_status(&self) -> DotagentsRuntimeStatus {
-        let binary = match self.runtime.resolve_binary() {
-            Ok(binary) => binary,
-            Err(error) => {
-                return DotagentsRuntimeStatus {
-                    available: false,
-                    expected_version: self.runtime.expected_version().to_string(),
-                    actual_version: None,
-                    binary_path: None,
-                    error: Some(error),
-                };
-            }
-        };
-
-        if let Err(error) = self.runtime.verify_checksum(&binary) {
-            return DotagentsRuntimeStatus {
-                available: false,
-                expected_version: self.runtime.expected_version().to_string(),
-                actual_version: None,
-                binary_path: Some(binary.path.display().to_string()),
-                error: Some(error),
-            };
-        }
-
-        let version_result = self.execute_process(
-            &binary.path,
-            &[],
-            &DotagentsExecutionContext {
-                scope: DotagentsScope::User,
-                cwd: self.home_dir.clone(),
-            },
-            Some("--version"),
-        );
-        let combined = match version_result {
-            Ok(result) => combine_output(&result.stdout, &result.stderr),
-            Err(error) => {
-                return DotagentsRuntimeStatus {
-                    available: false,
-                    expected_version: self.runtime.expected_version().to_string(),
-                    actual_version: None,
-                    binary_path: Some(binary.path.display().to_string()),
-                    error: Some(error),
-                };
-            }
-        };
-
-        match self.runtime.parse_version_output(&combined) {
-            Ok(actual_version) => DotagentsRuntimeStatus {
-                available: true,
-                expected_version: self.runtime.expected_version().to_string(),
-                actual_version: Some(actual_version),
-                binary_path: Some(binary.path.display().to_string()),
-                error: None,
-            },
-            Err(error) => DotagentsRuntimeStatus {
-                available: false,
-                expected_version: self.runtime.expected_version().to_string(),
-                actual_version: None,
-                binary_path: Some(binary.path.display().to_string()),
-                error: Some(error),
-            },
+        let error = self.runtime.check_pinned_cli_available().err();
+        DotagentsRuntimeStatus {
+            available: error.is_none(),
+            expected_version: self.runtime.expected_version().to_string(),
+            error,
         }
     }
 
@@ -177,7 +131,10 @@ impl DotagentsRunner {
     ) -> Result<Vec<DotagentsSkillListItem>, String> {
         let raw =
             self.run_read_command(context, &[String::from("list"), String::from("--json")])?;
-        parse_skill_list(&raw)
+        let mut skills = parse_skill_list(&raw)?;
+        let skills_dir = self.dotagents_home().join("skills");
+        enrich_skill_descriptions(&mut skills, &skills_dir);
+        Ok(skills)
     }
 
     pub fn list_mcp_servers(
@@ -202,21 +159,13 @@ impl DotagentsRunner {
     ) -> Result<DotagentsCommandResult, String> {
         let args = build_command_args(request)?;
         let display_command = render_display_command(context.scope, &args);
-        let binary = match self.runtime.resolve_binary() {
-            Ok(binary) => binary,
-            Err(error) => {
-                return Ok(preflight_failure_result(display_command, context, error));
-            }
-        };
 
-        if let Err(error) = self.runtime.verify_checksum(&binary) {
+        if let Err(error) = self.runtime.check_npx_available() {
             return Ok(preflight_failure_result(display_command, context, error));
         }
 
-        match self.execute_process(&binary.path, &args, context, None) {
-            Ok(result) => Ok(result),
-            Err(error) => Ok(preflight_failure_result(display_command, context, error)),
-        }
+        self.execute_process(&args, context)
+            .or_else(|error| Ok(preflight_failure_result(display_command, context, error)))
     }
 
     pub fn preflight_failure_result(
@@ -238,9 +187,8 @@ impl DotagentsRunner {
         context: &DotagentsExecutionContext,
         args: &[String],
     ) -> Result<String, String> {
-        let binary = self.runtime.resolve_binary()?;
-        self.runtime.verify_checksum(&binary)?;
-        let result = self.execute_process(&binary.path, args, context, None)?;
+        self.runtime.check_npx_available()?;
+        let result = self.execute_process(args, context)?;
         if result.success {
             return Ok(result.stdout);
         }
@@ -255,32 +203,33 @@ impl DotagentsRunner {
 
     fn execute_process(
         &self,
-        binary_path: &Path,
         args: &[String],
         context: &DotagentsExecutionContext,
-        command_override: Option<&str>,
     ) -> Result<DotagentsCommandResult, String> {
-        let display_command = command_override
-            .map(str::to_string)
-            .unwrap_or_else(|| render_display_command(context.scope, args));
+        let display_command = render_display_command(context.scope, args);
         let start = Instant::now();
 
-        let mut rendered_args = Vec::new();
-        let mut command = build_process_command(binary_path, context.scope, &mut rendered_args);
-        command.current_dir(&context.cwd);
-        command.env("HOME", &self.home_dir);
-        command.env("DOTAGENTS_HOME", self.home_dir.join(".agents"));
-        command.env("NO_COLOR", "1");
-        command.env("DOTAGENTS_NO_COLOR", "1");
+        let mut command = Command::new("npx");
+        command.arg("--yes");
+        command.arg(self.runtime.npx_package_spec());
+
+        if matches!(context.scope, DotagentsScope::User) {
+            command.arg("--user");
+        }
 
         for arg in args {
             command.arg(arg);
-            rendered_args.push(arg.clone());
         }
+
+        command.current_dir(&context.cwd);
+        command.env("HOME", &self.home_dir);
+        command.env("DOTAGENTS_HOME", self.dotagents_home());
+        command.env("NO_COLOR", "1");
+        command.env("DOTAGENTS_NO_COLOR", "1");
 
         let output = command
             .output()
-            .map_err(|error| format!("failed to launch {}: {error}", binary_path.display()))?;
+            .map_err(|error| format!("failed to launch npx: {error}"))?;
         let duration_ms = start.elapsed().as_millis() as u64;
 
         Ok(DotagentsCommandResult {
@@ -419,54 +368,57 @@ pub fn render_display_command(scope: DotagentsScope, args: &[String]) -> String 
 }
 
 pub fn parse_skill_list(raw: &str) -> Result<Vec<DotagentsSkillListItem>, String> {
+    parse_declared_list(raw, "No skills declared in agents.toml.", "skill")
+}
+
+pub fn parse_mcp_list(raw: &str) -> Result<Vec<DotagentsMcpListItem>, String> {
+    parse_declared_list(raw, "No MCP servers declared in agents.toml.", "MCP")
+}
+
+fn parse_declared_list<T>(raw: &str, empty_message: &str, label: &str) -> Result<Vec<T>, String>
+where
+    T: for<'de> Deserialize<'de>,
+{
     let trimmed = raw.trim();
-    if trimmed.is_empty() || trimmed == "No skills declared in agents.toml." {
+    if trimmed.is_empty() || trimmed == empty_message {
         return Ok(Vec::new());
     }
 
     serde_json::from_str(trimmed)
-        .map_err(|error| format!("failed to parse skill list JSON: {error}"))
+        .map_err(|error| format!("failed to parse {label} list JSON: {error}"))
 }
 
-pub fn parse_mcp_list(raw: &str) -> Result<Vec<DotagentsMcpListItem>, String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() || trimmed == "No MCP servers declared in agents.toml." {
-        return Ok(Vec::new());
-    }
-
-    serde_json::from_str(trimmed).map_err(|error| format!("failed to parse MCP list JSON: {error}"))
-}
-
-fn build_process_command(
-    binary_path: &Path,
-    scope: DotagentsScope,
-    rendered_args: &mut Vec<String>,
-) -> Command {
-    #[cfg(windows)]
-    {
-        if is_windows_shell_script(binary_path) {
-            let shell = std::env::var("COMSPEC").unwrap_or_else(|_| String::from("cmd.exe"));
-            let mut command = Command::new(&shell);
-            command.arg("/C");
-            command.arg(binary_path);
-            rendered_args.push(shell);
-            rendered_args.push(String::from("/C"));
-            rendered_args.push(binary_path.display().to_string());
-            if matches!(scope, DotagentsScope::User) {
-                command.arg("--user");
-                rendered_args.push(String::from("--user"));
-            }
-            return command;
+fn enrich_skill_descriptions(skills: &mut [DotagentsSkillListItem], skills_dir: &Path) {
+    for skill in skills.iter_mut() {
+        if skill.description.is_some() {
+            continue;
+        }
+        let skill_md = skills_dir.join(&skill.name).join("SKILL.md");
+        if let Some(desc) = read_skill_description(&skill_md) {
+            skill.description = Some(desc);
         }
     }
+}
 
-    let mut command = Command::new(binary_path);
-    rendered_args.push(binary_path.display().to_string());
-    if matches!(scope, DotagentsScope::User) {
-        command.arg("--user");
-        rendered_args.push(String::from("--user"));
+fn read_skill_description(path: &Path) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    let trimmed = content.trim_start();
+    if !trimmed.starts_with("---") {
+        return None;
     }
-    command
+    let after_open = &trimmed[3..];
+    let close_pos = after_open.find("---")?;
+    let frontmatter = &after_open[..close_pos];
+    for line in frontmatter.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("description:") {
+            let value = rest.trim().trim_matches('"').trim_matches('\'');
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn combine_output(primary: &str, secondary: &str) -> String {
@@ -502,27 +454,15 @@ fn require_non_empty(value: &str, message: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(windows)]
-fn is_windows_shell_script(binary_path: &Path) -> bool {
-    binary_path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
-        .unwrap_or(false)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         build_command_args, parse_mcp_list, parse_skill_list, render_display_command,
-        DotagentsCommandRequest, DotagentsExecutionContext, DotagentsRunner,
+        DotagentsCommandRequest, DotagentsRunner,
     };
     use crate::dotagents_runtime::DotagentsRuntimeManager;
     use crate::settings::DotagentsScope;
-    use std::fs;
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
-    use tempfile::tempdir;
+    use std::path::PathBuf;
 
     #[test]
     fn scope_to_argv_inserts_user_flag_only_for_user_scope() {
@@ -655,59 +595,12 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
-    fn captures_success_and_failure_transcripts() {
-        let temp = tempdir().expect("tempdir");
-        let script_path = temp.path().join("dotagents");
-        fs::write(
-            &script_path,
-            r#"#!/bin/sh
-if [ "$1" = "--user" ]; then
-  shift
-fi
-if [ "$1" = "--version" ]; then
-  echo "0.10.0"
-  exit 0
-fi
-if [ "$1" = "sync" ]; then
-  echo "synced ok"
-  exit 0
-fi
-echo "boom" >&2
-exit 14
-"#,
-        )
-        .expect("write script");
-        let mut perms = fs::metadata(&script_path).expect("metadata").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script_path, perms).expect("chmod");
-
+    fn dotagents_home_is_always_derived_from_user_home() {
         let runner = DotagentsRunner::new(
-            temp.path().to_path_buf(),
-            DotagentsRuntimeManager::new().with_override_binary(script_path),
+            PathBuf::from("/tmp/home"),
+            DotagentsRuntimeManager::new(),
         );
-        let context = DotagentsExecutionContext {
-            scope: DotagentsScope::User,
-            cwd: temp.path().to_path_buf(),
-        };
 
-        let success = runner
-            .run_command(&context, &DotagentsCommandRequest::Sync)
-            .expect("run success");
-        assert!(success.success);
-        assert_eq!(success.exit_code, Some(0));
-        assert_eq!(success.stdout, "synced ok");
-
-        let failure = runner
-            .run_command(
-                &context,
-                &DotagentsCommandRequest::SkillRemove {
-                    name: String::from("missing"),
-                },
-            )
-            .expect("run failure");
-        assert!(!failure.success);
-        assert_eq!(failure.exit_code, Some(14));
-        assert_eq!(failure.stderr, "boom");
+        assert_eq!(runner.dotagents_home(), PathBuf::from("/tmp/home/.agents"));
     }
 }

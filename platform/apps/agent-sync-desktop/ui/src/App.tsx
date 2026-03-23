@@ -1,15 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { open as openDirectoryDialog } from "@tauri-apps/plugin-dialog";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
-import { Input } from "./components/ui/input";
 import { cn, errorMessage } from "./lib/utils";
 import {
   getAppContext,
@@ -25,55 +17,21 @@ import {
 } from "./tauriApi";
 import type {
   AppContext,
-  DotagentsCommandRequest,
   DotagentsCommandResult,
   DotagentsMcpListItem,
   DotagentsRuntimeStatus,
   DotagentsScope,
   DotagentsSkillListItem,
+  DotagentsSkillStatus,
 } from "./types";
 
-const DOCS_URL = "https://www.npmjs.com/package/@sentry/dotagents/v/0.10.0";
+const DOCS_URL = "https://dotagents.sentry.dev/cli";
+const DOCS_LINK_CLASS =
+  "inline-flex h-[var(--control-height)] items-center rounded-sm border border-border/70 px-3 text-sm font-medium text-foreground hover:bg-accent/70";
 const EXAMPLE_CONFIG = `version = 1
 agents = ["claude", "codex"]
 skills = []
 mcp = []`;
-
-type AppTab = "skills" | "mcp" | "output";
-type SkillAddMode = "named" | "wildcard";
-type McpMode = "stdio" | "http";
-
-type SkillFormState = {
-  source: string;
-  mode: SkillAddMode;
-  name: string;
-};
-
-type McpFormState = {
-  mode: McpMode;
-  name: string;
-  command: string;
-  args: string;
-  url: string;
-  headers: string;
-  env: string;
-};
-
-const INITIAL_SKILL_FORM: SkillFormState = {
-  source: "",
-  mode: "named",
-  name: "",
-};
-
-const INITIAL_MCP_FORM: McpFormState = {
-  mode: "stdio",
-  name: "",
-  command: "",
-  args: "",
-  url: "",
-  headers: "",
-  env: "",
-};
 
 function isReadyContext(context: AppContext | null): boolean {
   if (!context) {
@@ -87,13 +45,6 @@ function isReadyContext(context: AppContext | null): boolean {
   return Boolean(
     context.activeProjectContext.projectRoot && context.projectInitialized,
   );
-}
-
-function splitLines(value: string): string[] {
-  return value
-    .split("\n")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
 }
 
 function firstDialogPath(value: unknown): string | null {
@@ -125,17 +76,8 @@ function formatDuration(durationMs: number): string {
   return `${(durationMs / 1000).toFixed(2)} s`;
 }
 
-function tabButtonClass(active: boolean): string {
-  return cn(
-    "border-b-2 px-1 pb-3 text-sm font-medium transition-colors",
-    active
-      ? "border-primary text-foreground"
-      : "border-transparent text-muted-foreground hover:text-foreground",
-  );
-}
-
 function statusTone(
-  value: DotagentsSkillListItem["status"],
+  value: DotagentsSkillStatus,
 ): "neutral" | "warning" | "danger" {
   switch (value) {
     case "ok":
@@ -159,6 +101,19 @@ function toneClass(tone: "neutral" | "warning" | "danger"): string {
   }
 }
 
+function statusHint(status: DotagentsSkillStatus): string | null {
+  switch (status) {
+    case "ok":
+      return null;
+    case "modified":
+      return "Local changes — sync will reset to declared state";
+    case "missing":
+      return "Not installed — sync will install";
+    case "unlocked":
+      return "Not pinned — sync will lock to a commit";
+  }
+}
+
 function RuntimeBanner({
   runtimeStatus,
 }: {
@@ -179,57 +134,16 @@ function RuntimeBanner({
     >
       <span className="font-medium">
         {runtimeStatus.available
-          ? "Bundled runtime ready"
-          : "Bundled runtime unavailable"}
+          ? "Runtime via npx ready"
+          : "Runtime unavailable"}
       </span>
       <span className="text-muted-foreground">
-        expected {runtimeStatus.expectedVersion}
+        dotagents {runtimeStatus.expectedVersion}
       </span>
-      {runtimeStatus.actualVersion ? (
-        <span className="text-muted-foreground">
-          running {runtimeStatus.actualVersion}
-        </span>
-      ) : null}
-      {runtimeStatus.binaryPath ? (
-        <code className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px]">
-          {runtimeStatus.binaryPath}
-        </code>
-      ) : null}
       {!runtimeStatus.available && runtimeStatus.error ? (
         <span>{runtimeStatus.error}</span>
       ) : null}
     </div>
-  );
-}
-
-function FieldLabel({ label, hint }: { label: string; hint?: string }) {
-  return (
-    <div className="mb-1 flex items-center justify-between gap-3 text-xs">
-      <label className="font-medium text-foreground">{label}</label>
-      {hint ? <span className="text-muted-foreground">{hint}</span> : null}
-    </div>
-  );
-}
-
-function Textarea({
-  value,
-  onChange,
-  placeholder,
-  rows = 3,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  rows?: number;
-}) {
-  return (
-    <textarea
-      className="min-h-[96px] w-full rounded-sm border border-input bg-card px-2.5 py-2 text-[13px] text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      value={value}
-      rows={rows}
-      placeholder={placeholder}
-      onChange={(event) => onChange(event.target.value)}
-    />
   );
 }
 
@@ -268,114 +182,147 @@ function OutputPanel({
 }: {
   lastCommand: DotagentsCommandResult | null;
 }) {
-  if (!lastCommand) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Last command transcript</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Run any install, sync, add, update, or remove action to capture the
-          latest transcript here.
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
-      <Card>
-        <CardHeader>
-          <CardTitle>Transcript</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <div>
-            <div className="mb-1 text-xs font-medium text-muted-foreground">
-              Command
-            </div>
-            <code className="block rounded-md border border-border/70 bg-muted/30 px-2.5 py-2 font-mono text-[12px]">
-              {lastCommand.command}
-            </code>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <div className="mb-1 text-xs font-medium text-muted-foreground">
-                Scope
-              </div>
-              <div className="text-foreground">{lastCommand.scope}</div>
-            </div>
-            <div>
-              <div className="mb-1 text-xs font-medium text-muted-foreground">
-                Exit code
-              </div>
-              <div className="text-foreground">
-                {lastCommand.exitCode ?? "not available"}
-              </div>
-            </div>
-            <div>
-              <div className="mb-1 text-xs font-medium text-muted-foreground">
-                Duration
-              </div>
-              <div className="text-foreground">
-                {formatDuration(lastCommand.durationMs)}
-              </div>
-            </div>
-            <div>
-              <div className="mb-1 text-xs font-medium text-muted-foreground">
-                Status
-              </div>
-              <div
-                className={cn(
-                  "inline-flex rounded-sm border px-2 py-1 text-xs font-medium",
-                  lastCommand.success
-                    ? toneClass("neutral")
-                    : toneClass("danger"),
-                )}
-              >
-                {lastCommand.success ? "success" : "failed"}
-              </div>
-            </div>
-          </div>
-          <div>
-            <div className="mb-1 text-xs font-medium text-muted-foreground">
-              Working directory
-            </div>
-            <code className="block rounded-md border border-border/70 bg-muted/30 px-2.5 py-2 font-mono text-[12px]">
-              {lastCommand.cwd}
-            </code>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>stdout</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <pre className="min-h-[180px] overflow-x-auto whitespace-pre-wrap rounded-md border border-border/70 bg-muted/30 p-3 font-mono text-[12px] text-foreground">
-              {lastCommand.stdout || "No stdout output."}
-            </pre>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>stderr</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <pre className="min-h-[180px] overflow-x-auto whitespace-pre-wrap rounded-md border border-border/70 bg-muted/30 p-3 font-mono text-[12px] text-foreground">
-              {lastCommand.stderr || "No stderr output."}
-            </pre>
-          </CardContent>
-        </Card>
+    <section>
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold text-foreground">Output</h2>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          Latest vendor command transcript
+        </p>
       </div>
+
+      {!lastCommand ? (
+        <div className="rounded-md border border-border/70 bg-card p-6 text-sm text-muted-foreground">
+          Run sync or remove to capture a transcript here.
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+          <Card>
+            <CardHeader>
+              <CardTitle>Transcript</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground">
+                  Command
+                </div>
+                <code className="block rounded-md border border-border/70 bg-muted/30 px-2.5 py-2 font-mono text-[12px]">
+                  {lastCommand.command}
+                </code>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">
+                    Scope
+                  </div>
+                  <div className="text-foreground">{lastCommand.scope}</div>
+                </div>
+                <div>
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">
+                    Exit code
+                  </div>
+                  <div className="text-foreground">
+                    {lastCommand.exitCode ?? "not available"}
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">
+                    Duration
+                  </div>
+                  <div className="text-foreground">
+                    {formatDuration(lastCommand.durationMs)}
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">
+                    Status
+                  </div>
+                  <div
+                    className={cn(
+                      "inline-flex rounded-sm border px-2 py-1 text-xs font-medium",
+                      lastCommand.success
+                        ? toneClass("neutral")
+                        : toneClass("danger"),
+                    )}
+                  >
+                    {lastCommand.success ? "success" : "failed"}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground">
+                  Working directory
+                </div>
+                <code className="block rounded-md border border-border/70 bg-muted/30 px-2.5 py-2 font-mono text-[12px]">
+                  {lastCommand.cwd}
+                </code>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>stdout</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <pre className="min-h-[180px] overflow-x-auto whitespace-pre-wrap rounded-md border border-border/70 bg-muted/30 p-3 font-mono text-[12px] text-foreground">
+                  {lastCommand.stdout || "No stdout output."}
+                </pre>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>stderr</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <pre className="min-h-[180px] overflow-x-auto whitespace-pre-wrap rounded-md border border-border/70 bg-muted/30 p-3 font-mono text-[12px] text-foreground">
+                  {lastCommand.stderr || "No stderr output."}
+                </pre>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SectionActions({
+  syncLabel,
+  syncDisabled,
+  busyAction,
+  onSync,
+  onOpenAgentsToml,
+}: {
+  syncLabel: string;
+  syncDisabled: boolean;
+  busyAction: string | null;
+  onSync: () => Promise<void>;
+  onOpenAgentsToml: () => Promise<void>;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button
+        size="sm"
+        onClick={() => void onSync()}
+        disabled={syncDisabled || busyAction !== null}
+      >
+        {busyAction === "sync" ? "Syncing…" : syncLabel}
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => void onOpenAgentsToml()}
+      >
+        Open agents.toml
+      </Button>
     </div>
   );
 }
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<AppTab>("skills");
   const [runtimeStatus, setRuntimeStatus] =
     useState<DotagentsRuntimeStatus | null>(null);
   const [appContext, setAppContext] = useState<AppContext | null>(null);
@@ -384,28 +331,19 @@ export function App() {
   const [lastCommand, setLastCommand] = useState<DotagentsCommandResult | null>(
     null,
   );
-  const [skillForm, setSkillForm] =
-    useState<SkillFormState>(INITIAL_SKILL_FORM);
-  const [mcpForm, setMcpForm] = useState<McpFormState>(INITIAL_MCP_FORM);
   const [isLoading, setIsLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    kind: "skill" | "mcp";
+    name: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const currentScope = appContext?.activeProjectContext.mode ?? "user";
   const currentProjectRoot =
     appContext?.activeProjectContext.projectRoot ?? null;
   const ready = isReadyContext(appContext);
-  const skillCount = skills.length;
-  const mcpCount = mcpServers.length;
-
-  const skillFormValid =
-    skillForm.source.trim().length > 0 &&
-    (skillForm.mode === "wildcard" || skillForm.name.trim().length > 0);
-  const mcpFormValid =
-    mcpForm.name.trim().length > 0 &&
-    (mcpForm.mode === "stdio"
-      ? mcpForm.command.trim().length > 0
-      : mcpForm.url.trim().length > 0);
+  const needsSync = skills.some((s) => s.status !== "ok");
 
   const refreshApp = useCallback(async () => {
     setIsLoading(true);
@@ -432,6 +370,7 @@ export function App() {
 
       setSkills(nextSkills);
       setMcpServers(nextMcp);
+      setPendingRemoval(null);
     } catch (refreshError) {
       setError(errorMessage(refreshError));
     } finally {
@@ -449,7 +388,6 @@ export function App() {
     try {
       const nextContext = await setScope(scope);
       setAppContext(nextContext);
-      setActiveTab(scope === "user" ? activeTab : "skills");
       await refreshApp();
     } catch (scopeError) {
       setError(errorMessage(scopeError));
@@ -492,24 +430,19 @@ export function App() {
     }
   }
 
-  async function handleCommand(
-    request: DotagentsCommandRequest,
-  ): Promise<boolean> {
-    setBusyAction(request.kind);
+  async function handleSync() {
+    setBusyAction("sync");
     setError(null);
     try {
-      const result = await runDotagentsCommand(request);
+      const result = await runDotagentsCommand({ kind: "sync" });
       setLastCommand(result);
       if (!result.success) {
-        setActiveTab("output");
         setError(commandFailureMessage(result));
-        return false;
+        return;
       }
       await refreshApp();
-      return true;
     } catch (commandError) {
       setError(errorMessage(commandError));
-      return false;
     } finally {
       setBusyAction(null);
     }
@@ -523,93 +456,62 @@ export function App() {
     }
   }
 
-  async function handleSkillSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!skillFormValid) {
-      setError(
-        "Provide a source and either an explicit --name or wildcard mode.",
+  async function handleRemove(kind: "skill" | "mcp", name: string) {
+    setBusyAction(`${kind}:remove`);
+    setError(null);
+    try {
+      const result = await runDotagentsCommand(
+        kind === "skill"
+          ? { kind: "skillRemove", name }
+          : { kind: "mcpRemove", name },
       );
-      return;
-    }
-
-    const succeeded = await handleCommand({
-      kind: "skillAdd",
-      source: skillForm.source.trim(),
-      name: skillForm.mode === "named" ? skillForm.name.trim() : null,
-      all: skillForm.mode === "wildcard",
-    });
-
-    if (succeeded) {
-      setSkillForm(INITIAL_SKILL_FORM);
-    }
-  }
-
-  async function handleMcpSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!mcpFormValid) {
-      setError("Complete the MCP form before submitting.");
-      return;
-    }
-
-    const env = splitLines(mcpForm.env);
-
-    const request: DotagentsCommandRequest =
-      mcpForm.mode === "stdio"
-        ? {
-            kind: "mcpAddStdio",
-            name: mcpForm.name.trim(),
-            command: mcpForm.command.trim(),
-            args: splitLines(mcpForm.args),
-            env,
-          }
-        : {
-            kind: "mcpAddHttp",
-            name: mcpForm.name.trim(),
-            url: mcpForm.url.trim(),
-            headers: splitLines(mcpForm.headers),
-            env,
-          };
-
-    const succeeded = await handleCommand(request);
-
-    if (succeeded) {
-      setMcpForm(INITIAL_MCP_FORM);
+      setLastCommand(result);
+      if (!result.success) {
+        setError(commandFailureMessage(result));
+        return;
+      }
+      await refreshApp();
+    } catch (commandError) {
+      setError(errorMessage(commandError));
+    } finally {
+      setBusyAction(null);
+      setPendingRemoval(null);
     }
   }
 
-  const contextMeta = useMemo(() => {
-    if (!appContext) {
-      return {
+  function toggleRemoval(kind: "skill" | "mcp", name: string) {
+    setPendingRemoval((current) =>
+      current?.kind === kind && current.name === name ? null : { kind, name },
+    );
+  }
+
+  const contextMeta = !appContext
+    ? {
         scopeSummary: "Loading context",
         pathSummary: "",
-      };
-    }
-
-    if (currentScope === "user") {
-      return {
-        scopeSummary: "User scope",
-        pathSummary: appContext.userAgentsTomlPath,
-      };
-    }
-
-    return {
-      scopeSummary: "Project scope",
-      pathSummary: currentProjectRoot ?? "No project folder selected",
-    };
-  }, [appContext, currentProjectRoot, currentScope]);
+      }
+    : currentScope === "user"
+      ? {
+          scopeSummary: "User scope",
+          pathSummary: appContext.userAgentsTomlPath,
+        }
+      : {
+          scopeSummary: "Project scope",
+          pathSummary: currentProjectRoot ?? "No project folder selected",
+        };
 
   function renderEmptyState() {
     if (!runtimeStatus?.available) {
       return (
         <EmptyState
-          title="Bundled runtime required"
-          message="Dotagents Desktop only runs against the bundled dotagents binary. Fix the packaged runtime first, then reload the app."
+          title="Runtime unavailable"
+          message="Dotagents Desktop requires npx to run @sentry/dotagents. Install Node.js and npm, then reload the app."
           actions={
             <a
               href={DOCS_URL}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-[var(--control-height)] items-center rounded-sm border border-border/70 px-3 text-sm font-medium text-foreground hover:bg-accent/70"
+              className={DOCS_LINK_CLASS}
             >
               View pinned docs
             </a>
@@ -632,7 +534,7 @@ export function App() {
                 href={DOCS_URL}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-[var(--control-height)] items-center rounded-sm border border-border/70 px-3 text-sm font-medium text-foreground hover:bg-accent/70"
+                className={DOCS_LINK_CLASS}
               >
                 Open docs and examples
               </a>
@@ -687,7 +589,7 @@ export function App() {
                 href={DOCS_URL}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-[var(--control-height)] items-center rounded-sm border border-border/70 px-3 text-sm font-medium text-foreground hover:bg-accent/70"
+                className={DOCS_LINK_CLASS}
               >
                 Open docs and examples
               </a>
@@ -700,451 +602,243 @@ export function App() {
     return null;
   }
 
-  function renderSkillsTab() {
+  function renderContent() {
     if (!ready) {
       return renderEmptyState();
     }
 
     return (
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card>
-          <CardHeader className="flex flex-row items-start justify-between gap-4">
+      <div className="space-y-8">
+        {/* Skills section */}
+        <section>
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <CardTitle>Skills</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Vendor list output from <code>dotagents list --json</code>.
+              <h2 className="text-lg font-semibold text-foreground">Skills</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {skills.length} {skills.length === 1 ? "skill" : "skills"}{" "}
+                installed
               </p>
             </div>
-            <div className="text-sm text-muted-foreground">
-              {skillCount} items
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                onClick={() =>
-                  void handleCommand({ kind: "install", frozen: false })
-                }
-                disabled={busyAction !== null}
-              >
-                Install
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  void handleCommand({ kind: "install", frozen: true })
-                }
-                disabled={busyAction !== null}
-              >
-                Install --frozen
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void handleCommand({ kind: "sync" })}
-                disabled={busyAction !== null}
-              >
-                Sync
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  void handleCommand({ kind: "skillUpdate", name: null })
-                }
-                disabled={busyAction !== null}
-              >
-                Update all
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void handleOpen(openAgentsToml)}
-              >
-                Open agents.toml
-              </Button>
-            </div>
+            <SectionActions
+              syncLabel={needsSync ? "Sync needed" : "All synced"}
+              syncDisabled={!needsSync}
+              busyAction={busyAction}
+              onSync={handleSync}
+              onOpenAgentsToml={openAgentsToml}
+            />
+          </div>
 
-            <div className="divide-y divide-border/60 rounded-md border border-border/70">
-              {skills.length === 0 ? (
-                <div className="p-4 text-sm text-muted-foreground">
-                  No skills declared in this scope.
-                </div>
-              ) : (
-                skills.map((skill) => (
+          {skills.length === 0 ? (
+            <div className="rounded-md border border-border/70 bg-card p-6 text-sm text-muted-foreground">
+              No skills declared in this scope.
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {skills.map((skill) => {
+                const hint = statusHint(skill.status);
+                const tone = statusTone(skill.status);
+                return (
                   <div
                     key={`${skill.name}:${skill.source}`}
-                    className="flex flex-col gap-3 p-4 lg:flex-row lg:items-start lg:justify-between"
+                    className={cn(
+                      "flex flex-col gap-2.5 rounded-lg border bg-card p-4",
+                      tone === "neutral"
+                        ? "border-border/70"
+                        : tone === "warning"
+                          ? "border-amber-600/30"
+                          : "border-destructive/30",
+                    )}
                   >
-                    <div className="min-w-0 space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="font-medium text-foreground">
-                          {skill.name}
-                        </div>
-                        <span
-                          className={cn(
-                            "inline-flex rounded-sm border px-2 py-1 text-[11px] font-medium",
-                            toneClass(statusTone(skill.status)),
-                          )}
-                        >
-                          {skill.status}
-                        </span>
-                        {skill.commit ? (
-                          <code className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px]">
-                            {skill.commit}
-                          </code>
-                        ) : null}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 font-medium text-foreground">
+                        {skill.name}
                       </div>
-                      <div className="text-sm text-muted-foreground">
-                        {skill.source}
-                      </div>
-                      {skill.wildcard ? (
-                        <div className="text-xs text-muted-foreground">
-                          Managed by wildcard source{" "}
-                          <code>{skill.wildcard}</code>. Remove it by editing
-                          agents.toml instead.
-                        </div>
+                      <span
+                        className={cn(
+                          "mt-0.5 shrink-0 rounded-sm border px-2 py-0.5 text-[11px] font-medium",
+                          toneClass(tone),
+                        )}
+                      >
+                        {skill.status}
+                      </span>
+                    </div>
+
+                    {skill.description ? (
+                      <p className="line-clamp-2 text-sm text-muted-foreground">
+                        {skill.description}
+                      </p>
+                    ) : null}
+
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground/70">
+                      <span className="truncate">{skill.source}</span>
+                      {skill.commit ? (
+                        <code className="font-mono">{skill.commit}</code>
                       ) : null}
                     </div>
+
+                    {hint ? (
+                      <div
+                        className={cn(
+                          "rounded-sm border px-2 py-1.5 text-xs",
+                          toneClass(tone),
+                        )}
+                      >
+                        {hint}
+                      </div>
+                    ) : null}
+
+                    {skill.wildcard ? (
+                      <div className="text-[11px] text-muted-foreground">
+                        wildcard <code>{skill.wildcard}</code>
+                      </div>
+                    ) : null}
 
                     <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          void handleCommand({
-                            kind: "skillUpdate",
-                            name: skill.name,
-                          })
-                        }
-                        disabled={busyAction !== null}
-                      >
-                        Update
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          void handleCommand({
-                            kind: "skillRemove",
-                            name: skill.name,
-                          })
-                        }
-                        disabled={
-                          busyAction !== null || Boolean(skill.wildcard)
-                        }
-                      >
-                        Remove
-                      </Button>
+                      {pendingRemoval?.kind === "skill" &&
+                      pendingRemoval.name === skill.name ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setPendingRemoval(null)}
+                            disabled={busyAction !== null}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={() =>
+                              void handleRemove("skill", skill.name)
+                            }
+                            disabled={busyAction !== null}
+                          >
+                            Confirm remove
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => toggleRemoval("skill", skill.name)}
+                          disabled={
+                            busyAction !== null || Boolean(skill.wildcard)
+                          }
+                        >
+                          Remove
+                        </Button>
+                      )}
                     </div>
                   </div>
-                ))
-              )}
+                );
+              })}
             </div>
-          </CardContent>
-        </Card>
+          )}
+        </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Add skill</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="space-y-4"
-              onSubmit={(event) => void handleSkillSubmit(event)}
-            >
-              <div>
-                <FieldLabel label="Source" hint="required" />
-                <Input
-                  value={skillForm.source}
-                  placeholder="owner/repo or git+https://example.com/repo.git"
-                  onChange={(event) =>
-                    setSkillForm((current) => ({
-                      ...current,
-                      source: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <FieldLabel label="Selection mode" />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded-sm border px-3 py-2 text-sm font-medium",
-                      skillForm.mode === "named"
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border/70 bg-card text-foreground hover:bg-accent/70",
-                    )}
-                    onClick={() =>
-                      setSkillForm((current) => ({ ...current, mode: "named" }))
-                    }
-                  >
-                    Explicit --name
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded-sm border px-3 py-2 text-sm font-medium",
-                      skillForm.mode === "wildcard"
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border/70 bg-card text-foreground hover:bg-accent/70",
-                    )}
-                    onClick={() =>
-                      setSkillForm((current) => ({
-                        ...current,
-                        mode: "wildcard",
-                      }))
-                    }
-                  >
-                    Wildcard --all
-                  </button>
-                </div>
-              </div>
-
-              {skillForm.mode === "named" ? (
-                <div>
-                  <FieldLabel label="--name" hint="required in explicit mode" />
-                  <Input
-                    value={skillForm.name}
-                    placeholder="skill-name"
-                    onChange={(event) =>
-                      setSkillForm((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
-                    }
-                  />
-                </div>
-              ) : (
-                <div className="rounded-md border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
-                  Wildcard mode writes{" "}
-                  <code>dotagents add &lt;source&gt; --all</code>.
-                </div>
-              )}
-
-              <Button
-                type="submit"
-                disabled={!skillFormValid || busyAction !== null}
-              >
-                Add skill
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  function renderMcpTab() {
-    if (!ready) {
-      return renderEmptyState();
-    }
-
-    return (
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card>
-          <CardHeader className="flex flex-row items-start justify-between gap-4">
+        {/* MCP Servers section */}
+        <section>
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <CardTitle>MCP servers</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Vendor list output from <code>dotagents mcp list --json</code>.
+              <h2 className="text-lg font-semibold text-foreground">
+                MCP Servers
+              </h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {mcpServers.length}{" "}
+                {mcpServers.length === 1 ? "server" : "servers"} declared
               </p>
             </div>
-            <div className="text-sm text-muted-foreground">
-              {mcpCount} items
+            <SectionActions
+              syncLabel="Sync"
+              syncDisabled={false}
+              busyAction={busyAction}
+              onSync={handleSync}
+              onOpenAgentsToml={openAgentsToml}
+            />
+          </div>
+
+          {mcpServers.length === 0 ? (
+            <div className="rounded-md border border-border/70 bg-card p-6 text-sm text-muted-foreground">
+              No MCP servers declared in this scope.
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="divide-y divide-border/60 rounded-md border border-border/70">
-              {mcpServers.length === 0 ? (
-                <div className="p-4 text-sm text-muted-foreground">
-                  No MCP servers declared in this scope.
-                </div>
-              ) : (
-                mcpServers.map((server) => (
-                  <div
-                    key={`${server.name}:${server.target}`}
-                    className="flex flex-col gap-3 p-4 lg:flex-row lg:items-start lg:justify-between"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="font-medium text-foreground">
-                          {server.name}
-                        </div>
-                        <span className="inline-flex rounded-sm border border-border/70 bg-muted/40 px-2 py-1 text-[11px] font-medium">
-                          {server.transport}
-                        </span>
-                      </div>
-                      <code className="block rounded bg-muted/60 px-2 py-1 font-mono text-[12px] text-foreground">
-                        {server.target}
-                      </code>
-                      {server.env.length > 0 ? (
-                        <div className="text-xs text-muted-foreground">
-                          env: {server.env.join(", ")}
-                        </div>
-                      ) : null}
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {mcpServers.map((server) => (
+                <div
+                  key={`${server.name}:${server.target}`}
+                  className="flex flex-col gap-2.5 rounded-lg border border-border/70 bg-card p-4"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 font-medium text-foreground">
+                      {server.name}
                     </div>
-                    <div className="flex gap-2">
+                    <span className="mt-0.5 shrink-0 rounded-sm border border-border/70 bg-muted/40 px-2 py-0.5 text-[11px] font-medium">
+                      {server.transport}
+                    </span>
+                  </div>
+
+                  {server.description ? (
+                    <p className="line-clamp-2 text-sm text-muted-foreground">
+                      {server.description}
+                    </p>
+                  ) : null}
+
+                  <code className="truncate rounded bg-muted/40 px-2 py-1 font-mono text-[12px] text-foreground">
+                    {server.target}
+                  </code>
+
+                  {server.env.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {server.env.map((envVar) => (
+                        <code
+                          key={envVar}
+                          className="rounded bg-muted/50 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                        >
+                          {envVar}
+                        </code>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-wrap gap-2">
+                    {pendingRemoval?.kind === "mcp" &&
+                    pendingRemoval.name === server.name ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setPendingRemoval(null)}
+                          disabled={busyAction !== null}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="default"
+                          onClick={() => void handleRemove("mcp", server.name)}
+                          disabled={busyAction !== null}
+                        >
+                          Confirm remove
+                        </Button>
+                      </>
+                    ) : (
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() =>
-                          void handleCommand({
-                            kind: "mcpRemove",
-                            name: server.name,
-                          })
-                        }
+                        onClick={() => toggleRemoval("mcp", server.name)}
                         disabled={busyAction !== null}
                       >
                         Remove
                       </Button>
-                    </div>
+                    )}
                   </div>
-                ))
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Add MCP server</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="space-y-4"
-              onSubmit={(event) => void handleMcpSubmit(event)}
-            >
-              <div className="space-y-2">
-                <FieldLabel label="Transport" />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded-sm border px-3 py-2 text-sm font-medium",
-                      mcpForm.mode === "stdio"
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border/70 bg-card text-foreground hover:bg-accent/70",
-                    )}
-                    onClick={() =>
-                      setMcpForm((current) => ({ ...current, mode: "stdio" }))
-                    }
-                  >
-                    --command
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded-sm border px-3 py-2 text-sm font-medium",
-                      mcpForm.mode === "http"
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border/70 bg-card text-foreground hover:bg-accent/70",
-                    )}
-                    onClick={() =>
-                      setMcpForm((current) => ({ ...current, mode: "http" }))
-                    }
-                  >
-                    --url
-                  </button>
                 </div>
-              </div>
+              ))}
+            </div>
+          )}
+        </section>
 
-              <div>
-                <FieldLabel label="Name" hint="required" />
-                <Input
-                  value={mcpForm.name}
-                  placeholder="github"
-                  onChange={(event) =>
-                    setMcpForm((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                />
-              </div>
-
-              {mcpForm.mode === "stdio" ? (
-                <>
-                  <div>
-                    <FieldLabel label="--command" hint="required" />
-                    <Input
-                      value={mcpForm.command}
-                      placeholder="npx"
-                      onChange={(event) =>
-                        setMcpForm((current) => ({
-                          ...current,
-                          command: event.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel label="--args" hint="one per line" />
-                    <Textarea
-                      value={mcpForm.args}
-                      placeholder="-y&#10;@modelcontextprotocol/server-github"
-                      onChange={(value) =>
-                        setMcpForm((current) => ({ ...current, args: value }))
-                      }
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <FieldLabel label="--url" hint="required" />
-                    <Input
-                      value={mcpForm.url}
-                      placeholder="https://mcp.example.com/sse"
-                      onChange={(event) =>
-                        setMcpForm((current) => ({
-                          ...current,
-                          url: event.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel label="--header" hint="Key:Value per line" />
-                    <Textarea
-                      value={mcpForm.headers}
-                      placeholder="Authorization:Bearer token"
-                      onChange={(value) =>
-                        setMcpForm((current) => ({
-                          ...current,
-                          headers: value,
-                        }))
-                      }
-                    />
-                  </div>
-                </>
-              )}
-
-              <div>
-                <FieldLabel label="--env" hint="variable names, one per line" />
-                <Textarea
-                  value={mcpForm.env}
-                  placeholder="GITHUB_TOKEN"
-                  onChange={(value) =>
-                    setMcpForm((current) => ({ ...current, env: value }))
-                  }
-                />
-              </div>
-
-              <Button
-                type="submit"
-                disabled={!mcpFormValid || busyAction !== null}
-              >
-                Add MCP server
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+        <OutputPanel lastCommand={lastCommand} />
       </div>
     );
   }
@@ -1158,9 +852,8 @@ export function App() {
               Dotagents Desktop
             </h1>
             <p className="max-w-[72ch] text-sm text-muted-foreground">
-              Desktop control plane for the bundled dotagents 0.10.0 runtime. No
-              synthetic catalog, no custom sync engine, just the vendor CLI
-              surfaced with explicit project and user contexts.
+              Desktop control plane for the pinned dotagents 1.4.0 runtime via
+              npx.
             </p>
           </div>
 
@@ -1260,44 +953,14 @@ export function App() {
           </div>
         ) : null}
 
-        <nav className="border-b border-border/70">
-          <div className="flex gap-6">
-            <button
-              type="button"
-              className={tabButtonClass(activeTab === "skills")}
-              onClick={() => setActiveTab("skills")}
-            >
-              Skills
-            </button>
-            <button
-              type="button"
-              className={tabButtonClass(activeTab === "mcp")}
-              onClick={() => setActiveTab("mcp")}
-            >
-              MCP
-            </button>
-            <button
-              type="button"
-              className={tabButtonClass(activeTab === "output")}
-              onClick={() => setActiveTab("output")}
-            >
-              Output
-            </button>
-          </div>
-        </nav>
-
         {isLoading ? (
           <Card>
             <CardContent className="p-4 text-sm text-muted-foreground">
               Loading dotagents runtime and active context…
             </CardContent>
           </Card>
-        ) : activeTab === "skills" ? (
-          renderSkillsTab()
-        ) : activeTab === "mcp" ? (
-          renderMcpTab()
         ) : (
-          <OutputPanel lastCommand={lastCommand} />
+          renderContent()
         )}
       </div>
     </div>

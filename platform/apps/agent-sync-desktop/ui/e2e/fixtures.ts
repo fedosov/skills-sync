@@ -17,9 +17,7 @@ async function injectTauriMock(page: Page) {
 
     const runtimeStatus = {
       available: true,
-      expectedVersion: "0.10.0",
-      actualVersion: "0.10.0",
-      binaryPath: "/tmp/dotagents",
+      expectedVersion: "1.4.0",
     };
 
     const skills = [
