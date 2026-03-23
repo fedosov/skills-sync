@@ -11,13 +11,3 @@ output/
 *.pem
 *.p12
 .claude/settings.local.json
-
-
-# ralphex progress logs
-.ralphex/progress/
-
-# Dolt database files (added by bd init)
-.dolt/
-*.db
-.beads/dolt-monitor.pid.lock
-.beads/.beads-credential-key
