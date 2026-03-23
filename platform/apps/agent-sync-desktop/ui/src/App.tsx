@@ -114,6 +114,56 @@ function statusHint(status: DotagentsSkillStatus): string | null {
   }
 }
 
+function RemovalActions({
+  isRemoving,
+  busyAction,
+  extraDisabled = false,
+  onToggle,
+  onCancel,
+  onConfirm,
+}: {
+  isRemoving: boolean;
+  busyAction: string | null;
+  extraDisabled?: boolean;
+  onToggle: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (isRemoving) {
+    return (
+      <>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onCancel}
+          disabled={busyAction !== null}
+        >
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={onConfirm}
+          disabled={busyAction !== null}
+        >
+          Confirm remove
+        </Button>
+      </>
+    );
+  }
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="text-muted-foreground/60 hover:text-destructive"
+      onClick={onToggle}
+      disabled={busyAction !== null || extraDisabled}
+    >
+      Remove
+    </Button>
+  );
+}
+
 function EmptyState({
   title,
   message,
@@ -152,7 +202,7 @@ function OutputPanel({
   return (
     <section>
       <div className="mb-4">
-        <h2 className="text-lg font-semibold text-foreground">Output</h2>
+        <h2 className="text-xl font-semibold text-foreground">Output</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
           Latest vendor command transcript
         </p>
@@ -270,7 +320,12 @@ function SectionActions({
   return (
     <div className="flex flex-wrap items-center gap-2">
       {!syncNeeded && (
-        <span className="text-xs text-muted-foreground">All synced</span>
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+          <svg className="size-3.5" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16Zm3.78-9.72a.751.751 0 0 0-1.06-1.06L6.75 9.19 5.28 7.72a.751.751 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0l4.5-4.5Z" />
+          </svg>
+          All synced
+        </span>
       )}
       <Button
         size="sm"
@@ -587,20 +642,59 @@ export function App() {
       <div className="space-y-8">
         {/* Skills section */}
         <section>
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">Skills</h2>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                {skills.length} {skills.length === 1 ? "skill" : "skills"}{" "}
-                installed
-              </p>
+          <div className="mb-4 flex flex-col gap-3">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-foreground">
+                  Skills
+                </h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  {skillFilter
+                    ? `${filteredSkills.length} of ${skills.length} skills`
+                    : `${skills.length} ${skills.length === 1 ? "skill" : "skills"} installed`}
+                </p>
+              </div>
+              <SectionActions
+                syncNeeded={needsSync}
+                busyAction={busyAction}
+                onSync={handleSync}
+                onOpenAgentsToml={openAgentsToml}
+              />
             </div>
-            <SectionActions
-              syncNeeded={needsSync}
-              busyAction={busyAction}
-              onSync={handleSync}
-              onOpenAgentsToml={openAgentsToml}
-            />
+
+            {skills.length > 5 && (
+              <div className="relative">
+                <svg
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/50"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                >
+                  <path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Filter by name or description…"
+                  value={skillFilter}
+                  onChange={(e) => setSkillFilter(e.target.value)}
+                  className="h-[var(--control-height)] w-full rounded-lg border border-border/50 bg-card pl-9 pr-3.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 transition-colors duration-150"
+                />
+                {skillFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setSkillFilter("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground transition-colors"
+                  >
+                    <svg
+                      className="size-4"
+                      viewBox="0 0 16 16"
+                      fill="currentColor"
+                    >
+                      <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {skills.length === 0 ? (
@@ -609,37 +703,32 @@ export function App() {
             </div>
           ) : (
             <>
-              {skills.length > 8 && (
-                <div className="mb-4">
-                  <input
-                    type="text"
-                    placeholder="Filter skills…"
-                    value={skillFilter}
-                    onChange={(e) => setSkillFilter(e.target.value)}
-                    className="h-[var(--control-height)] w-full max-w-xs rounded-md border border-border/70 bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                </div>
-              )}
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {filteredSkills.map((skill) => {
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {filteredSkills.map((skill, index) => {
                   const hint = statusHint(skill.status);
                   const tone = statusTone(skill.status);
+                  const isRemoving =
+                    pendingRemoval?.kind === "skill" &&
+                    pendingRemoval.name === skill.name;
                   return (
                     <div
                       key={`${skill.name}:${skill.source}`}
+                      style={{
+                        animationDelay: `${Math.min(index * 30, 300)}ms`,
+                      }}
                       className={cn(
-                        "flex flex-col gap-2.5 rounded-lg border bg-card p-4 transition-[border-color,box-shadow] duration-150 hover:border-ring/50 hover:shadow-sm",
+                        "item-card group flex flex-col gap-2 rounded-lg border bg-card p-4",
                         tone === "neutral"
-                          ? "border-border"
+                          ? "border-border/70"
                           : tone === "warning"
                             ? "border-amber-600/40"
                             : "border-destructive/40",
                       )}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 font-medium text-foreground">
+                        <h3 className="min-w-0 text-[15px] font-semibold tracking-tight text-foreground">
                           {skill.name}
-                        </div>
+                        </h3>
                         {tone !== "neutral" && (
                           <span
                             className={cn(
@@ -653,19 +742,10 @@ export function App() {
                       </div>
 
                       {skill.description ? (
-                        <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+                        <p className="line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">
                           {skill.description}
                         </p>
                       ) : null}
-
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
-                        <span className="truncate">{skill.source}</span>
-                        {skill.commit ? (
-                          <code className="font-mono text-xs">
-                            {skill.commit}
-                          </code>
-                        ) : null}
-                      </div>
 
                       {hint ? (
                         <div
@@ -684,41 +764,22 @@ export function App() {
                         </div>
                       ) : null}
 
-                      <div className="mt-auto flex flex-wrap gap-2 pt-1">
-                        {pendingRemoval?.kind === "skill" &&
-                        pendingRemoval.name === skill.name ? (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setPendingRemoval(null)}
-                              disabled={busyAction !== null}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="default"
-                              onClick={() =>
-                                void handleRemove("skill", skill.name)
-                              }
-                              disabled={busyAction !== null}
-                            >
-                              Confirm remove
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => toggleRemoval("skill", skill.name)}
-                            disabled={
-                              busyAction !== null || Boolean(skill.wildcard)
-                            }
-                          >
-                            Remove
-                          </Button>
+                      <div
+                        className={cn(
+                          "mt-auto flex flex-wrap gap-2 pt-0.5",
+                          !isRemoving && "item-remove",
                         )}
+                      >
+                        <RemovalActions
+                          isRemoving={isRemoving}
+                          busyAction={busyAction}
+                          extraDisabled={Boolean(skill.wildcard)}
+                          onToggle={() => toggleRemoval("skill", skill.name)}
+                          onCancel={() => setPendingRemoval(null)}
+                          onConfirm={() =>
+                            void handleRemove("skill", skill.name)
+                          }
+                        />
                       </div>
                     </div>
                   );
@@ -737,7 +798,7 @@ export function App() {
         <section>
           <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold text-foreground">
+              <h2 className="text-xl font-semibold text-foreground">
                 MCP Servers
               </h2>
               <p className="mt-0.5 text-sm text-muted-foreground">
@@ -758,78 +819,65 @@ export function App() {
               No MCP servers declared in this scope.
             </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {mcpServers.map((server) => (
-                <div
-                  key={`${server.name}:${server.target}`}
-                  className="flex flex-col gap-2.5 rounded-lg border border-border bg-card p-4 transition-[border-color,box-shadow] duration-150 hover:border-ring/50 hover:shadow-sm"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 font-medium text-foreground">
-                      {server.name}
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {mcpServers.map((server) => {
+                const isRemoving =
+                  pendingRemoval?.kind === "mcp" &&
+                  pendingRemoval.name === server.name;
+                return (
+                  <div
+                    key={`${server.name}:${server.target}`}
+                    className="item-card group flex flex-col gap-2 rounded-lg border border-border/60 bg-card p-4"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="min-w-0 text-[15px] font-semibold tracking-tight text-foreground">
+                        {server.name}
+                      </h3>
+                      <span className="mt-0.5 shrink-0 rounded-sm border border-border/70 bg-muted/40 px-2 py-0.5 text-xs font-medium">
+                        {server.transport}
+                      </span>
                     </div>
-                    <span className="mt-0.5 shrink-0 rounded-sm border border-border/70 bg-muted/40 px-2 py-0.5 text-xs font-medium">
-                      {server.transport}
-                    </span>
-                  </div>
 
-                  {server.description ? (
-                    <p className="line-clamp-2 text-sm text-muted-foreground">
-                      {server.description}
-                    </p>
-                  ) : null}
+                    {server.description ? (
+                      <p className="line-clamp-2 text-sm text-muted-foreground">
+                        {server.description}
+                      </p>
+                    ) : null}
 
-                  <code className="truncate rounded bg-muted/40 px-2 py-1 font-mono text-[13px] text-foreground">
-                    {server.target}
-                  </code>
+                    <code className="truncate rounded bg-muted/40 px-2 py-1 font-mono text-[13px] text-foreground">
+                      {server.target}
+                    </code>
 
-                  {server.env.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {server.env.map((envVar) => (
-                        <code
-                          key={envVar}
-                          className="rounded bg-muted/50 px-1.5 py-0.5 text-xs text-muted-foreground"
-                        >
-                          {envVar}
-                        </code>
-                      ))}
+                    {server.env.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {server.env.map((envVar) => (
+                          <code
+                            key={envVar}
+                            className="rounded bg-muted/50 px-1.5 py-0.5 text-xs text-muted-foreground"
+                          >
+                            {envVar}
+                          </code>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <div
+                      className={cn(
+                        "mt-auto flex flex-wrap gap-2 pt-0.5",
+                        !isRemoving && "item-remove",
+                      )}
+                    >
+                      <RemovalActions
+                        isRemoving={isRemoving}
+                        busyAction={busyAction}
+                        onToggle={() => toggleRemoval("mcp", server.name)}
+                        onCancel={() => setPendingRemoval(null)}
+                        onConfirm={() => void handleRemove("mcp", server.name)}
+                      />
                     </div>
-                  ) : null}
-
-                  <div className="mt-auto flex flex-wrap gap-2 pt-1">
-                    {pendingRemoval?.kind === "mcp" &&
-                    pendingRemoval.name === server.name ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setPendingRemoval(null)}
-                          disabled={busyAction !== null}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="default"
-                          onClick={() => void handleRemove("mcp", server.name)}
-                          disabled={busyAction !== null}
-                        >
-                          Confirm remove
-                        </Button>
-                      </>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => toggleRemoval("mcp", server.name)}
-                        disabled={busyAction !== null}
-                      >
-                        Remove
-                      </Button>
-                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
@@ -842,10 +890,10 @@ export function App() {
   return (
     <div className="min-h-full bg-background text-foreground">
       <div className="mx-auto flex min-h-full w-full max-w-[1380px] flex-col gap-4 px-4 py-5 md:px-6 md:py-6">
-        <header className="space-y-3 border-b border-border/70 pb-4">
+        <header className="sticky top-0 z-10 space-y-3 border-b border-border/50 bg-background/80 pb-4 backdrop-blur-xl">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
-              <h1 className="text-lg font-semibold tracking-tight">
+              <h1 className="text-2xl font-bold tracking-tight">
                 Dotagents Desktop
               </h1>
               {runtimeStatus && (
@@ -870,14 +918,14 @@ export function App() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex overflow-hidden rounded-md border border-border/70">
+              <div className="inline-flex overflow-hidden rounded-lg border border-border/50 bg-muted/30 p-0.5">
                 <button
                   type="button"
                   className={cn(
-                    "px-3 py-1.5 text-sm font-medium transition-colors duration-150",
+                    "rounded-md px-3.5 py-1.5 text-sm font-medium transition-all duration-200",
                     currentScope === "project"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-card text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                   onClick={() => void handleScopeChange("project")}
                   disabled={busyAction !== null}
@@ -887,10 +935,10 @@ export function App() {
                 <button
                   type="button"
                   className={cn(
-                    "border-l border-border/70 px-3 py-1.5 text-sm font-medium transition-colors duration-150",
+                    "rounded-md px-3.5 py-1.5 text-sm font-medium transition-all duration-200",
                     currentScope === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-card text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                   onClick={() => void handleScopeChange("user")}
                   disabled={busyAction !== null}

@@ -12,7 +12,7 @@
     --card: 0 0% 100%;
     --card-foreground: 216 14% 14%;
 
-    --primary: 216 14% 14%;
+    --primary: 174 62% 37%;
     --primary-foreground: 0 0% 100%;
 
     --muted: 210 18% 93%;
@@ -26,7 +26,7 @@
 
     --border: 210 14% 84%;
     --input: 210 14% 78%;
-    --ring: 212 100% 48%;
+    --ring: 174 62% 37%;
 
     --radius-lg: 10px;
     --radius-md: 8px;
@@ -42,28 +42,28 @@
 
   @media (prefers-color-scheme: dark) {
     :root {
-      /* GitHub dark — #0d1117 / #161b22 / #30363d */
-      --background: 215 21% 7%;
-      --foreground: 210 29% 93%;
+      /* Refined dark — warm slate base with teal accent */
+      --background: 220 16% 8%;
+      --foreground: 210 20% 92%;
 
-      --card: 215 19% 11%;
-      --card-foreground: 210 29% 93%;
+      --card: 220 14% 13%;
+      --card-foreground: 210 20% 92%;
 
-      --primary: 210 29% 93%;
-      --primary-foreground: 215 21% 7%;
+      --primary: 174 62% 47%;
+      --primary-foreground: 220 16% 8%;
 
-      --muted: 215 15% 15%;
-      --muted-foreground: 215 7% 53%;
+      --muted: 220 12% 16%;
+      --muted-foreground: 215 10% 60%;
 
-      --accent: 215 15% 17%;
-      --accent-foreground: 210 29% 93%;
+      --accent: 220 12% 18%;
+      --accent-foreground: 210 20% 92%;
 
-      --destructive: 3 93% 63%;
+      --destructive: 3 80% 58%;
       --destructive-foreground: 0 0% 100%;
 
-      --border: 213 12% 21%;
-      --input: 213 12% 24%;
-      --ring: 212 100% 67%;
+      --border: 220 10% 22%;
+      --input: 220 10% 25%;
+      --ring: 174 62% 47%;
     }
   }
 
@@ -95,6 +95,37 @@
 
   ::selection {
     background: hsl(var(--primary) / 0.18);
+  }
+
+  .item-card {
+    transition:
+      border-color 0.2s,
+      transform 0.2s;
+    animation: cardFadeIn 0.3s ease-out both;
+  }
+
+  .item-card:hover {
+    transform: translateY(-1px);
+  }
+
+  .item-card .item-remove {
+    opacity: 0.4;
+    transition: opacity 0.15s;
+  }
+
+  .item-card:hover .item-remove {
+    opacity: 1;
+  }
+
+  @keyframes cardFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
