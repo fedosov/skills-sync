@@ -11,3 +11,6 @@ output/
 *.pem
 *.p12
 .claude/settings.local.json
+.agents/
+.bg-shell/
+.codex/
