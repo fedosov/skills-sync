@@ -9,7 +9,7 @@ UI for `dotagents` [`@sentry/dotagents` 1.4.0](https://dotagents.sentry.dev/cli)
 > I'll keep improving it step by step toward a real product.
 > Use it at your own risk.
 
-![Dotagents Desktop](docs/images/agent-sync-screenshot-ba0b1635cdd5.png)
+![Dotagents Desktop](docs/images/agent-sync-screenshot-4dacca91ec04.png)
 
 ## Why?
 

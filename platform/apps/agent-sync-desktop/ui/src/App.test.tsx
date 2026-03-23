@@ -183,9 +183,10 @@ describe("Dotagents Desktop UI", () => {
     render(<App />);
 
     const syncButtons = await screen.findAllByRole("button", {
-      name: "All synced",
+      name: "Sync",
     });
     expect(syncButtons[0]).toBeDisabled();
+    expect(screen.getByText("All synced")).toBeInTheDocument();
   });
 
   it("shows sync button as active when skills need sync", async () => {
@@ -196,10 +197,10 @@ describe("Dotagents Desktop UI", () => {
 
     render(<App />);
 
-    const syncButton = await screen.findByRole("button", {
-      name: "Sync needed",
+    const syncButtons = await screen.findAllByRole("button", {
+      name: "Sync",
     });
-    expect(syncButton).toBeEnabled();
+    expect(syncButtons[0]).toBeEnabled();
   });
 
   it("shows fix hints for skills with non-ok status", async () => {
@@ -232,10 +233,10 @@ describe("Dotagents Desktop UI", () => {
 
     render(<App />);
 
-    const syncButton = await screen.findByRole("button", {
-      name: "Sync needed",
+    const syncButtons = await screen.findAllByRole("button", {
+      name: "Sync",
     });
-    await user.click(syncButton);
+    await user.click(syncButtons[0]);
 
     await waitFor(() => {
       expect(tauriApi.runDotagentsCommand).toHaveBeenCalledWith({

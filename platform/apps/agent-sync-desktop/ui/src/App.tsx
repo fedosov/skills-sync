@@ -114,39 +114,6 @@ function statusHint(status: DotagentsSkillStatus): string | null {
   }
 }
 
-function RuntimeBanner({
-  runtimeStatus,
-}: {
-  runtimeStatus: DotagentsRuntimeStatus | null;
-}) {
-  if (!runtimeStatus) {
-    return null;
-  }
-
-  return (
-    <div
-      className={cn(
-        "flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm",
-        runtimeStatus.available
-          ? "border-border/70 bg-card"
-          : "border-destructive/30 bg-destructive/10 text-destructive",
-      )}
-    >
-      <span className="font-medium">
-        {runtimeStatus.available
-          ? "Runtime via npx ready"
-          : "Runtime unavailable"}
-      </span>
-      <span className="text-muted-foreground">
-        dotagents {runtimeStatus.expectedVersion}
-      </span>
-      {!runtimeStatus.available && runtimeStatus.error ? (
-        <span>{runtimeStatus.error}</span>
-      ) : null}
-    </div>
-  );
-}
-
 function EmptyState({
   title,
   message,
@@ -290,26 +257,27 @@ function OutputPanel({
 }
 
 function SectionActions({
-  syncLabel,
-  syncDisabled,
+  syncNeeded,
   busyAction,
   onSync,
   onOpenAgentsToml,
 }: {
-  syncLabel: string;
-  syncDisabled: boolean;
+  syncNeeded: boolean;
   busyAction: string | null;
   onSync: () => Promise<void>;
   onOpenAgentsToml: () => Promise<void>;
 }) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap items-center gap-2">
+      {!syncNeeded && (
+        <span className="text-xs text-muted-foreground">All synced</span>
+      )}
       <Button
         size="sm"
         onClick={() => void onSync()}
-        disabled={syncDisabled || busyAction !== null}
+        disabled={!syncNeeded || busyAction !== null}
       >
-        {busyAction === "sync" ? "Syncing…" : syncLabel}
+        {busyAction === "sync" ? "Syncing…" : "Sync"}
       </Button>
       <Button
         size="sm"
@@ -339,11 +307,19 @@ export function App() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [skillFilter, setSkillFilter] = useState("");
   const currentScope = appContext?.activeProjectContext.mode ?? "user";
   const currentProjectRoot =
     appContext?.activeProjectContext.projectRoot ?? null;
   const ready = isReadyContext(appContext);
   const needsSync = skills.some((s) => s.status !== "ok");
+  const filteredSkills = skillFilter
+    ? skills.filter(
+        (s) =>
+          s.name.toLowerCase().includes(skillFilter.toLowerCase()) ||
+          s.description?.toLowerCase().includes(skillFilter.toLowerCase()),
+      )
+    : skills;
 
   const refreshApp = useCallback(async () => {
     setIsLoading(true);
@@ -620,8 +596,7 @@ export function App() {
               </p>
             </div>
             <SectionActions
-              syncLabel={needsSync ? "Sync needed" : "All synced"}
-              syncDisabled={!needsSync}
+              syncNeeded={needsSync}
               busyAction={busyAction}
               onSync={handleSync}
               onOpenAgentsToml={openAgentsToml}
@@ -633,106 +608,128 @@ export function App() {
               No skills declared in this scope.
             </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {skills.map((skill) => {
-                const hint = statusHint(skill.status);
-                const tone = statusTone(skill.status);
-                return (
-                  <div
-                    key={`${skill.name}:${skill.source}`}
-                    className={cn(
-                      "flex flex-col gap-2.5 rounded-lg border bg-card p-4",
-                      tone === "neutral"
-                        ? "border-border/70"
-                        : tone === "warning"
-                          ? "border-amber-600/30"
-                          : "border-destructive/30",
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 font-medium text-foreground">
-                        {skill.name}
-                      </div>
-                      <span
-                        className={cn(
-                          "mt-0.5 shrink-0 rounded-sm border px-2 py-0.5 text-[11px] font-medium",
-                          toneClass(tone),
-                        )}
-                      >
-                        {skill.status}
-                      </span>
-                    </div>
-
-                    {skill.description ? (
-                      <p className="line-clamp-2 text-sm text-muted-foreground">
-                        {skill.description}
-                      </p>
-                    ) : null}
-
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground/70">
-                      <span className="truncate">{skill.source}</span>
-                      {skill.commit ? (
-                        <code className="font-mono">{skill.commit}</code>
-                      ) : null}
-                    </div>
-
-                    {hint ? (
-                      <div
-                        className={cn(
-                          "rounded-sm border px-2 py-1.5 text-xs",
-                          toneClass(tone),
-                        )}
-                      >
-                        {hint}
-                      </div>
-                    ) : null}
-
-                    {skill.wildcard ? (
-                      <div className="text-[11px] text-muted-foreground">
-                        wildcard <code>{skill.wildcard}</code>
-                      </div>
-                    ) : null}
-
-                    <div className="flex flex-wrap gap-2">
-                      {pendingRemoval?.kind === "skill" &&
-                      pendingRemoval.name === skill.name ? (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setPendingRemoval(null)}
-                            disabled={busyAction !== null}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="default"
-                            onClick={() =>
-                              void handleRemove("skill", skill.name)
-                            }
-                            disabled={busyAction !== null}
-                          >
-                            Confirm remove
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => toggleRemoval("skill", skill.name)}
-                          disabled={
-                            busyAction !== null || Boolean(skill.wildcard)
-                          }
-                        >
-                          Remove
-                        </Button>
+            <>
+              {skills.length > 8 && (
+                <div className="mb-4">
+                  <input
+                    type="text"
+                    placeholder="Filter skills…"
+                    value={skillFilter}
+                    onChange={(e) => setSkillFilter(e.target.value)}
+                    className="h-[var(--control-height)] w-full max-w-xs rounded-md border border-border/70 bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {filteredSkills.map((skill) => {
+                  const hint = statusHint(skill.status);
+                  const tone = statusTone(skill.status);
+                  return (
+                    <div
+                      key={`${skill.name}:${skill.source}`}
+                      className={cn(
+                        "flex flex-col gap-2.5 rounded-lg border bg-card p-4 transition-[border-color,box-shadow] duration-150 hover:border-ring/50 hover:shadow-sm",
+                        tone === "neutral"
+                          ? "border-border"
+                          : tone === "warning"
+                            ? "border-amber-600/40"
+                            : "border-destructive/40",
                       )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 font-medium text-foreground">
+                          {skill.name}
+                        </div>
+                        {tone !== "neutral" && (
+                          <span
+                            className={cn(
+                              "mt-0.5 shrink-0 rounded-sm border px-2 py-0.5 text-xs font-medium",
+                              toneClass(tone),
+                            )}
+                          >
+                            {skill.status}
+                          </span>
+                        )}
+                      </div>
+
+                      {skill.description ? (
+                        <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+                          {skill.description}
+                        </p>
+                      ) : null}
+
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted-foreground">
+                        <span className="truncate">{skill.source}</span>
+                        {skill.commit ? (
+                          <code className="font-mono text-xs">
+                            {skill.commit}
+                          </code>
+                        ) : null}
+                      </div>
+
+                      {hint ? (
+                        <div
+                          className={cn(
+                            "rounded-sm border px-2 py-1.5 text-xs",
+                            toneClass(tone),
+                          )}
+                        >
+                          {hint}
+                        </div>
+                      ) : null}
+
+                      {skill.wildcard ? (
+                        <div className="text-xs text-muted-foreground">
+                          wildcard <code>{skill.wildcard}</code>
+                        </div>
+                      ) : null}
+
+                      <div className="mt-auto flex flex-wrap gap-2 pt-1">
+                        {pendingRemoval?.kind === "skill" &&
+                        pendingRemoval.name === skill.name ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setPendingRemoval(null)}
+                              disabled={busyAction !== null}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={() =>
+                                void handleRemove("skill", skill.name)
+                              }
+                              disabled={busyAction !== null}
+                            >
+                              Confirm remove
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => toggleRemoval("skill", skill.name)}
+                            disabled={
+                              busyAction !== null || Boolean(skill.wildcard)
+                            }
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+              {skillFilter && filteredSkills.length === 0 && (
+                <div className="rounded-md border border-border/70 bg-card p-6 text-center text-sm text-muted-foreground">
+                  No skills match &ldquo;{skillFilter}&rdquo;
+                </div>
+              )}
+            </>
           )}
         </section>
 
@@ -749,8 +746,7 @@ export function App() {
               </p>
             </div>
             <SectionActions
-              syncLabel="Sync"
-              syncDisabled={false}
+              syncNeeded={true}
               busyAction={busyAction}
               onSync={handleSync}
               onOpenAgentsToml={openAgentsToml}
@@ -766,13 +762,13 @@ export function App() {
               {mcpServers.map((server) => (
                 <div
                   key={`${server.name}:${server.target}`}
-                  className="flex flex-col gap-2.5 rounded-lg border border-border/70 bg-card p-4"
+                  className="flex flex-col gap-2.5 rounded-lg border border-border bg-card p-4 transition-[border-color,box-shadow] duration-150 hover:border-ring/50 hover:shadow-sm"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 font-medium text-foreground">
                       {server.name}
                     </div>
-                    <span className="mt-0.5 shrink-0 rounded-sm border border-border/70 bg-muted/40 px-2 py-0.5 text-[11px] font-medium">
+                    <span className="mt-0.5 shrink-0 rounded-sm border border-border/70 bg-muted/40 px-2 py-0.5 text-xs font-medium">
                       {server.transport}
                     </span>
                   </div>
@@ -783,7 +779,7 @@ export function App() {
                     </p>
                   ) : null}
 
-                  <code className="truncate rounded bg-muted/40 px-2 py-1 font-mono text-[12px] text-foreground">
+                  <code className="truncate rounded bg-muted/40 px-2 py-1 font-mono text-[13px] text-foreground">
                     {server.target}
                   </code>
 
@@ -792,7 +788,7 @@ export function App() {
                       {server.env.map((envVar) => (
                         <code
                           key={envVar}
-                          className="rounded bg-muted/50 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                          className="rounded bg-muted/50 px-1.5 py-0.5 text-xs text-muted-foreground"
                         >
                           {envVar}
                         </code>
@@ -800,7 +796,7 @@ export function App() {
                     </div>
                   ) : null}
 
-                  <div className="flex flex-wrap gap-2">
+                  <div className="mt-auto flex flex-wrap gap-2 pt-1">
                     {pendingRemoval?.kind === "mcp" &&
                     pendingRemoval.name === server.name ? (
                       <>
@@ -824,7 +820,7 @@ export function App() {
                     ) : (
                       <Button
                         size="sm"
-                        variant="outline"
+                        variant="ghost"
                         onClick={() => toggleRemoval("mcp", server.name)}
                         disabled={busyAction !== null}
                       >
@@ -846,106 +842,122 @@ export function App() {
   return (
     <div className="min-h-full bg-background text-foreground">
       <div className="mx-auto flex min-h-full w-full max-w-[1380px] flex-col gap-4 px-4 py-5 md:px-6 md:py-6">
-        <header className="flex flex-col gap-4 border-b border-border/70 pb-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-1">
-            <h1 className="text-[24px] font-semibold tracking-tight">
-              Dotagents Desktop
-            </h1>
-            <p className="max-w-[72ch] text-sm text-muted-foreground">
-              Desktop control plane for the pinned dotagents 1.4.0 runtime via
-              npx.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className={cn(
-                "rounded-sm border px-3 py-2 text-sm font-medium",
-                currentScope === "project"
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border/70 bg-card text-foreground hover:bg-accent/70",
+        <header className="space-y-3 border-b border-border/70 pb-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-semibold tracking-tight">
+                Dotagents Desktop
+              </h1>
+              {runtimeStatus && (
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium",
+                    runtimeStatus.available
+                      ? "border-border/70 bg-muted/40 text-muted-foreground"
+                      : "border-destructive/30 bg-destructive/10 text-destructive",
+                  )}
+                >
+                  {runtimeStatus.available ? (
+                    <>
+                      <span className="size-1.5 rounded-full bg-emerald-500" />v
+                      {runtimeStatus.expectedVersion}
+                    </>
+                  ) : (
+                    "Runtime unavailable"
+                  )}
+                </span>
               )}
-              onClick={() => void handleScopeChange("project")}
-              disabled={busyAction !== null}
-            >
-              Project
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "rounded-sm border px-3 py-2 text-sm font-medium",
-                currentScope === "user"
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border/70 bg-card text-foreground hover:bg-accent/70",
-              )}
-              onClick={() => void handleScopeChange("user")}
-              disabled={busyAction !== null}
-            >
-              User
-            </button>
-          </div>
-        </header>
-
-        <RuntimeBanner runtimeStatus={runtimeStatus} />
-
-        <div className="flex flex-col gap-3 rounded-md border border-border/70 bg-card px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-1">
-            <div className="text-sm font-medium text-foreground">
-              {contextMeta.scopeSummary}
             </div>
-            <div className="text-sm text-muted-foreground">
-              {contextMeta.pathSummary}
-            </div>
-          </div>
 
-          <div className="flex flex-wrap gap-2">
-            {currentScope === "project" ? (
-              <>
-                <Button
-                  size="sm"
-                  onClick={() => void handleChooseProjectRoot()}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex overflow-hidden rounded-md border border-border/70">
+                <button
+                  type="button"
+                  className={cn(
+                    "px-3 py-1.5 text-sm font-medium transition-colors duration-150",
+                    currentScope === "project"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-card text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                  )}
+                  onClick={() => void handleScopeChange("project")}
                   disabled={busyAction !== null}
                 >
-                  Choose project folder
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleOpen(openAgentsDir)}
-                  disabled={!currentProjectRoot}
+                  Project
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "border-l border-border/70 px-3 py-1.5 text-sm font-medium transition-colors duration-150",
+                    currentScope === "user"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-card text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                  )}
+                  onClick={() => void handleScopeChange("user")}
+                  disabled={busyAction !== null}
                 >
-                  Open folder
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleClearProjectRoot()}
-                  disabled={!currentProjectRoot || busyAction !== null}
-                >
-                  Clear
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleOpen(openAgentsDir)}
-                >
-                  Open ~/.agents
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleOpen(openUserHome)}
-                >
-                  Open home
-                </Button>
-              </>
-            )}
+                  User
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
+
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {contextMeta.scopeSummary}
+              </span>
+              <span className="hidden text-border lg:inline">/</span>
+              <span className="truncate">{contextMeta.pathSummary}</span>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {currentScope === "project" ? (
+                <>
+                  <Button
+                    size="sm"
+                    onClick={() => void handleChooseProjectRoot()}
+                    disabled={busyAction !== null}
+                  >
+                    Choose project folder
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleOpen(openAgentsDir)}
+                    disabled={!currentProjectRoot}
+                  >
+                    Open folder
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleClearProjectRoot()}
+                    disabled={!currentProjectRoot || busyAction !== null}
+                  >
+                    Clear
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleOpen(openAgentsDir)}
+                  >
+                    Open ~/.agents
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleOpen(openUserHome)}
+                  >
+                    Open home
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </header>
 
         {error ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
