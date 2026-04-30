@@ -3,14 +3,20 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   getAppContext,
   getRuntimeStatus,
+  getSkillsWorkspaceContext,
   listMcpServers,
   listSkills,
+  listSkillsCli,
   openAgentsDir,
   openAgentsToml,
   openUserHome,
   runDotagentsCommand,
+  runSkillsCliCommand,
   setProjectRoot,
   setScope,
+  setSkillsActiveAgents,
+  setSkillsScope,
+  setSkillsVersionOverride,
 } from "./tauriApi";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -65,6 +71,48 @@ describe("tauriApi payloads", () => {
         source: "owner/repo",
         name: "lint",
         all: false,
+      },
+    });
+  });
+
+  it("invokes skills workspace context and setters", async () => {
+    await getSkillsWorkspaceContext();
+    await setSkillsScope("project");
+    await setSkillsActiveAgents(["Claude Code", "Cursor"]);
+    await setSkillsVersionOverride("0.4.0");
+    await setSkillsVersionOverride(null);
+    await listSkillsCli();
+
+    expect(invoke).toHaveBeenCalledWith("get_skills_workspace_context");
+    expect(invoke).toHaveBeenCalledWith("set_skills_scope", {
+      scope: "project",
+    });
+    expect(invoke).toHaveBeenCalledWith("set_skills_active_agents", {
+      agents: ["Claude Code", "Cursor"],
+    });
+    expect(invoke).toHaveBeenCalledWith("set_skills_version_override", {
+      versionOverride: "0.4.0",
+    });
+    expect(invoke).toHaveBeenCalledWith("set_skills_version_override", {
+      versionOverride: null,
+    });
+    expect(invoke).toHaveBeenCalledWith("list_skills_cli");
+  });
+
+  it("sends skills CLI command requests", async () => {
+    await runSkillsCliCommand({
+      kind: "add",
+      source: "vercel-labs/agent-skills",
+      agents: ["Claude Code"],
+      scope: "global",
+    });
+
+    expect(invoke).toHaveBeenCalledWith("run_skills_cli_command", {
+      request: {
+        kind: "add",
+        source: "vercel-labs/agent-skills",
+        agents: ["Claude Code"],
+        scope: "global",
       },
     });
   });

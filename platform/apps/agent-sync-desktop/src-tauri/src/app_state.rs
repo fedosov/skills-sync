@@ -4,7 +4,14 @@ use crate::dotagents_runner::{
 };
 use crate::dotagents_runtime::DotagentsRuntimeStatus;
 use crate::open_path::open_path;
-use crate::settings::{ActiveProjectContext, DotagentsScope, PersistedSettings, SettingsStore};
+use crate::settings::{
+    ActiveProjectContext, DotagentsScope, PersistedSettings, SettingsStore, SkillsWorkspaceState,
+};
+use crate::skills_runner::{
+    SkillsCliCommandRequest, SkillsCliCommandResult, SkillsCliListItem, SkillsCliScope,
+    SkillsExecutionContext, SkillsRunner,
+};
+use crate::skills_runtime::{validate_version_override, SkillsRuntimeManager, SkillsRuntimeStatus};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -23,25 +30,40 @@ pub struct AppContext {
     pub project_initialized: Option<bool>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsWorkspaceContext {
+    pub state: SkillsWorkspaceState,
+    pub detected_agents: Vec<String>,
+    pub runtime_status: SkillsRuntimeStatus,
+}
+
 #[derive(Debug, Clone)]
 pub struct AppState {
     settings_store: SettingsStore,
     settings: Arc<Mutex<PersistedSettings>>,
     runner: DotagentsRunner,
+    skills_runner: Arc<Mutex<SkillsRunner>>,
     home_dir: PathBuf,
     command_lock: Arc<Mutex<()>>,
+    skills_command_lock: Arc<Mutex<()>>,
 }
 
 impl AppState {
     pub fn new(home_dir: PathBuf, settings_dir: PathBuf, runner: DotagentsRunner) -> Self {
         let settings_store = SettingsStore::new(settings_dir);
         let settings = settings_store.load();
+        let skills_runtime =
+            SkillsRuntimeManager::new(settings.skills_workspace_state.version_override.clone());
+        let skills_runner = SkillsRunner::new(home_dir.clone(), skills_runtime);
         Self {
             settings_store,
             settings: Arc::new(Mutex::new(settings)),
             runner,
+            skills_runner: Arc::new(Mutex::new(skills_runner)),
             home_dir,
             command_lock: Arc::new(Mutex::new(())),
+            skills_command_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -141,6 +163,117 @@ impl AppState {
 
     pub fn open_user_home(&self) -> Result<(), String> {
         open_path(&self.home_dir)
+    }
+
+    pub fn get_skills_workspace_context(&self) -> Result<SkillsWorkspaceContext, String> {
+        let settings = self.load_settings()?;
+        let mut state = settings.skills_workspace_state.clone();
+        let detected_agents = self.with_skills_runner(|r| r.detect_installed_agents())?;
+        if !state.initialized && state.active_agents.is_empty() {
+            state.active_agents = detected_agents.clone();
+        }
+        let runtime_status = self.with_skills_runner(SkillsRunner::runtime_status)?;
+        Ok(SkillsWorkspaceContext {
+            state,
+            detected_agents,
+            runtime_status,
+        })
+    }
+
+    pub fn set_skills_scope(
+        &self,
+        scope: SkillsCliScope,
+    ) -> Result<SkillsWorkspaceContext, String> {
+        let mut settings = self.load_settings()?;
+        settings.skills_workspace_state.scope = scope;
+        settings.skills_workspace_state.initialized = true;
+        self.save_settings(&settings)?;
+        self.get_skills_workspace_context()
+    }
+
+    pub fn set_skills_active_agents(
+        &self,
+        agents: Vec<String>,
+    ) -> Result<SkillsWorkspaceContext, String> {
+        let normalized = agents
+            .into_iter()
+            .map(|a| a.trim().to_string())
+            .filter(|a| !a.is_empty())
+            .collect::<Vec<_>>();
+        let mut settings = self.load_settings()?;
+        settings.skills_workspace_state.active_agents = normalized;
+        settings.skills_workspace_state.initialized = true;
+        self.save_settings(&settings)?;
+        self.get_skills_workspace_context()
+    }
+
+    pub fn set_skills_version_override(
+        &self,
+        version_override: Option<String>,
+    ) -> Result<SkillsWorkspaceContext, String> {
+        let normalized = match version_override {
+            Some(value) => Some(validate_version_override(&value)?),
+            None => None,
+        };
+        let mut settings = self.load_settings()?;
+        settings.skills_workspace_state.version_override = normalized.clone();
+        settings.skills_workspace_state.initialized = true;
+        self.save_settings(&settings)?;
+
+        // Rebuild the runner with the new pinned version.
+        let new_runner =
+            SkillsRunner::new(self.home_dir.clone(), SkillsRuntimeManager::new(normalized));
+        let mut guard = self
+            .skills_runner
+            .lock()
+            .map_err(|e| format!("failed to update skills runner: {e}"))?;
+        *guard = new_runner;
+        drop(guard);
+
+        self.get_skills_workspace_context()
+    }
+
+    pub fn list_skills_cli(&self) -> Result<Vec<SkillsCliListItem>, String> {
+        let context = self.skills_execution_context()?;
+        self.with_skills_runner(|r| r.list_skills(&context))?
+    }
+
+    pub fn run_skills_cli_command(
+        &self,
+        request: SkillsCliCommandRequest,
+    ) -> Result<SkillsCliCommandResult, String> {
+        let context = self.skills_execution_context()?;
+        let _guard = self
+            .skills_command_lock
+            .lock()
+            .map_err(|e| format!("failed to lock skills command runner: {e}"))?;
+        self.with_skills_runner(|r| r.run_command(&context, &request))?
+    }
+
+    fn skills_execution_context(&self) -> Result<SkillsExecutionContext, String> {
+        let settings = self.load_settings()?;
+        let scope = settings.skills_workspace_state.scope;
+        let cwd = match scope {
+            SkillsCliScope::Global => self.home_dir.clone(),
+            SkillsCliScope::Project => settings
+                .active_project_context
+                .project_root
+                .as_deref()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| self.home_dir.clone()),
+        };
+        Ok(SkillsExecutionContext { scope, cwd })
+    }
+
+    fn with_skills_runner<F, R>(&self, f: F) -> Result<R, String>
+    where
+        F: FnOnce(&SkillsRunner) -> R,
+    {
+        let guard = self
+            .skills_runner
+            .lock()
+            .map_err(|e| format!("failed to access skills runner: {e}"))?;
+        Ok(f(&guard))
     }
 
     #[cfg(test)]

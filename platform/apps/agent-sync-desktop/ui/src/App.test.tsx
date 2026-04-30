@@ -22,6 +22,12 @@ vi.mock("./tauriApi", () => ({
   openAgentsToml: vi.fn(),
   openAgentsDir: vi.fn(),
   openUserHome: vi.fn(),
+  getSkillsWorkspaceContext: vi.fn(),
+  setSkillsScope: vi.fn(),
+  setSkillsActiveAgents: vi.fn(),
+  setSkillsVersionOverride: vi.fn(),
+  listSkillsCli: vi.fn(),
+  runSkillsCliCommand: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -114,6 +120,63 @@ beforeEach(() => {
   vi.mocked(tauriApi.openAgentsToml).mockResolvedValue();
   vi.mocked(tauriApi.openAgentsDir).mockResolvedValue();
   vi.mocked(tauriApi.openUserHome).mockResolvedValue();
+  vi.mocked(tauriApi.getSkillsWorkspaceContext).mockResolvedValue({
+    state: {
+      scope: "global",
+      activeAgents: [],
+      versionOverride: null,
+      initialized: false,
+    },
+    detectedAgents: [],
+    runtimeStatus: { available: true, expectedVersion: "latest" },
+  });
+  vi.mocked(tauriApi.setSkillsScope).mockResolvedValue({
+    state: {
+      scope: "global",
+      activeAgents: [],
+      versionOverride: null,
+      initialized: true,
+    },
+    detectedAgents: [],
+    runtimeStatus: { available: true, expectedVersion: "latest" },
+  });
+  vi.mocked(tauriApi.setSkillsActiveAgents).mockResolvedValue({
+    state: {
+      scope: "global",
+      activeAgents: [],
+      versionOverride: null,
+      initialized: true,
+    },
+    detectedAgents: [],
+    runtimeStatus: { available: true, expectedVersion: "latest" },
+  });
+  vi.mocked(tauriApi.setSkillsVersionOverride).mockResolvedValue({
+    state: {
+      scope: "global",
+      activeAgents: [],
+      versionOverride: null,
+      initialized: true,
+    },
+    detectedAgents: [],
+    runtimeStatus: { available: true, expectedVersion: "latest" },
+  });
+  vi.mocked(tauriApi.listSkillsCli).mockResolvedValue([]);
+  vi.mocked(tauriApi.runSkillsCliCommand).mockResolvedValue({
+    success: true,
+    command: "skills add",
+    cwd: "/tmp",
+    scope: "global",
+    agents: [],
+    exitCode: 0,
+    durationMs: 10,
+    stdout: "",
+    stderr: "",
+  });
+  try {
+    window.localStorage.removeItem("dotagents-desktop:workspace");
+  } catch {
+    // ignore
+  }
 });
 
 describe("Dotagents Desktop UI", () => {
@@ -353,5 +416,60 @@ describe("Dotagents Desktop UI", () => {
     expect(
       screen.getAllByRole("button", { name: "Open ~/.agents" }).length,
     ).toBeGreaterThan(0);
+  });
+});
+
+describe("Workspace switcher", () => {
+  it("switches to Skills workspace and renders an empty list", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Skills" }));
+
+    expect(
+      await screen.findByText("No skills installed in this scope."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Add skill" }),
+    ).toBeInTheDocument();
+    // Active agents legend appears.
+    expect(screen.getByText("Active agents")).toBeInTheDocument();
+  });
+
+  it("preserves workspace selection across remounts via localStorage", async () => {
+    const user = userEvent.setup();
+    const first = render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Skills" }));
+    await screen.findByText("Active agents");
+
+    first.unmount();
+
+    render(<App />);
+    expect(await screen.findByText("Active agents")).toBeInTheDocument();
+  });
+
+  it("loads detected agents into the toggle list", async () => {
+    vi.mocked(tauriApi.getSkillsWorkspaceContext).mockResolvedValue({
+      state: {
+        scope: "global",
+        activeAgents: ["Claude Code"],
+        versionOverride: null,
+        initialized: true,
+      },
+      detectedAgents: ["Claude Code", "Cursor"],
+      runtimeStatus: { available: true, expectedVersion: "latest" },
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: "Skills" }));
+
+    // Both KNOWN and detected names should appear; Cursor is detected but
+    // not active, so its "detected" hint is rendered.
+    expect(
+      await screen.findByRole("button", { name: /Claude Code/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Cursor/ })).toBeInTheDocument();
   });
 });

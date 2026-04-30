@@ -7,6 +7,11 @@ import type {
   DotagentsRuntimeStatus,
   DotagentsScope,
   DotagentsSkillListItem,
+  SkillsCliCommandRequest,
+  SkillsCliCommandResult,
+  SkillsCliListItem,
+  SkillsCliScope,
+  SkillsWorkspaceContext,
 } from "./types";
 
 export async function getRuntimeStatus(): Promise<DotagentsRuntimeStatus> {
@@ -51,4 +56,42 @@ export async function openAgentsDir(): Promise<void> {
 
 export async function openUserHome(): Promise<void> {
   return invoke<void>("open_user_home");
+}
+
+// ---------------------------------------------------------------------------
+// Skills Workspace
+// ---------------------------------------------------------------------------
+
+export async function getSkillsWorkspaceContext(): Promise<SkillsWorkspaceContext> {
+  return invoke<SkillsWorkspaceContext>("get_skills_workspace_context");
+}
+
+export async function setSkillsScope(
+  scope: SkillsCliScope,
+): Promise<SkillsWorkspaceContext> {
+  return invoke<SkillsWorkspaceContext>("set_skills_scope", { scope });
+}
+
+export async function setSkillsActiveAgents(
+  agents: string[],
+): Promise<SkillsWorkspaceContext> {
+  return invoke<SkillsWorkspaceContext>("set_skills_active_agents", { agents });
+}
+
+export async function setSkillsVersionOverride(
+  versionOverride: string | null,
+): Promise<SkillsWorkspaceContext> {
+  return invoke<SkillsWorkspaceContext>("set_skills_version_override", {
+    versionOverride,
+  });
+}
+
+export async function listSkillsCli(): Promise<SkillsCliListItem[]> {
+  return invoke<SkillsCliListItem[]>("list_skills_cli");
+}
+
+export async function runSkillsCliCommand(
+  request: SkillsCliCommandRequest,
+): Promise<SkillsCliCommandResult> {
+  return invoke<SkillsCliCommandResult>("run_skills_cli_command", { request });
 }

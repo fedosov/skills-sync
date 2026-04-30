@@ -74,3 +74,75 @@ export type DotagentsCommandRequest =
       env: string[];
     }
   | { kind: "mcpRemove"; name: string };
+
+// ---------------------------------------------------------------------------
+// Skills Workspace
+// ---------------------------------------------------------------------------
+
+export type SkillsCliScope = "global" | "project";
+
+export type SkillsCliListItem = {
+  name: string;
+  path: string;
+  scope: SkillsCliScope;
+  agents: string[];
+  source?: string | null;
+  version?: string | null;
+  description?: string | null;
+};
+
+export type SkillsCliCommandRequest =
+  | {
+      kind: "add";
+      source: string;
+      agents: string[];
+      scope: SkillsCliScope;
+    }
+  | {
+      kind: "remove";
+      name: string;
+      agents: string[];
+      scope: SkillsCliScope;
+    }
+  | {
+      kind: "update";
+      names: string[];
+      scope: SkillsCliScope;
+    }
+  | {
+      kind: "restoreLock";
+      scope: SkillsCliScope;
+    };
+
+export type SkillsCliCommandResult = {
+  success: boolean;
+  command: string;
+  cwd: string;
+  scope: SkillsCliScope;
+  agents: string[];
+  exitCode: number | null;
+  durationMs: number;
+  stdout: string;
+  stderr: string;
+};
+
+export type SkillsRuntimeStatus = {
+  available: boolean;
+  expectedVersion: string;
+  error?: string | null;
+};
+
+export type SkillsWorkspaceState = {
+  scope: SkillsCliScope;
+  activeAgents: string[];
+  versionOverride?: string | null;
+  initialized: boolean;
+};
+
+export type SkillsWorkspaceContext = {
+  state: SkillsWorkspaceState;
+  detectedAgents: string[];
+  runtimeStatus: SkillsRuntimeStatus;
+};
+
+export type WorkspaceKey = "dotagents" | "skills";

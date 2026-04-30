@@ -1,17 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app_state;
+mod cli_util;
 mod dotagents_runner;
 mod dotagents_runtime;
 mod open_path;
 mod settings;
+mod skills_runner;
+mod skills_runtime;
 
-use app_state::{AppContext, AppState};
+use app_state::{AppContext, AppState, SkillsWorkspaceContext};
 use dotagents_runner::{
     DotagentsCommandRequest, DotagentsCommandResult, DotagentsMcpListItem, DotagentsSkillListItem,
 };
 use dotagents_runtime::{DotagentsRuntimeManager, DotagentsRuntimeStatus};
 use settings::DotagentsScope;
+use skills_runner::{
+    SkillsCliCommandRequest, SkillsCliCommandResult, SkillsCliListItem, SkillsCliScope,
+};
 use tauri::Manager;
 
 fn build_app_state<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<AppState, String> {
@@ -84,6 +90,50 @@ fn open_user_home(state: tauri::State<AppState>) -> Result<(), String> {
     state.open_user_home()
 }
 
+#[tauri::command]
+fn get_skills_workspace_context(
+    state: tauri::State<AppState>,
+) -> Result<SkillsWorkspaceContext, String> {
+    state.get_skills_workspace_context()
+}
+
+#[tauri::command]
+fn set_skills_scope(
+    scope: SkillsCliScope,
+    state: tauri::State<AppState>,
+) -> Result<SkillsWorkspaceContext, String> {
+    state.set_skills_scope(scope)
+}
+
+#[tauri::command]
+fn set_skills_active_agents(
+    agents: Vec<String>,
+    state: tauri::State<AppState>,
+) -> Result<SkillsWorkspaceContext, String> {
+    state.set_skills_active_agents(agents)
+}
+
+#[tauri::command]
+fn set_skills_version_override(
+    version_override: Option<String>,
+    state: tauri::State<AppState>,
+) -> Result<SkillsWorkspaceContext, String> {
+    state.set_skills_version_override(version_override)
+}
+
+#[tauri::command]
+fn list_skills_cli(state: tauri::State<AppState>) -> Result<Vec<SkillsCliListItem>, String> {
+    state.list_skills_cli()
+}
+
+#[tauri::command]
+fn run_skills_cli_command(
+    request: SkillsCliCommandRequest,
+    state: tauri::State<AppState>,
+) -> Result<SkillsCliCommandResult, String> {
+    state.run_skills_cli_command(request)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -103,6 +153,12 @@ fn main() {
             open_agents_toml,
             open_agents_dir,
             open_user_home,
+            get_skills_workspace_context,
+            set_skills_scope,
+            set_skills_active_agents,
+            set_skills_version_override,
+            list_skills_cli,
+            run_skills_cli_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running dotagents desktop");

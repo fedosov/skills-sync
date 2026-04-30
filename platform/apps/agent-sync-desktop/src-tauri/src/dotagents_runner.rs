@@ -1,7 +1,7 @@
+use crate::cli_util::{combine_output, read_skill_description, require_non_empty};
 use crate::dotagents_runtime::{DotagentsRuntimeManager, DotagentsRuntimeStatus};
 use crate::settings::DotagentsScope;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -400,36 +400,6 @@ fn enrich_skill_descriptions(skills: &mut [DotagentsSkillListItem], skills_dir: 
     }
 }
 
-fn read_skill_description(path: &Path) -> Option<String> {
-    let content = fs::read_to_string(path).ok()?;
-    let trimmed = content.trim_start();
-    if !trimmed.starts_with("---") {
-        return None;
-    }
-    let after_open = &trimmed[3..];
-    let close_pos = after_open.find("---")?;
-    let frontmatter = &after_open[..close_pos];
-    for line in frontmatter.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("description:") {
-            let value = rest.trim().trim_matches('"').trim_matches('\'');
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
-}
-
-fn combine_output(primary: &str, secondary: &str) -> String {
-    match (primary.trim().is_empty(), secondary.trim().is_empty()) {
-        (true, true) => String::new(),
-        (false, true) => primary.trim().to_string(),
-        (true, false) => secondary.trim().to_string(),
-        (false, false) => format!("{}\n{}", primary.trim(), secondary.trim()),
-    }
-}
-
 fn preflight_failure_result(
     display_command: String,
     context: &DotagentsExecutionContext,
@@ -445,13 +415,6 @@ fn preflight_failure_result(
         stdout: String::new(),
         stderr: error.into(),
     }
-}
-
-fn require_non_empty(value: &str, message: &str) -> Result<(), String> {
-    if value.trim().is_empty() {
-        return Err(message.to_string());
-    }
-    Ok(())
 }
 
 #[cfg(test)]

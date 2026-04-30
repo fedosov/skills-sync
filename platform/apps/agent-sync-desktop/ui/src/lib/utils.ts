@@ -10,3 +10,21 @@ export function errorMessage(error: unknown): string {
   if (typeof error === "string") return error;
   return "Unknown error";
 }
+
+type CommandResultLike = {
+  stderr: string;
+  stdout: string;
+};
+
+export function commandFailureMessage(
+  result: CommandResultLike,
+  fallback: string,
+): string {
+  if (result.stderr.trim()) {
+    return result.stderr;
+  }
+  if (result.stdout.trim()) {
+    return result.stdout;
+  }
+  return fallback;
+}
